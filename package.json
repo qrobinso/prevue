@@ -1,0 +1,26 @@
+{
+  "name": "prevue",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A retro cable TV guide for Jellyfin",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w client && npm run build -w server",
+    "start": "npm run start -w server",
+    "test": "npm run test -w server",
+    "test:watch": "npm run test:watch -w server",
+    "test:coverage": "npm run test:coverage -w server",
+    "clean": "rimraf client/dist server/dist"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  }
+}

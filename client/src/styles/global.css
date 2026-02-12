@@ -1,0 +1,224 @@
+/* Prevue - Retro Cable TV Guide */
+
+/* ── Theme: Prevue Classic (default) ─────────────────── */
+:root,
+[data-theme="classic"] {
+  --bg-primary: #0a0e2a;
+  --bg-secondary: #111540;
+  --bg-grid: #0d1133;
+  --bg-cell: #141845;
+  --bg-cell-hover: #1c2260;
+  --bg-cell-focus: #2a3080;
+  --bg-preview: #080b20;
+  --bg-overlay: rgba(0, 0, 0, 0.85);
+
+  --text-primary: #ffffff;
+  --text-secondary: #b0b8e0;
+  --text-gold: #ffd700;
+  --text-cyan: #00e5ff;
+  --text-muted: #6670a0;
+
+  --accent-cyan: #00e5ff;
+  --accent-gold: #ffd700;
+  --accent-green: #00ff88;
+  --accent-red: #ff4444;
+
+  --border-grid: #1e2460;
+  --border-cell: #252a60;
+
+  --font-retro: 'Press Start 2P', monospace;
+  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --guide-row-height: 52px;
+  --channel-col-width: 120px;
+  --time-slot-width: 200px;
+}
+
+/* ── Theme: TV Guide Red ─────────────────────────────── */
+[data-theme="tvguide"] {
+  --bg-primary: #1a0808;
+  --bg-secondary: #2a1010;
+  --bg-grid: #1f0a0a;
+  --bg-cell: #301414;
+  --bg-cell-hover: #401c1c;
+  --bg-cell-focus: #502828;
+  --bg-preview: #140505;
+  --bg-overlay: rgba(20, 0, 0, 0.9);
+
+  --text-primary: #ffffff;
+  --text-secondary: #e0c0c0;
+  --text-gold: #ffcc00;
+  --text-cyan: #ff6666;
+  --text-muted: #a06666;
+
+  --accent-cyan: #ff4444;
+  --accent-gold: #ffcc00;
+  --accent-green: #44ff88;
+  --accent-red: #ff2222;
+
+  --border-grid: #4a2020;
+  --border-cell: #5a2828;
+}
+
+/* ── Theme: Midnight Purple ──────────────────────────── */
+[data-theme="midnight"] {
+  --bg-primary: #0f0a1a;
+  --bg-secondary: #1a1028;
+  --bg-grid: #12081f;
+  --bg-cell: #201535;
+  --bg-cell-hover: #2a1f45;
+  --bg-cell-focus: #3a2a5a;
+  --bg-preview: #0a0612;
+  --bg-overlay: rgba(10, 5, 20, 0.9);
+
+  --text-primary: #ffffff;
+  --text-secondary: #d0c0e8;
+  --text-gold: #ff99ff;
+  --text-cyan: #cc66ff;
+  --text-muted: #8060a0;
+
+  --accent-cyan: #cc66ff;
+  --accent-gold: #ff99ff;
+  --accent-green: #66ffaa;
+  --accent-red: #ff4488;
+
+  --border-grid: #3a2060;
+  --border-cell: #4a2870;
+}
+
+/* ── Theme: Retro CRT Green ──────────────────────────── */
+[data-theme="crt"] {
+  --bg-primary: #0a0f0a;
+  --bg-secondary: #101810;
+  --bg-grid: #0c120c;
+  --bg-cell: #142014;
+  --bg-cell-hover: #1c2c1c;
+  --bg-cell-focus: #283828;
+  --bg-preview: #060a06;
+  --bg-overlay: rgba(0, 10, 0, 0.9);
+
+  --text-primary: #00ff00;
+  --text-secondary: #00cc00;
+  --text-gold: #ffaa00;
+  --text-cyan: #00ff66;
+  --text-muted: #338833;
+
+  --accent-cyan: #00ff66;
+  --accent-gold: #ffaa00;
+  --accent-green: #00ff00;
+  --accent-red: #ff4400;
+
+  --border-grid: #1a3a1a;
+  --border-cell: #224422;
+}
+
+/* ── Theme: Cable Box Gray ───────────────────────────── */
+[data-theme="cable"] {
+  --bg-primary: #1a1a1e;
+  --bg-secondary: #242428;
+  --bg-grid: #1e1e22;
+  --bg-cell: #2a2a30;
+  --bg-cell-hover: #36363e;
+  --bg-cell-focus: #44444e;
+  --bg-preview: #141418;
+  --bg-overlay: rgba(15, 15, 18, 0.9);
+
+  --text-primary: #ffffff;
+  --text-secondary: #c0c0c8;
+  --text-gold: #ff9933;
+  --text-cyan: #3399ff;
+  --text-muted: #707080;
+
+  --accent-cyan: #3399ff;
+  --accent-gold: #ff9933;
+  --accent-green: #33cc66;
+  --accent-red: #ff4444;
+
+  --border-grid: #3a3a44;
+  --border-cell: #4a4a54;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-system);
+  /* Prevent text size adjustment on orientation change (iOS) */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Ensure proper mobile viewport behavior */
+html {
+  /* Use dynamic viewport height for mobile browsers */
+  height: 100dvh;
+  height: 100%;
+}
+
+body {
+  /* Prevent overscroll/bounce on iOS */
+  overscroll-behavior: none;
+  /* Prevent pull-to-refresh */
+  overscroll-behavior-y: contain;
+  /* Smooth scrolling for iOS */
+  -webkit-overflow-scrolling: touch;
+  /* Safe area padding for notched devices */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+#root {
+  /* Use dynamic viewport height */
+  min-height: 100dvh;
+  min-height: 100%;
+}
+
+.app {
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* Ensure app fills available space including safe areas */
+  position: relative;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-grid);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Utility classes */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

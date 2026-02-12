@@ -1,0 +1,564 @@
+import type Database from 'better-sqlite3';
+import seedrandom from 'seedrandom';
+import type { ChannelParsed, ScheduleProgram, ScheduleBlockParsed, JellyfinItem } from '../types/index.js';
+import { JellyfinClient } from './JellyfinClient.js';
+import * as queries from '../db/queries.js';
+import { generateSeed } from '../utils/crypto.js';
+import { getBlockStart, getBlockEnd, getNextBlockStart, snapForwardTo15Min } from '../utils/time.js';
+
+const EPISODE_RUN_LENGTH_MIN = 3;
+const EPISODE_RUN_LENGTH_MAX = 4;
+const MAX_GAP_MS = 30 * 60 * 1000; // Maximum 30-minute gap before we try to fill it
+
+/**
+ * Tracks which items are playing at which times across all channels.
+ * Used to prevent the same movie/show from playing on multiple channels simultaneously.
+ */
+interface GlobalScheduleTracker {
+  // Map of itemId -> array of [startMs, endMs] time ranges when it's scheduled
+  itemSlots: Map<string, Array<[number, number]>>;
+}
+
+export class ScheduleEngine {
+  private db: Database.Database;
+  private jellyfin: JellyfinClient;
+
+  constructor(db: Database.Database, jellyfin: JellyfinClient) {
+    this.db = db;
+    this.jellyfin = jellyfin;
+  }
+
+  /**
+   * Build a tracker of all currently scheduled items across all channels for a time range.
+   * This is used to prevent duplicate content playing simultaneously.
+   */
+  private buildGlobalTracker(blockStart: Date, blockEnd: Date): GlobalScheduleTracker {
+    const tracker: GlobalScheduleTracker = { itemSlots: new Map() };
+    const allBlocks = queries.getAllScheduleBlocksInRange(
+      this.db,
+      blockStart.toISOString(),
+      blockEnd.toISOString()
+    );
+
+    for (const block of allBlocks) {
+      for (const prog of block.programs) {
+        if (prog.type === 'interstitial' || !prog.jellyfin_item_id) continue;
+        
+        const startMs = new Date(prog.start_time).getTime();
+        const endMs = new Date(prog.end_time).getTime();
+        
+        const existing = tracker.itemSlots.get(prog.jellyfin_item_id) || [];
+        existing.push([startMs, endMs]);
+        tracker.itemSlots.set(prog.jellyfin_item_id, existing);
+      }
+    }
+
+    return tracker;
+  }
+
+  /**
+   * Check if an item would conflict with existing schedules (playing at the same time on another channel)
+   */
+  private wouldConflict(
+    tracker: GlobalScheduleTracker,
+    itemId: string,
+    startMs: number,
+    endMs: number
+  ): boolean {
+    const slots = tracker.itemSlots.get(itemId);
+    if (!slots) return false;
+
+    // Check if any existing slot overlaps with the proposed time
+    for (const [existingStart, existingEnd] of slots) {
+      // Overlap if: start < existingEnd AND end > existingStart
+      if (startMs < existingEnd && endMs > existingStart) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Add a scheduled item to the tracker
+   */
+  private addToTracker(
+    tracker: GlobalScheduleTracker,
+    itemId: string,
+    startMs: number,
+    endMs: number
+  ): void {
+    const existing = tracker.itemSlots.get(itemId) || [];
+    existing.push([startMs, endMs]);
+    tracker.itemSlots.set(itemId, existing);
+  }
+
+  /**
+   * Generate schedules for all channels (current block + next block).
+   * Yields between channels so API requests (e.g. GET /api/schedule) can be served during boot.
+   */
+  async generateAllSchedules(): Promise<void> {
+    const channels = queries.getAllChannels(this.db);
+    const now = new Date();
+    const currentBlockStart = getBlockStart(now);
+    const nextBlockStart = getNextBlockStart(currentBlockStart);
+    const blockEnd = getBlockEnd(nextBlockStart);
+
+    // Build global tracker from any existing schedules
+    const tracker = this.buildGlobalTracker(currentBlockStart, blockEnd);
+
+    for (const channel of channels) {
+      await this.ensureSchedule(channel, now, tracker);
+      // Yield to event loop so incoming API requests (schedule, channels) can be handled
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  }
+
+  /**
+   * Ensure a channel has current and next block schedules
+   */
+  async ensureSchedule(
+    channel: ChannelParsed,
+    now: Date = new Date(),
+    tracker?: GlobalScheduleTracker
+  ): Promise<void> {
+    const currentBlockStart = getBlockStart(now);
+    const nextBlockStart = getNextBlockStart(currentBlockStart);
+    const blockEnd = getBlockEnd(nextBlockStart);
+
+    // Build tracker if not provided (for single-channel regeneration)
+    const globalTracker = tracker || this.buildGlobalTracker(currentBlockStart, blockEnd);
+
+    // Generate current block if missing
+    const currentBlock = queries.getScheduleBlock(
+      this.db, channel.id, currentBlockStart.toISOString()
+    );
+    if (!currentBlock) {
+      await this.generateBlock(channel, currentBlockStart, globalTracker);
+    }
+
+    // Generate next block if missing
+    const nextBlock = queries.getScheduleBlock(
+      this.db, channel.id, nextBlockStart.toISOString()
+    );
+    if (!nextBlock) {
+      await this.generateBlock(channel, nextBlockStart, globalTracker);
+    }
+  }
+
+  /**
+   * Generate a single 8-hour schedule block for a channel.
+   * Yields periodically to allow API requests to be processed during generation.
+   * Uses globalTracker to avoid scheduling the same content at the same time as other channels.
+   */
+  async generateBlock(
+    channel: ChannelParsed,
+    blockStart: Date,
+    globalTracker?: GlobalScheduleTracker
+  ): Promise<ScheduleBlockParsed> {
+    const blockEnd = getBlockEnd(blockStart);
+    const seed = generateSeed(channel.id, blockStart.toISOString());
+    const rng = seedrandom(seed);
+
+    // Create a local tracker if none provided
+    const tracker = globalTracker || { itemSlots: new Map() };
+
+    const items = this.getChannelItems(channel);
+    
+    if (items.length === 0) {
+      // Empty channel - return block with no programs
+      return queries.upsertScheduleBlock(
+        this.db, channel.id,
+        blockStart.toISOString(), blockEnd.toISOString(),
+        [], seed
+      );
+    }
+
+    const programs: ScheduleProgram[] = [];
+    let currentTime = new Date(blockStart);
+    const blockEndMs = blockEnd.getTime();
+    let lastItemId: string | null = null;
+    let yieldCounter = 0; // Yield every N iterations to keep event loop responsive
+
+    // Group episodes by series for episode runs
+    const seriesMap = this.groupBySeries(items);
+    const seriesIds = Array.from(seriesMap.keys());
+    const standaloneItems = items.filter(i => i.Type === 'Movie');
+
+    // Track episode position per series - start at random positions for variety
+    const seriesEpisodeIndex = new Map<string, number>();
+    for (const [seriesId, episodes] of seriesMap) {
+      // Start each series at a random episode for more diverse scheduling
+      const randomStartIdx = Math.floor(rng() * episodes.length);
+      seriesEpisodeIndex.set(seriesId, randomStartIdx);
+    }
+
+    // Track items used in this block to prefer variety
+    const usedInBlock = new Set<string>();
+    let failedAttempts = 0;
+    const MAX_FAILED_ATTEMPTS = 50; // Prevent infinite loops
+
+    while (currentTime.getTime() < blockEndMs && failedAttempts < MAX_FAILED_ATTEMPTS) {
+      const remainingMs = blockEndMs - currentTime.getTime();
+      // Only stop if less than 5 minutes left (we'll fill with interstitials after)
+      if (remainingMs < 5 * 60 * 1000) break;
+
+      // Yield to event loop every 10 iterations so API requests can be processed
+      yieldCounter++;
+      if (yieldCounter % 10 === 0) {
+        await new Promise(resolve => setImmediate(resolve));
+      }
+
+      const timeBeforeIteration = currentTime.getTime();
+      const startMs = currentTime.getTime();
+
+      // Decide: episode run or standalone
+      const doEpisodeRun = seriesIds.length > 0 && (standaloneItems.length === 0 || rng() < 0.6);
+
+      let scheduledSomething = false;
+
+      if (doEpisodeRun && seriesIds.length > 0) {
+        // Pick a series (avoid back-to-back same series)
+        const seriesId = this.pickRandom(
+          seriesIds.filter(s => s !== lastItemId),
+          seriesIds,
+          rng
+        );
+        const episodes = seriesMap.get(seriesId) || [];
+        if (episodes.length > 0) {
+          const runLength = EPISODE_RUN_LENGTH_MIN + Math.floor(rng() * (EPISODE_RUN_LENGTH_MAX - EPISODE_RUN_LENGTH_MIN + 1));
+          let episodeIdx = seriesEpisodeIndex.get(seriesId) || 0;
+          const startingIdx = episodeIdx;
+
+          // Episodes play back-to-back with no gaps
+          for (let i = 0; i < runLength && currentTime.getTime() < blockEndMs; i++) {
+            // Try multiple episodes to find one that doesn't conflict
+            let found = false;
+            for (let attempt = 0; attempt < episodes.length && !found; attempt++) {
+              const episode = episodes[(episodeIdx + attempt) % episodes.length];
+              const durationMs = this.jellyfin.getItemDurationMs(episode);
+              if (durationMs === 0) continue;
+
+              const epStartMs = currentTime.getTime();
+              const epEndMs = epStartMs + durationMs;
+              if (epEndMs > blockEndMs) continue;
+
+              // Check for conflict with other channels
+              if (this.wouldConflict(tracker, episode.Id, epStartMs, epEndMs)) {
+                continue;
+              }
+
+              const endTime = new Date(epEndMs);
+              programs.push(this.createProgram(episode, currentTime, endTime));
+              this.addToTracker(tracker, episode.Id, epStartMs, epEndMs);
+              usedInBlock.add(episode.Id);
+              lastItemId = seriesId;
+              currentTime = endTime;
+              episodeIdx = (episodeIdx + attempt + 1) % episodes.length;
+              found = true;
+              scheduledSomething = true;
+            }
+            if (!found) break;
+          }
+
+          seriesEpisodeIndex.set(seriesId, episodeIdx);
+        }
+      }
+      
+      // If episode scheduling didn't work or wasn't chosen, try movies
+      if (!scheduledSomething && standaloneItems.length > 0) {
+        // Get all movies, preferring ones not used in this block and not conflicting
+        const movieCandidates = standaloneItems
+          .filter(i => {
+            const dur = this.jellyfin.getItemDurationMs(i);
+            return dur > 0 && dur <= remainingMs;
+          })
+          .map(i => ({
+            item: i,
+            duration: this.jellyfin.getItemDurationMs(i),
+            conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i)),
+            usedBefore: usedInBlock.has(i.Id),
+            isLastItem: i.Id === lastItemId
+          }))
+          .sort((a, b) => {
+            // Prefer: not conflicting > not used before > not last item > longer duration
+            if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
+            if (a.usedBefore !== b.usedBefore) return a.usedBefore ? 1 : -1;
+            if (a.isLastItem !== b.isLastItem) return a.isLastItem ? 1 : -1;
+            return b.duration - a.duration;
+          });
+
+        if (movieCandidates.length > 0) {
+          // Pick from top candidates with some randomness
+          const topCandidates = movieCandidates.slice(0, Math.min(5, movieCandidates.length));
+          const selected = topCandidates[Math.floor(rng() * topCandidates.length)];
+          
+          const endMs = startMs + selected.duration;
+          const endTime = new Date(endMs);
+          
+          programs.push(this.createProgram(selected.item, currentTime, endTime));
+          // Only add to global tracker if not conflicting (allow same-channel replays)
+          if (!selected.conflicts) {
+            this.addToTracker(tracker, selected.item.Id, startMs, endMs);
+          }
+          usedInBlock.add(selected.item.Id);
+          lastItemId = selected.item.Id;
+          currentTime = endTime;
+          scheduledSomething = true;
+        }
+      }
+
+      // If nothing was scheduled, increment failed attempts
+      if (!scheduledSomething || currentTime.getTime() === timeBeforeIteration) {
+        failedAttempts++;
+        // Try to make progress by skipping a small amount of time if truly stuck
+        if (failedAttempts >= MAX_FAILED_ATTEMPTS / 2) {
+          // Skip 30 minutes and try again
+          const skipEnd = new Date(currentTime.getTime() + 30 * 60 * 1000);
+          if (skipEnd.getTime() < blockEndMs) {
+            programs.push(this.createInterstitial(currentTime, skipEnd, null));
+            currentTime = skipEnd;
+          } else {
+            break;
+          }
+        }
+      } else {
+        failedAttempts = 0;
+      }
+    }
+
+    // Fill any remaining gap at the end - try to add more content
+    if (currentTime.getTime() < blockEndMs) {
+      const allItems = [...standaloneItems, ...items.filter(i => i.Type === 'Episode')];
+      
+      // Keep trying to fill gaps with content - allow reusing items if needed
+      let gapFillAttempts = 0;
+      while (currentTime.getTime() < blockEndMs && gapFillAttempts < 100) {
+        gapFillAttempts++;
+        const startMs = currentTime.getTime();
+        const remainingGap = blockEndMs - startMs;
+        
+        // For very small gaps (< 5 min), just create a single interstitial and be done
+        if (remainingGap < 5 * 60 * 1000) {
+          programs.push(this.createInterstitial(currentTime, blockEnd, null));
+          currentTime = blockEnd;
+          break;
+        }
+
+        // Find items that fit, prioritizing non-conflicting and non-recently-used
+        const candidates = allItems
+          .map(i => ({
+            item: i,
+            duration: this.jellyfin.getItemDurationMs(i),
+            conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i)),
+            usedInBlock: usedInBlock.has(i.Id)
+          }))
+          .filter(x => x.duration > 0 && x.duration <= remainingGap)
+          .sort((a, b) => {
+            // Prefer non-conflicting, then not used in block, then longer
+            if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
+            if (a.usedInBlock !== b.usedInBlock) return a.usedInBlock ? 1 : -1;
+            return b.duration - a.duration;
+          });
+
+        if (candidates.length > 0) {
+          const { item, duration, conflicts } = candidates[0];
+          const endMs = startMs + duration;
+          const endTime = new Date(endMs);
+          programs.push(this.createProgram(item, currentTime, endTime));
+          if (!conflicts) {
+            this.addToTracker(tracker, item.Id, startMs, endMs);
+          }
+          usedInBlock.add(item.Id);
+          currentTime = endTime;
+        } else {
+          // No content fits - create a 30-min interstitial and continue
+          const interstitialEnd = new Date(Math.min(startMs + 30 * 60 * 1000, blockEndMs));
+          programs.push(this.createInterstitial(currentTime, interstitialEnd, null));
+          currentTime = interstitialEnd;
+        }
+      }
+    }
+
+    return queries.upsertScheduleBlock(
+      this.db, channel.id,
+      blockStart.toISOString(), blockEnd.toISOString(),
+      programs, seed
+    );
+  }
+
+  /**
+   * Maintain schedules - generate upcoming blocks and clean old ones
+   */
+  async maintainSchedules(): Promise<void> {
+    const now = new Date();
+    const channels = queries.getAllChannels(this.db);
+
+    // Generate next blocks if current block is within 1 hour of expiry
+    const currentBlockStart = getBlockStart(now);
+    const currentBlockEnd = getBlockEnd(currentBlockStart);
+    const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+
+    for (const channel of channels) {
+      await this.ensureSchedule(channel, now);
+
+      // If within 1 hour of block end, ensure next block
+      if (oneHourFromNow.getTime() >= currentBlockEnd.getTime()) {
+        const nextBlockStart = getNextBlockStart(currentBlockStart);
+        const nextNextBlockStart = getNextBlockStart(nextBlockStart);
+        const nextNextBlock = queries.getScheduleBlock(
+          this.db, channel.id, nextNextBlockStart.toISOString()
+        );
+        if (!nextNextBlock) {
+          this.generateBlock(channel, nextNextBlockStart);
+        }
+      }
+    }
+
+    // Clean blocks older than 24 hours
+    const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    queries.cleanOldScheduleBlocks(this.db, cutoff.toISOString());
+  }
+
+  /**
+   * Get what's currently playing on a channel
+   */
+  getCurrentProgram(channelId: number): { program: ScheduleProgram; next: ScheduleProgram | null; seekMs: number } | null {
+    const now = new Date();
+    const blocks = queries.getCurrentAndNextBlocks(this.db, channelId, now.toISOString());
+
+    // Gather all programs across blocks
+    const allPrograms: ScheduleProgram[] = [];
+    for (const block of blocks) {
+      allPrograms.push(...block.programs);
+    }
+
+    // Find the currently airing program
+    const nowMs = now.getTime();
+    for (let i = 0; i < allPrograms.length; i++) {
+      const prog = allPrograms[i];
+      const startMs = new Date(prog.start_time).getTime();
+      const endMs = new Date(prog.end_time).getTime();
+
+      if (nowMs >= startMs && nowMs < endMs) {
+        const seekMs = nowMs - startMs;
+        const next = i + 1 < allPrograms.length ? allPrograms[i + 1] : null;
+        return { program: prog, next, seekMs };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Regenerate schedule for a specific channel
+   */
+  regenerateForChannel(channelId: number): void {
+    queries.deleteScheduleBlocksForChannel(this.db, channelId);
+    const channel = queries.getChannelById(this.db, channelId);
+    if (channel) {
+      const now = new Date();
+      this.ensureSchedule(channel, now);
+    }
+  }
+
+  // ─── Helpers ──────────────────────────────────────────
+
+  private getChannelItems(channel: ChannelParsed): JellyfinItem[] {
+    const items: JellyfinItem[] = [];
+    for (const id of channel.item_ids) {
+      const item = this.jellyfin.getItem(id);
+      if (item) items.push(item);
+    }
+    return items;
+  }
+
+  private groupBySeries(items: JellyfinItem[]): Map<string, JellyfinItem[]> {
+    const seriesMap = new Map<string, JellyfinItem[]>();
+    for (const item of items) {
+      if (item.Type === 'Episode' && item.SeriesId) {
+        const existing = seriesMap.get(item.SeriesId) || [];
+        existing.push(item);
+        seriesMap.set(item.SeriesId, existing);
+      }
+    }
+    // Sort episodes within each series by season and episode number
+    for (const [, episodes] of seriesMap) {
+      episodes.sort((a, b) => {
+        const seasonDiff = (a.ParentIndexNumber || 0) - (b.ParentIndexNumber || 0);
+        if (seasonDiff !== 0) return seasonDiff;
+        return (a.IndexNumber || 0) - (b.IndexNumber || 0);
+      });
+    }
+    return seriesMap;
+  }
+
+  private pickRandom<T>(preferred: T[], fallback: T[], rng: () => number): T {
+    const pool = preferred.length > 0 ? preferred : fallback;
+    return pool[Math.floor(rng() * pool.length)];
+  }
+
+  private createProgram(item: JellyfinItem, start: Date, end: Date): ScheduleProgram {
+    const isEpisode = item.Type === 'Episode';
+    const title = isEpisode
+      ? (item.SeriesName || item.Name)
+      : item.Name;
+
+    // Only show subtitle for episodes (season/episode info), not for movies
+    const subtitle = isEpisode
+      ? `S${String(item.ParentIndexNumber || 1).padStart(2, '0')}E${String(item.IndexNumber || 1).padStart(2, '0')} - ${item.Name}`
+      : null;
+
+    return {
+      jellyfin_item_id: item.Id,
+      title,
+      subtitle,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      duration_ms: end.getTime() - start.getTime(),
+      type: 'program',
+      content_type: isEpisode ? 'episode' : 'movie',
+      thumbnail_url: `/api/images/${item.Id}/Primary`,
+      year: item.ProductionYear || null,
+      rating: item.OfficialRating || null,
+    };
+  }
+
+  private createInterstitial(start: Date, end: Date, nextItem: JellyfinItem | null): ScheduleProgram {
+    return {
+      jellyfin_item_id: '',
+      title: nextItem ? `Next Up: ${nextItem.SeriesName || nextItem.Name}` : 'Coming Up Next',
+      subtitle: null,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      duration_ms: end.getTime() - start.getTime(),
+      type: 'interstitial',
+      content_type: null,
+      thumbnail_url: nextItem ? `/api/images/${nextItem.Id}/Primary` : null,
+      year: null,
+      rating: null,
+    };
+  }
+
+  /**
+   * Create interstitials for a gap, breaking into chunks of MAX_GAP_MS or less
+   */
+  private createInterstitialsForGap(
+    start: Date,
+    end: Date,
+    nextItem: JellyfinItem | null
+  ): ScheduleProgram[] {
+    const interstitials: ScheduleProgram[] = [];
+    let currentStart = new Date(start);
+    const endMs = end.getTime();
+
+    while (currentStart.getTime() < endMs) {
+      const remainingMs = endMs - currentStart.getTime();
+      const chunkMs = Math.min(remainingMs, MAX_GAP_MS);
+      const chunkEnd = new Date(currentStart.getTime() + chunkMs);
+      interstitials.push(this.createInterstitial(currentStart, chunkEnd, nextItem));
+      currentStart = chunkEnd;
+    }
+
+    return interstitials;
+  }
+}

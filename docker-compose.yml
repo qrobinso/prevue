@@ -1,0 +1,18 @@
+services:
+  prevue:
+    build: .
+    container_name: prevue
+    ports:
+      - "3080:3080"
+    volumes:
+      - prevue-data:/app/data
+    environment:
+      - JELLYFIN_URL=${JELLYFIN_URL:-http://localhost:8096}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:-}
+      - PORT=3080
+    restart: unless-stopped
+
+volumes:
+  prevue-data:

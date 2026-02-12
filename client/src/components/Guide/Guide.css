@@ -1,0 +1,1290 @@
+/* ── Guide Container ─────────────────────────────── */
+.guide {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Loading / Error / Empty States ──────────────── */
+.guide-loading,
+.guide-error,
+.guide-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.guide-loading-text {
+  font-family: var(--font-retro);
+  font-size: 14px;
+  color: var(--text-gold);
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.guide-error-title,
+.guide-empty-title {
+  font-family: var(--font-retro);
+  font-size: 16px;
+  color: var(--accent-red);
+}
+
+.guide-empty-title {
+  color: var(--text-gold);
+}
+
+.guide-error-msg,
+.guide-empty-msg {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.guide-error-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.guide-error-btn,
+.guide-empty-btn {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  padding: 10px 20px;
+  background: var(--bg-cell);
+  color: var(--text-gold);
+  border: 1px solid var(--accent-gold);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.guide-error-btn:hover,
+.guide-empty-btn:hover {
+  background: var(--bg-cell-hover);
+}
+
+/* ── Preview Panel (Top 48%) ─────────────────────── */
+.preview-panel {
+  height: 48%;
+  min-height: 240px;
+  background: var(--bg-preview);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 2px solid var(--accent-cyan);
+  position: relative;
+  overflow: hidden;
+}
+
+.preview-panel-clickable {
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.preview-panel-clickable:hover {
+  border-color: var(--text-gold);
+  box-shadow: inset 0 0 30px rgba(255, 215, 0, 0.1);
+}
+
+.preview-panel-clickable:active {
+  box-shadow: inset 0 0 50px rgba(255, 215, 0, 0.15);
+}
+
+.preview-panel-clickable:focus {
+  outline: none;
+  border-color: var(--text-gold);
+}
+
+.preview-logo {
+  text-align: center;
+}
+
+.preview-logo-text {
+  font-family: var(--font-retro);
+  font-size: 48px;
+  color: var(--text-gold);
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+  letter-spacing: 8px;
+}
+
+.preview-logo-sub {
+  font-family: var(--font-retro);
+  font-size: 12px;
+  color: var(--accent-cyan);
+  margin-top: 12px;
+  letter-spacing: 4px;
+}
+
+/* ── Preview Video Container (full width/height) ───────── */
+.preview-video-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.preview-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.preview-video.ready {
+  opacity: 1;
+}
+
+.preview-thumbnail-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── Preview overlay (info on top of video) ───────────── */
+.preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 24px 32px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 40%, transparent 100%);
+  pointer-events: none;
+}
+
+.preview-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.preview-channel-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.preview-channel-num {
+  font-family: var(--font-retro);
+  font-size: 14px;
+  color: var(--text-gold);
+}
+
+.preview-channel-name {
+  font-family: var(--font-retro);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+}
+
+.preview-title {
+  font-family: var(--font-retro);
+  font-size: 16px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.preview-year {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.preview-rating {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--text-primary);
+  background: var(--bg-cell);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-grid);
+}
+
+.preview-time {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.preview-progress {
+  height: 4px;
+  background: var(--bg-cell);
+  border-radius: 2px;
+  overflow: hidden;
+  max-width: 300px;
+}
+
+.preview-progress-bar {
+  height: 100%;
+  background: var(--accent-cyan);
+  border-radius: 2px;
+}
+
+.preview-clock {
+  font-family: var(--font-retro);
+  font-size: 20px;
+  color: var(--text-gold);
+  text-align: right;
+  flex-shrink: 0;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+/* ── Guide Grid Container ────────────────────────── */
+.guide-grid-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  background: var(--bg-grid);
+}
+
+.guide-settings-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  width: 48px;
+  height: 48px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--border-grid);
+  color: var(--text-secondary);
+  font-size: 24px;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.guide-settings-btn:hover {
+  background: var(--bg-cell-hover);
+  color: var(--text-gold);
+}
+
+/* ── Auto-Scroll Indicator ───────────────────────── */
+.guide-auto-scroll-indicator {
+  position: absolute;
+  top: 16px;
+  right: 76px;
+  z-index: 20;
+  width: 36px;
+  height: 36px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-size: 14px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: guide-auto-scroll-pulse 2s ease-in-out infinite;
+}
+
+.guide-auto-scroll-indicator.paused {
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+  animation: none;
+}
+
+@keyframes guide-auto-scroll-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* ── Time Header ─────────────────────────────────── */
+.guide-time-header {
+  display: flex;
+  height: 32px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-grid);
+  flex-shrink: 0;
+}
+
+.guide-time-header-spacer {
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-grid);
+  background: var(--bg-primary);
+  position: sticky;
+  left: 0;
+  z-index: 10;
+}
+
+.guide-time-header-slots {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.guide-time-header-slots::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.guide-time-slot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 2px;
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--text-gold);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ── Grid Body ───────────────────────────────────── */
+.guide-grid {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+/* Now marker (vertical cyan line) */
+.guide-now-marker {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  background: var(--accent-cyan);
+  z-index: 5;
+  box-shadow: 0 0 8px var(--accent-cyan);
+  pointer-events: none;
+}
+
+/* ── Channel Rows ────────────────────────────────── */
+.guide-row {
+  display: flex;
+  border-bottom: 1px solid var(--border-grid);
+  position: relative;
+  /* Ensure row doesn't collapse - needed for sticky channel column */
+  width: fit-content;
+  min-width: 100%;
+}
+
+.guide-row-focused {
+  background: rgba(0, 229, 255, 0.05);
+}
+
+.guide-channel-col {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-right: 2px solid var(--border-grid);
+  background: var(--bg-primary); /* Solid background so content doesn't show through */
+  cursor: pointer;
+  transition: background 0.15s;
+  padding: 4px;
+  position: sticky;
+  left: 0;
+  z-index: 10; /* Higher z-index to ensure it stays on top */
+  /* Ensure the channel column is always visible with a min-width */
+  min-width: 60px;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.3); /* Shadow to separate from programs */
+}
+
+.guide-row-focused .guide-channel-col {
+  background: var(--bg-cell-hover);
+}
+
+.guide-channel-num {
+  font-family: var(--font-retro);
+  font-size: 12px;
+  color: var(--text-gold);
+}
+
+.guide-channel-name {
+  font-family: var(--font-retro);
+  font-size: 7px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ── Programs Row ────────────────────────────────── */
+.guide-programs-row {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  /* Add subtle vertical grid lines at 30-min intervals (200px = TIME_SLOT_WIDTH) */
+  background-image: repeating-linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.05) 0px,
+    rgba(255, 255, 255, 0.05) 1px,
+    transparent 1px,
+    transparent 200px
+  );
+}
+
+.guide-program-cell {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  background: var(--bg-cell);
+  border: 1px solid var(--border-cell);
+  border-radius: 2px;
+  cursor: pointer;
+  overflow: hidden;
+  overflow: hidden;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.guide-program-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  gap: 1px;
+  /* GPU acceleration for smooth sticky title sliding */
+  will-change: transform;
+}
+
+.guide-program-cell:hover {
+  background: var(--bg-cell-hover);
+}
+
+.guide-program-focused {
+  background: var(--bg-cell-focus) !important;
+  border-color: var(--accent-cyan) !important;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+  z-index: 2;
+}
+
+.guide-program-airing {
+  border-left: 3px solid var(--accent-green);
+}
+
+.guide-program-interstitial {
+  background: var(--bg-secondary);
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+.guide-program-title {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.guide-program-subtitle {
+  font-size: 9px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.guide-program-focused .guide-program-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.guide-program-focused .guide-program-subtitle {
+  color: var(--text-primary);
+}
+
+.guide-program-interstitial .guide-program-title {
+  font-style: italic;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* ── Responsive - Tablet (iPad, etc.) ────────────── */
+@media (max-width: 1023px) {
+  .preview-panel {
+    height: 36%;
+    min-height: 180px;
+  }
+
+  .preview-logo-text {
+    font-size: 32px;
+    letter-spacing: 4px;
+  }
+
+  .preview-overlay {
+    padding: 16px 20px;
+  }
+
+  .preview-channel-num {
+    font-size: 13px;
+  }
+
+  .preview-channel-name {
+    font-size: 11px;
+  }
+
+  .preview-title {
+    font-size: 15px;
+  }
+
+  .preview-subtitle {
+    font-size: 12px;
+  }
+
+  /* Settings button - touch-friendly size */
+  .guide-settings-btn {
+    width: 52px;
+    height: 52px;
+    font-size: 22px;
+    top: 12px;
+    right: 12px;
+  }
+
+  /* Auto-scroll indicator - touch-friendly */
+  .guide-auto-scroll-indicator {
+    width: 44px;
+    height: 44px;
+    font-size: 16px;
+    right: 72px;
+  }
+
+  /* Time header - more readable */
+  .guide-time-header {
+    height: 36px;
+  }
+
+  .guide-time-slot {
+    font-size: 10px;
+    padding-left: 8px;
+  }
+
+  /* Guide rows - better touch targets */
+  .guide-row {
+    min-height: 56px;
+  }
+
+  .guide-channel-col {
+    min-width: 90px;
+    padding: 6px 4px;
+  }
+
+  .guide-channel-num {
+    font-size: 14px;
+  }
+
+  .guide-channel-name {
+    font-size: 9px;
+  }
+
+  /* Program cells - larger for touch */
+  .guide-program-cell {
+    padding: 0 10px;
+  }
+
+  .guide-program-title {
+    font-size: 13px;
+  }
+
+  .guide-program-subtitle {
+    font-size: 10px;
+  }
+}
+
+/* ── Responsive - Mobile (iPhone, small tablets) ─── */
+@media (max-width: 767px) {
+  /* Preview Panel - more compact on mobile */
+  .preview-panel {
+    height: 35%;
+    min-height: 160px;
+  }
+
+  .preview-logo-text {
+    font-size: 24px;
+    letter-spacing: 3px;
+  }
+
+  .preview-logo-sub {
+    font-size: 10px;
+    letter-spacing: 2px;
+  }
+
+  .preview-overlay {
+    padding: 12px 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .preview-info {
+    width: 100%;
+    gap: 4px;
+  }
+
+  .preview-channel-badge {
+    gap: 8px;
+  }
+
+  .preview-channel-num {
+    font-size: 13px;
+  }
+
+  .preview-channel-name {
+    font-size: 10px;
+  }
+
+  .preview-title {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .preview-subtitle {
+    font-size: 11px;
+  }
+
+  .preview-time {
+    font-size: 9px;
+  }
+
+  .preview-progress {
+    max-width: 100%;
+    height: 4px;
+  }
+
+  .preview-clock {
+    font-size: 14px;
+    position: absolute;
+    top: 12px;
+    right: 16px;
+  }
+
+  /* Settings button - touch-friendly (min 44px) */
+  .guide-settings-btn {
+    width: 48px;
+    height: 48px;
+    font-size: 20px;
+    top: 8px;
+    right: 8px;
+  }
+
+  /* Time header - taller for better touch targets */
+  .guide-time-header {
+    height: 32px;
+  }
+
+  .guide-time-slot {
+    font-size: 11px;
+    padding-left: 8px;
+  }
+
+  /* Grid rows - ensure minimum touch target size */
+  .guide-row {
+    min-height: 52px;
+  }
+
+  /* Channel column - touch-friendly width */
+  .guide-channel-col {
+    min-width: 75px !important;
+    max-width: 95px !important;
+    padding: 6px 4px;
+  }
+
+  .guide-channel-num {
+    font-size: 13px;
+  }
+
+  .guide-channel-name {
+    font-size: 8px;
+  }
+
+  /* Program cells - better padding and sizing */
+  .guide-program-cell {
+    padding: 0 8px;
+    top: 3px;
+    bottom: 3px;
+  }
+
+  .guide-program-content {
+    gap: 2px;
+  }
+
+  .guide-program-title {
+    font-size: 12px;
+  }
+
+  .guide-program-subtitle {
+    font-size: 9px;
+  }
+
+  /* Auto-scroll indicator - touch-friendly */
+  .guide-auto-scroll-indicator {
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+    right: 64px;
+    top: 8px;
+  }
+}
+
+/* ── Responsive - Small Mobile (iPhone SE, etc.) ─── */
+@media (max-width: 480px) {
+  .preview-panel {
+    height: 30%;
+    min-height: 130px;
+  }
+
+  .preview-logo-text {
+    font-size: 18px;
+  }
+
+  .preview-logo-sub {
+    font-size: 8px;
+    margin-top: 8px;
+  }
+
+  .preview-overlay {
+    padding: 8px 10px;
+    gap: 4px;
+  }
+
+  .preview-channel-num {
+    font-size: 11px;
+  }
+
+  .preview-channel-name {
+    font-size: 9px;
+  }
+
+  .preview-title {
+    font-size: 12px;
+  }
+
+  .preview-subtitle {
+    font-size: 10px;
+    -webkit-line-clamp: 1;
+  }
+
+  .preview-time {
+    font-size: 8px;
+  }
+
+  .preview-clock {
+    font-size: 11px;
+    top: 8px;
+    right: 10px;
+  }
+
+  /* Keep settings button touch-friendly even on small screens */
+  .guide-settings-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+    top: 6px;
+    right: 6px;
+  }
+
+  .guide-time-header {
+    height: 28px;
+  }
+
+  .guide-time-slot {
+    font-size: 9px;
+    padding-left: 4px;
+  }
+
+  /* Channel column - compact but still readable */
+  .guide-channel-col {
+    min-width: 60px !important;
+    max-width: 75px !important;
+    padding: 4px 2px;
+  }
+
+  .guide-channel-num {
+    font-size: 11px;
+  }
+
+  .guide-channel-name {
+    font-size: 7px;
+  }
+
+  .guide-program-title {
+    font-size: 11px;
+  }
+
+  .guide-program-subtitle {
+    font-size: 8px;
+  }
+
+  /* Keep auto-scroll indicator touch-friendly */
+  .guide-auto-scroll-indicator {
+    width: 36px;
+    height: 36px;
+    font-size: 12px;
+    right: 56px;
+    top: 6px;
+  }
+}
+
+/* ── Touch Device Optimizations (iPad, iPhone, tablets) ── */
+@media (hover: none) and (pointer: coarse) {
+  /* Ensure minimum 44px touch targets (Apple HIG) */
+  .guide-program-cell {
+    min-height: 48px;
+  }
+
+  .guide-channel-col {
+    min-height: 52px;
+  }
+
+  .guide-settings-btn {
+    min-width: 48px;
+    min-height: 48px;
+  }
+
+  .guide-auto-scroll-indicator {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Remove hover states that don't apply on touch */
+  .guide-program-cell:hover {
+    background: var(--bg-cell);
+  }
+
+  .guide-program-focused:hover {
+    background: var(--bg-cell-focus);
+  }
+
+  .guide-channel-col:hover {
+    background: var(--bg-secondary);
+  }
+
+  .guide-row-focused .guide-channel-col:hover {
+    background: var(--bg-cell-hover);
+  }
+
+  .guide-settings-btn:hover {
+    background: rgba(0, 0, 0, 0.6);
+    color: var(--text-secondary);
+  }
+
+  /* Make scrollbar invisible on touch (use native scrolling) */
+  .guide-grid::-webkit-scrollbar {
+    display: none;
+  }
+
+  .guide-grid {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  /* Slightly larger progress bar for easier touch */
+  .preview-progress {
+    height: 5px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   LANDSCAPE MODE - Phones & Small Tablets
+   Optimized for horizontal viewing with limited height
+   ══════════════════════════════════════════════════════════ */
+
+/* Landscape phones (max-height 500px to target phones held sideways) */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* Preview panel much smaller in landscape - maximize guide space */
+  .preview-panel {
+    height: 35%;
+    min-height: 100px;
+  }
+
+  .preview-overlay {
+    padding: 8px 16px;
+    gap: 4px;
+  }
+
+  .preview-info {
+    gap: 2px;
+  }
+
+  .preview-channel-badge {
+    gap: 6px;
+  }
+
+  .preview-channel-num {
+    font-size: 11px;
+  }
+
+  .preview-channel-name {
+    font-size: 9px;
+  }
+
+  .preview-title {
+    font-size: 12px;
+  }
+
+  .preview-subtitle {
+    font-size: 10px;
+    -webkit-line-clamp: 1;
+  }
+
+  .preview-meta {
+    margin-top: 0;
+  }
+
+  .preview-year,
+  .preview-rating {
+    font-size: 8px;
+  }
+
+  .preview-time {
+    font-size: 8px;
+  }
+
+  .preview-progress {
+    max-width: 200px;
+    height: 3px;
+  }
+
+  .preview-clock {
+    font-size: 12px;
+    top: 8px;
+    right: 12px;
+  }
+
+  /* Settings button - compact but touch-friendly */
+  .guide-settings-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+    top: 4px;
+    right: 4px;
+  }
+
+  /* Time header - minimal */
+  .guide-time-header {
+    height: 26px;
+  }
+
+  .guide-time-slot {
+    font-size: 9px;
+    padding-left: 4px;
+  }
+
+  /* Rows tighter to fit more in limited height */
+  .guide-row {
+    min-height: 44px;
+  }
+
+  /* Channel column compact */
+  .guide-channel-col {
+    min-width: 55px !important;
+    max-width: 70px !important;
+    padding: 4px 2px;
+  }
+
+  .guide-channel-num {
+    font-size: 11px;
+  }
+
+  .guide-channel-name {
+    font-size: 7px;
+  }
+
+  /* Program cells - compact */
+  .guide-program-cell {
+    padding: 0 6px;
+    top: 2px;
+    bottom: 2px;
+  }
+
+  .guide-program-title {
+    font-size: 11px;
+  }
+
+  .guide-program-subtitle {
+    font-size: 8px;
+  }
+
+  /* Auto-scroll indicator - smaller */
+  .guide-auto-scroll-indicator {
+    width: 36px;
+    height: 36px;
+    font-size: 12px;
+    right: 52px;
+    top: 4px;
+  }
+}
+
+/* Landscape tablets (iPad landscape, larger Android tablets) */
+@media (orientation: landscape) and (min-height: 501px) and (max-height: 900px) and (max-width: 1366px) {
+  .preview-panel {
+    height: 40%;
+    min-height: 180px;
+  }
+
+  .preview-overlay {
+    padding: 16px 24px;
+  }
+
+  .preview-title {
+    font-size: 15px;
+  }
+
+  .preview-subtitle {
+    font-size: 12px;
+  }
+
+  .preview-clock {
+    font-size: 16px;
+  }
+
+  /* Rows appropriately sized */
+  .guide-row {
+    min-height: 50px;
+  }
+
+  .guide-channel-col {
+    min-width: 80px;
+    max-width: 100px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   PORTRAIT MODE - Phones & Tablets
+   Optimized for vertical viewing with ample height
+   ══════════════════════════════════════════════════════════ */
+
+/* Portrait phones */
+@media (orientation: portrait) and (max-width: 480px) {
+  /* Larger preview in portrait - more room to show video */
+  .preview-panel {
+    height: 38%;
+    min-height: 180px;
+  }
+
+  .preview-overlay {
+    padding: 12px 14px;
+  }
+
+  .preview-title {
+    font-size: 13px;
+  }
+
+  .preview-subtitle {
+    font-size: 11px;
+    -webkit-line-clamp: 2;
+  }
+
+  .preview-progress {
+    max-width: 100%;
+  }
+
+  /* Settings button easy to reach */
+  .guide-settings-btn {
+    width: 48px;
+    height: 48px;
+    top: 8px;
+    right: 8px;
+  }
+}
+
+/* Portrait tablets (iPad portrait) */
+@media (orientation: portrait) and (min-width: 481px) and (max-width: 1024px) {
+  /* Generous preview panel */
+  .preview-panel {
+    height: 42%;
+    min-height: 280px;
+  }
+
+  .preview-overlay {
+    padding: 20px 28px;
+  }
+
+  .preview-channel-num {
+    font-size: 15px;
+  }
+
+  .preview-channel-name {
+    font-size: 12px;
+  }
+
+  .preview-title {
+    font-size: 18px;
+  }
+
+  .preview-subtitle {
+    font-size: 14px;
+    -webkit-line-clamp: 2;
+  }
+
+  .preview-time {
+    font-size: 11px;
+  }
+
+  .preview-progress {
+    max-width: 350px;
+    height: 5px;
+  }
+
+  .preview-clock {
+    font-size: 22px;
+  }
+
+  /* Settings button prominent */
+  .guide-settings-btn {
+    width: 56px;
+    height: 56px;
+    font-size: 26px;
+    top: 16px;
+    right: 16px;
+  }
+
+  /* Time header larger */
+  .guide-time-header {
+    height: 40px;
+  }
+
+  .guide-time-slot {
+    font-size: 11px;
+    padding-left: 10px;
+  }
+
+  /* Rows well-spaced for touch */
+  .guide-row {
+    min-height: 60px;
+  }
+
+  .guide-channel-col {
+    min-width: 100px;
+    padding: 8px 6px;
+  }
+
+  .guide-channel-num {
+    font-size: 16px;
+  }
+
+  .guide-channel-name {
+    font-size: 10px;
+  }
+
+  /* Program cells - comfortable size */
+  .guide-program-cell {
+    padding: 0 12px;
+  }
+
+  .guide-program-title {
+    font-size: 14px;
+  }
+
+  .guide-program-subtitle {
+    font-size: 11px;
+  }
+
+  /* Auto-scroll indicator */
+  .guide-auto-scroll-indicator {
+    width: 48px;
+    height: 48px;
+    font-size: 18px;
+    right: 80px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   SAFE AREAS - Handle notches, home indicators, etc.
+   ══════════════════════════════════════════════════════════ */
+@supports (padding: env(safe-area-inset-left)) {
+  .guide {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .preview-overlay {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  .guide-settings-btn {
+    right: max(16px, calc(env(safe-area-inset-right) + 8px));
+  }
+
+  /* Landscape safe areas for notch */
+  @media (orientation: landscape) {
+    .guide {
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+
+    .preview-overlay {
+      padding-left: max(12px, env(safe-area-inset-left));
+      padding-right: max(12px, env(safe-area-inset-right));
+    }
+
+    .guide-channel-col {
+      padding-left: max(4px, env(safe-area-inset-left));
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   HIGH DPI / RETINA DISPLAYS
+   ══════════════════════════════════════════════════════════ */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* Slightly thinner borders look better on Retina */
+  .guide-program-cell {
+    border-width: 0.5px;
+  }
+
+  .guide-row {
+    border-bottom-width: 0.5px;
+  }
+
+  .guide-channel-col {
+    border-right-width: 1px;
+  }
+
+  .preview-progress {
+    border-radius: 1.5px;
+  }
+}
