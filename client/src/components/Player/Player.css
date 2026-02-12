@@ -343,10 +343,6 @@
 }
 
 /* ── Subtitles Button ──────────────────────────────── */
-.player-subtitles-btn {
-  position: relative; /* For badge positioning */
-}
-
 .player-subtitles-btn .player-btn-icon {
   font-size: 12px;
   letter-spacing: -1px;
@@ -458,100 +454,6 @@
 .player-quality-option.active .player-quality-option-desc {
   color: var(--accent-cyan);
   opacity: 0.7;
-}
-
-/* ── Subtitle Menu ───────────────────────────────── */
-.player-subtitle-menu {
-  position: absolute;
-  bottom: 70px;
-  right: 24px;
-  background: rgba(0, 0, 0, 0.95);
-  border: 1px solid var(--border-grid);
-  border-radius: 8px;
-  padding: 8px 0;
-  min-width: 220px;
-  max-height: 60vh;
-  overflow-y: auto;
-  z-index: 20;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-}
-
-.player-subtitle-menu-title {
-  font-family: var(--font-retro);
-  font-size: 10px;
-  color: var(--text-gold);
-  letter-spacing: 2px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border-grid);
-  margin-bottom: 4px;
-}
-
-.player-subtitle-option {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  padding: 10px 16px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-family: var(--font-retro);
-  cursor: pointer;
-  transition: all 0.15s;
-  text-align: left;
-  gap: 8px;
-}
-
-.player-subtitle-option:hover {
-  background: var(--bg-cell-hover);
-  color: var(--text-primary);
-}
-
-.player-subtitle-option.active {
-  color: var(--accent-cyan);
-  background: var(--bg-cell-focus);
-}
-
-.player-subtitle-option-label {
-  font-size: 12px;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.player-subtitle-option-badge {
-  font-size: 8px;
-  padding: 2px 6px;
-  background: var(--bg-cell-hover);
-  border-radius: 4px;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.player-subtitle-option.active .player-subtitle-option-badge {
-  background: var(--accent-cyan);
-  color: var(--bg-primary);
-}
-
-/* Badge on CC button showing track count */
-.player-btn-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 16px;
-  height: 16px;
-  background: var(--accent-cyan);
-  color: var(--bg-primary);
-  font-size: 9px;
-  font-family: var(--font-system);
-  font-weight: bold;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
 }
 
 /* ── Responsive - Tablet ─────────────────────────── */
@@ -689,15 +591,7 @@
     min-width: auto;
   }
 
-  .player-subtitle-menu {
-    bottom: 70px;
-    right: 12px;
-    left: 12px;
-    min-width: auto;
-  }
-
-  .player-quality-option,
-  .player-subtitle-option {
+  .player-quality-option {
     padding: 14px 16px;
     min-height: 48px;
   }
@@ -708,10 +602,6 @@
 
   .player-quality-option-desc {
     font-size: 9px;
-  }
-
-  .player-subtitle-option-label {
-    font-size: 11px;
   }
 }
 
@@ -759,8 +649,7 @@
     gap: 6px;
   }
 
-  .player-quality-menu,
-  .player-subtitle-menu {
+  .player-quality-menu {
     bottom: 55px;
     right: 8px;
     left: 8px;
@@ -906,38 +795,29 @@
     font-size: 6px;
   }
 
-  .player-quality-menu,
-  .player-subtitle-menu {
+  .player-quality-menu {
     bottom: 52px;
     right: 8px;
     left: auto;
     min-width: 180px;
   }
 
-  .player-quality-menu-title,
-  .player-subtitle-menu-title {
+  .player-quality-menu-title {
     font-size: 9px;
     padding: 6px 12px;
   }
 
-  .player-quality-option,
-  .player-subtitle-option {
+  .player-quality-option {
     padding: 10px 12px;
     min-height: 42px;
   }
 
-  .player-quality-option-label,
-  .player-subtitle-option-label {
+  .player-quality-option-label {
     font-size: 11px;
   }
 
   .player-quality-option-desc {
     font-size: 8px;
-  }
-
-  .player-subtitle-option-badge {
-    font-size: 7px;
-    padding: 2px 4px;
   }
 
   /* Next Up Card - compact in landscape */
@@ -1042,9 +922,8 @@
     font-size: 11px;
   }
 
-  /* Menus full width on portrait phones */
-  .player-quality-menu,
-  .player-subtitle-menu {
+  /* Quality menu full width on portrait phones */
+  .player-quality-menu {
     left: 10px;
     right: 10px;
     min-width: auto;
@@ -1143,30 +1022,23 @@
     min-height: 56px;
   }
 
-  .player-quality-menu,
-  .player-subtitle-menu {
+  .player-quality-menu {
     bottom: 85px;
     right: 20px;
     min-width: 260px;
   }
 
-  .player-quality-option,
-  .player-subtitle-option {
+  .player-quality-option {
     padding: 16px 20px;
     min-height: 56px;
   }
 
-  .player-quality-option-label,
-  .player-subtitle-option-label {
+  .player-quality-option-label {
     font-size: 14px;
   }
 
   .player-quality-option-desc {
     font-size: 11px;
-  }
-
-  .player-subtitle-option-badge {
-    font-size: 9px;
   }
 
   .next-up-content {
@@ -1218,8 +1090,7 @@
     bottom: max(24px, calc(env(safe-area-inset-bottom) + 8px));
   }
 
-  .player-quality-menu,
-  .player-subtitle-menu {
+  .player-quality-menu {
     right: max(24px, calc(env(safe-area-inset-right) + 8px));
   }
 
@@ -1256,8 +1127,7 @@
     /* Crisp progress bar on Retina */
   }
 
-  .player-quality-menu,
-  .player-subtitle-menu {
+  .player-quality-menu {
     border-width: 0.5px;
   }
 }

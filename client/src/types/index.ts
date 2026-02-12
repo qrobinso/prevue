@@ -44,15 +44,6 @@ export interface ScheduleBlock {
   created_at: string;
 }
 
-export interface SubtitleTrack {
-  index: number;
-  language: string;
-  displayTitle: string;
-  isDefault: boolean;
-  isForced: boolean;
-  url: string;
-}
-
 export interface PlaybackInfo {
   stream_url: string;
   seek_position_ms: number;
@@ -60,7 +51,6 @@ export interface PlaybackInfo {
   program: ScheduleProgram;
   next_program: ScheduleProgram | null;
   channel: Channel;
-  subtitles?: SubtitleTrack[];
 }
 
 export interface Settings {

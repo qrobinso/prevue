@@ -404,24 +404,6 @@ export class JellyfinClient {
                 AudioCodec: 'aac,mp3,opus',
               },
             ],
-            SubtitleProfiles: [
-              {
-                Format: 'vtt',
-                Method: 'External',
-              },
-              {
-                Format: 'srt',
-                Method: 'External',
-              },
-              {
-                Format: 'ass',
-                Method: 'External',
-              },
-              {
-                Format: 'ssa',
-                Method: 'External',
-              },
-            ],
           },
         },
       });
@@ -437,37 +419,6 @@ export class JellyfinClient {
       }
       throw err;
     }
-  }
-
-  /**
-   * Get available subtitle streams for an item
-   */
-  async getSubtitles(itemId: string): Promise<Array<{ index: number; language: string; displayTitle: string; isDefault: boolean; isForced: boolean }>> {
-    const playbackInfo = await this.getPlaybackInfo(itemId);
-    const mediaSource = playbackInfo.MediaSources?.[0];
-    
-    if (!mediaSource?.MediaStreams) {
-      return [];
-    }
-
-    return mediaSource.MediaStreams
-      .filter(stream => stream.Type === 'Subtitle')
-      .map(stream => ({
-        index: stream.Index ?? 0,
-        language: stream.Language || 'Unknown',
-        displayTitle: stream.DisplayTitle || stream.Language || 'Subtitle',
-        isDefault: stream.IsDefault ?? false,
-        isForced: stream.IsForced ?? false,
-      }));
-  }
-
-  /**
-   * Get subtitle URL for a specific stream
-   */
-  getSubtitleUrl(itemId: string, mediaSourceId: string, subtitleIndex: number, format: string = 'vtt'): string {
-    const baseUrl = this.getServerUrl();
-    const accessToken = this.getAccessToken();
-    return `${baseUrl}/Videos/${itemId}/${mediaSourceId}/Subtitles/${subtitleIndex}/0/Stream.${format}?api_key=${accessToken}`;
   }
 
   /**

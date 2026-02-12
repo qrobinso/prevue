@@ -5,7 +5,7 @@ import { useKeyboard } from '../../hooks/useKeyboard';
 import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset } from '../Settings/DisplaySettings';
 import InfoOverlay from './InfoOverlay';
 import NextUpCard from './NextUpCard';
-import type { Channel, ScheduleProgram, SubtitleTrack } from '../../types';
+import type { Channel, ScheduleProgram } from '../../types';
 import './Player.css';
 
 interface PlayerProps {
@@ -19,7 +19,6 @@ const DOUBLE_TAP_DELAY = 300; // ms to detect double tap
 
 // Local storage keys for player preferences
 const SUBTITLES_KEY = 'prevue_subtitles_enabled';
-const SUBTITLE_TRACK_KEY = 'prevue_subtitle_track'; // Stores preferred language
 const VIDEO_FIT_KEY = 'prevue_video_fit';
 
 function getSubtitlesEnabled(): boolean {
@@ -29,14 +28,6 @@ function getSubtitlesEnabled(): boolean {
 
 function setSubtitlesEnabled(enabled: boolean): void {
   localStorage.setItem(SUBTITLES_KEY, String(enabled));
-}
-
-function getPreferredSubtitleLanguage(): string | null {
-  return localStorage.getItem(SUBTITLE_TRACK_KEY);
-}
-
-function setPreferredSubtitleLanguage(language: string): void {
-  localStorage.setItem(SUBTITLE_TRACK_KEY, language);
 }
 
 function getVideoFit(): 'contain' | 'cover' {
@@ -62,9 +53,6 @@ export default function Player({ channel, program, onBack }: PlayerProps) {
   const [currentQuality, setCurrentQuality] = useState<QualityPreset>(getVideoQuality);
   const [subtitlesEnabled, setSubtitlesEnabledState] = useState(getSubtitlesEnabled);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getVideoFit);
-  const [availableSubtitles, setAvailableSubtitles] = useState<SubtitleTrack[]>([]);
-  const [activeSubtitleIndex, setActiveSubtitleIndex] = useState<number | null>(null);
-  const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
   const overlayTimer = useRef<ReturnType<typeof setTimeout>>();
   const checkTimer = useRef<ReturnType<typeof setInterval>>();
   const errorCountRef = useRef(0);
@@ -97,26 +85,6 @@ export default function Player({ channel, program, onBack }: PlayerProps) {
       
       // Track current item for cleanup
       currentItemIdRef.current = info.program?.jellyfin_item_id || null;
-
-      // Store available subtitles from server
-      const subtitles = info.subtitles || [];
-      setAvailableSubtitles(subtitles);
-      
-      // Select default subtitle track based on user preference or defaults
-      if (subtitles.length > 0 && subtitlesEnabled) {
-        const preferredLang = getPreferredSubtitleLanguage();
-        // Find preferred language, or default track, or forced track, or first track
-        const preferredTrack = preferredLang 
-          ? subtitles.find((s: SubtitleTrack) => s.language.toLowerCase() === preferredLang.toLowerCase())
-          : null;
-        const defaultTrack = subtitles.find((s: SubtitleTrack) => s.isDefault);
-        const forcedTrack = subtitles.find((s: SubtitleTrack) => s.isForced);
-        const selectedTrack = preferredTrack || defaultTrack || forcedTrack || subtitles[0];
-        setActiveSubtitleIndex(selectedTrack.index);
-        console.log(`[Player] Selected subtitle track: ${selectedTrack.displayTitle} (index ${selectedTrack.index})`);
-      } else {
-        setActiveSubtitleIndex(null);
-      }
 
       if (info.is_interstitial || !info.stream_url) {
         setLoading(false);
@@ -299,94 +267,58 @@ export default function Player({ channel, program, onBack }: PlayerProps) {
       toggleVideoFit();
       lastTapTimeRef.current = 0; // Reset to prevent triple tap
     } else {
-      // Single tap - show overlay or close menus
-      if (showQualityMenu || showSubtitleMenu) {
+      // Single tap - show overlay or close menu
+      if (showQualityMenu) {
         setShowQualityMenu(false);
-        setShowSubtitleMenu(false);
       } else {
         showOverlayBriefly();
       }
       lastTapTimeRef.current = now;
     }
-  }, [showOverlayBriefly, showQualityMenu, showSubtitleMenu, toggleVideoFit]);
+  }, [showOverlayBriefly, showQualityMenu, toggleVideoFit]);
 
-  // Toggle subtitles on/off or show menu if multiple tracks
+  // Toggle subtitles
   const toggleSubtitles = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    
-    // If multiple subtitle tracks, show selection menu
-    if (availableSubtitles.length > 1) {
-      setShowSubtitleMenu(prev => !prev);
-      setShowQualityMenu(false); // Close quality menu if open
-      showOverlayBriefly();
-      return;
-    }
-    
-    // Single track or no tracks - just toggle on/off
     setSubtitlesEnabledState(prev => {
       const newValue = !prev;
       setSubtitlesEnabled(newValue);
       
-      // If turning on and we have subtitles, select the first one
-      if (newValue && availableSubtitles.length > 0 && activeSubtitleIndex === null) {
-        setActiveSubtitleIndex(availableSubtitles[0].index);
-      } else if (!newValue) {
-        setActiveSubtitleIndex(null);
+      // Apply to video element text tracks
+      const video = videoRef.current;
+      if (video && video.textTracks.length > 0) {
+        for (let i = 0; i < video.textTracks.length; i++) {
+          video.textTracks[i].mode = newValue ? 'showing' : 'hidden';
+        }
       }
       
       return newValue;
     });
     showOverlayBriefly();
-  }, [showOverlayBriefly, availableSubtitles, activeSubtitleIndex]);
-
-  // Select a specific subtitle track
-  const selectSubtitleTrack = useCallback((track: SubtitleTrack | null) => {
-    if (track === null) {
-      // Turn off subtitles
-      setSubtitlesEnabledState(false);
-      setSubtitlesEnabled(false);
-      setActiveSubtitleIndex(null);
-    } else {
-      // Select this track
-      setSubtitlesEnabledState(true);
-      setSubtitlesEnabled(true);
-      setActiveSubtitleIndex(track.index);
-      setPreferredSubtitleLanguage(track.language);
-    }
-    setShowSubtitleMenu(false);
-    showOverlayBriefly();
   }, [showOverlayBriefly]);
 
-  // Apply subtitle track selection when video loads or track changes
+  // Apply subtitle setting when video loads or subtitles change
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const applySubtitleTrack = () => {
-      // Hide all tracks first, then show the selected one
-      for (let i = 0; i < video.textTracks.length; i++) {
-        const track = video.textTracks[i];
-        // Match by the data-index attribute we set, or by position
-        const trackIndex = parseInt(track.label.split('|')[0] || '-1', 10);
-        if (subtitlesEnabled && activeSubtitleIndex !== null && trackIndex === activeSubtitleIndex) {
-          track.mode = 'showing';
-        } else {
-          track.mode = 'hidden';
+    const applySubtitleSetting = () => {
+      if (video.textTracks.length > 0) {
+        for (let i = 0; i < video.textTracks.length; i++) {
+          video.textTracks[i].mode = subtitlesEnabled ? 'showing' : 'hidden';
         }
       }
     };
 
     // Apply immediately
-    applySubtitleTrack();
+    applySubtitleSetting();
 
     // Also apply when text tracks are added
-    video.textTracks.addEventListener('addtrack', applySubtitleTrack);
-    video.textTracks.addEventListener('change', applySubtitleTrack);
+    video.textTracks.addEventListener('addtrack', applySubtitleSetting);
     return () => {
-      video.textTracks.removeEventListener('addtrack', applySubtitleTrack);
-      video.textTracks.removeEventListener('change', applySubtitleTrack);
+      video.textTracks.removeEventListener('addtrack', applySubtitleSetting);
     };
-  }, [subtitlesEnabled, activeSubtitleIndex]);
+  }, [subtitlesEnabled]);
 
   // Handle quality change
   const handleQualityChange = useCallback(async (preset: QualityPreset) => {
@@ -407,7 +339,6 @@ export default function Player({ channel, program, onBack }: PlayerProps) {
   const toggleQualityMenu = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setShowQualityMenu(prev => !prev);
-    setShowSubtitleMenu(false); // Close subtitle menu if open
     showOverlayBriefly();
   }, [showOverlayBriefly]);
 
@@ -420,20 +351,7 @@ export default function Player({ channel, program, onBack }: PlayerProps) {
           className={`player-video ${videoFit === 'cover' ? 'player-video-fill' : ''}`}
           playsInline
           autoPlay
-          crossOrigin="anonymous"
-        >
-          {/* Subtitle tracks from server */}
-          {availableSubtitles.map((sub) => (
-            <track
-              key={sub.index}
-              kind="subtitles"
-              src={sub.url}
-              srcLang={sub.language}
-              label={`${sub.index}|${sub.displayTitle}`}
-              default={subtitlesEnabled && activeSubtitleIndex === sub.index}
-            />
-          ))}
-        </video>
+        />
       )}
 
       {/* Interstitial "Next Up" card */}
@@ -477,7 +395,7 @@ export default function Player({ channel, program, onBack }: PlayerProps) {
 
       {/* Back button - visible on hover or when overlay is showing */}
       <button 
-        className={`player-back-btn ${showOverlay || showQualityMenu || showSubtitleMenu ? 'visible' : ''}`} 
+        className={`player-back-btn ${showOverlay || showQualityMenu ? 'visible' : ''}`} 
         onClick={(e) => { e.stopPropagation(); onBack(); }}
       >
         ← GUIDE
@@ -485,20 +403,15 @@ export default function Player({ channel, program, onBack }: PlayerProps) {
 
       {/* Control buttons container (right side) */}
       {!isInterstitial && (
-        <div className={`player-controls-right ${showOverlay || showQualityMenu || showSubtitleMenu ? 'visible' : ''}`}>
-          {/* Subtitles button - only show if subtitles are available */}
-          {availableSubtitles.length > 0 && (
-            <button 
-              className={`player-control-btn player-subtitles-btn ${subtitlesEnabled ? 'active' : ''}`}
-              onClick={toggleSubtitles}
-              title={subtitlesEnabled ? 'Subtitles On' : 'Subtitles Off'}
-            >
-              <span className="player-btn-icon">CC</span>
-              {availableSubtitles.length > 1 && (
-                <span className="player-btn-badge">{availableSubtitles.length}</span>
-              )}
-            </button>
-          )}
+        <div className={`player-controls-right ${showOverlay || showQualityMenu ? 'visible' : ''}`}>
+          {/* Subtitles button */}
+          <button 
+            className={`player-control-btn player-subtitles-btn ${subtitlesEnabled ? 'active' : ''}`}
+            onClick={toggleSubtitles}
+            title={subtitlesEnabled ? 'Subtitles On' : 'Subtitles Off'}
+          >
+            <span className="player-btn-icon">CC</span>
+          </button>
 
           {/* Video fit button */}
           <button 
@@ -531,30 +444,6 @@ export default function Player({ channel, program, onBack }: PlayerProps) {
             >
               <span className="player-quality-option-label">{preset.label}</span>
               <span className="player-quality-option-desc">{preset.description}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Subtitle selection menu */}
-      {showSubtitleMenu && (
-        <div className="player-subtitle-menu" onClick={(e) => e.stopPropagation()}>
-          <div className="player-subtitle-menu-title">SUBTITLES</div>
-          <button
-            className={`player-subtitle-option ${!subtitlesEnabled ? 'active' : ''}`}
-            onClick={() => selectSubtitleTrack(null)}
-          >
-            <span className="player-subtitle-option-label">Off</span>
-          </button>
-          {availableSubtitles.map((sub) => (
-            <button
-              key={sub.index}
-              className={`player-subtitle-option ${subtitlesEnabled && activeSubtitleIndex === sub.index ? 'active' : ''}`}
-              onClick={() => selectSubtitleTrack(sub)}
-            >
-              <span className="player-subtitle-option-label">{sub.displayTitle}</span>
-              {sub.isDefault && <span className="player-subtitle-option-badge">Default</span>}
-              {sub.isForced && <span className="player-subtitle-option-badge">Forced</span>}
             </button>
           ))}
         </div>

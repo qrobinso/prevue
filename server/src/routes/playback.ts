@@ -2,7 +2,6 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
-import type { JellyfinClient } from '../services/JellyfinClient.js';
 
 export const playbackRoutes = Router();
 
@@ -56,35 +55,6 @@ playbackRoutes.get('/:channelId', (req: Request, res: Response) => {
     
     console.log(`[Playback] Channel ${channelId}: seekMs=${seekMs}, seekSeconds=${seekSeconds.toFixed(1)}, bitrate=${bitrate || 'auto'}, item=${program.jellyfin_item_id}`);
 
-    // Fetch subtitles in parallel (don't block on error)
-    const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
-    let subtitles: Array<{ index: number; language: string; displayTitle: string; isDefault: boolean; isForced: boolean; url: string }> = [];
-    
-    try {
-      const playbackInfo = await jf.getPlaybackInfo(program.jellyfin_item_id);
-      const mediaSource = playbackInfo.MediaSources?.[0];
-      const mediaSourceId = mediaSource?.Id || program.jellyfin_item_id;
-      
-      if (mediaSource?.MediaStreams) {
-        subtitles = mediaSource.MediaStreams
-          .filter(stream => stream.Type === 'Subtitle')
-          .map(stream => ({
-            index: stream.Index ?? 0,
-            language: stream.Language || 'Unknown',
-            displayTitle: stream.DisplayTitle || stream.Language || 'Subtitle',
-            isDefault: stream.IsDefault ?? false,
-            isForced: stream.IsForced ?? false,
-            url: `/api/subtitles/${program.jellyfin_item_id}/${mediaSourceId}/${stream.Index ?? 0}/vtt`,
-          }));
-        
-        console.log(`[Playback] Found ${subtitles.length} subtitle tracks for item ${program.jellyfin_item_id}`);
-      }
-    } catch (err) {
-      console.error(`[Playback] Error fetching subtitles:`, err);
-      // Continue without subtitles
-    }
-
     res.json({
       stream_url: streamUrl,
       seek_position_ms: seekMs,
@@ -93,28 +63,8 @@ playbackRoutes.get('/:channelId', (req: Request, res: Response) => {
       next_program: next,
       channel,
       is_interstitial: false,
-      subtitles,
     });
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
-  }
-});
-
-// GET /api/playback/subtitles/:itemId - Get available subtitles for an item
-playbackRoutes.get('/subtitles/:itemId', async (req: Request, res: Response) => {
-  try {
-    const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
-    const itemId = req.params.itemId as string;
-
-    const subtitles = await jf.getSubtitles(itemId);
-    
-    res.json({
-      itemId,
-      subtitles,
-    });
-  } catch (err) {
-    console.error('[Playback] Error fetching subtitles:', err);
     res.status(500).json({ error: (err as Error).message });
   }
 });

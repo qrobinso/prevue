@@ -323,50 +323,6 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/subtitles/:itemId/:mediaSourceId/:index/:format - Proxy Jellyfin subtitles
-streamRoutes.get('/subtitles/:itemId/:mediaSourceId/:index/:format', async (req: Request, res: Response) => {
-  try {
-    const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
-    const { itemId, mediaSourceId, index, format } = req.params;
-    const subtitleIndex = parseInt(index, 10);
-
-    const baseUrl = jf.getBaseUrl();
-    const headers = jf.getProxyHeaders();
-    
-    // Jellyfin subtitle endpoint: /Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/0/Stream.{format}
-    const url = `${baseUrl}/Videos/${itemId}/${mediaSourceId}/Subtitles/${subtitleIndex}/0/Stream.${format}`;
-    
-    console.log(`[Subtitles] Fetching: ${url}`);
-    
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      console.error(`[Subtitles] Jellyfin returned ${response.status}`);
-      res.status(response.status).end();
-      return;
-    }
-
-    // Set appropriate content type for VTT
-    if (format === 'vtt') {
-      res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
-    } else if (format === 'srt') {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    } else {
-      const contentType = response.headers.get('content-type');
-      if (contentType) res.setHeader('Content-Type', contentType);
-    }
-
-    // Allow CORS for subtitle tracks
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    
-    const text = await response.text();
-    res.send(text);
-  } catch (err) {
-    console.error(`[Subtitles] Error:`, err);
-    res.status(500).end();
-  }
-});
-
 // GET /api/images/:itemId/:imageType - Proxy Jellyfin images
 streamRoutes.get('/images/:itemId/:imageType', async (req: Request, res: Response) => {
   try {
