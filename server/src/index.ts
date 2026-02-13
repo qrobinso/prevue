@@ -52,8 +52,9 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/servers', serverRoutes);
 
 // Proxy routes for Jellyfin streams and images (mounted at /api root)
-import { streamRoutes } from './routes/stream.js';
+import { streamRoutes, startTranscodeIdleCleanup } from './routes/stream.js';
 app.use('/api', streamRoutes);
+startTranscodeIdleCleanup(app);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -95,18 +96,25 @@ async function bootSequence() {
     console.log('[Prevue] Syncing Jellyfin library...');
     await jellyfinClient.syncLibrary();
 
-    console.log('[Prevue] Auto-generating channels...');
-    await channelManager.autoGenerateChannels();
+    // Only auto-generate channels if none exist (preserve user's preset selections)
+    const existingChannels = db.prepare('SELECT COUNT(*) as count FROM channels').get() as { count: number };
+    if (existingChannels.count === 0) {
+      console.log('[Prevue] No channels found, auto-generating...');
+      await channelManager.autoGenerateChannels();
+    } else {
+      console.log(`[Prevue] Found ${existingChannels.count} existing channels, keeping them.`);
+    }
 
-    console.log('[Prevue] Generating schedules...');
-    await scheduleEngine.generateAllSchedules();
+    // Extend schedules to ensure 24 hours of content
+    console.log('[Prevue] Extending schedules (ensuring 24h of content)...');
+    await scheduleEngine.extendSchedules();
 
     console.log('[Prevue] Boot sequence complete!');
   } catch (err) {
     console.error('[Prevue] Boot error:', err);
   }
 
-  // Start schedule maintenance interval (every 15 minutes)
+  // Schedule maintenance: quick check every 15 minutes
   setInterval(async () => {
     try {
       await scheduleEngine.maintainSchedules();
@@ -114,4 +122,16 @@ async function bootSequence() {
       console.error('[Prevue] Schedule maintenance error:', err);
     }
   }, 15 * 60 * 1000);
+
+  // Schedule extension: ensure 24h of content every 4 hours
+  setInterval(async () => {
+    try {
+      const hasServer = jellyfinClient.getActiveServer();
+      if (!hasServer) return;
+      console.log('[Prevue] Running 4-hour schedule extension...');
+      await scheduleEngine.extendSchedules();
+    } catch (err) {
+      console.error('[Prevue] Schedule extension error:', err);
+    }
+  }, 4 * 60 * 60 * 1000);
 }

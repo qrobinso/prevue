@@ -115,6 +115,7 @@ export interface ScheduleProgram {
   type: 'program' | 'interstitial';
   content_type: 'movie' | 'episode' | null;
   thumbnail_url: string | null;
+  banner_url: string | null;
   year: number | null;
   rating: string | null;
 }

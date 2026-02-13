@@ -1,9 +1,26 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
+import type { JellyfinClient } from '../services/JellyfinClient.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 
 export const scheduleRoutes = Router();
+
+// GET /api/schedule/item/:itemId - Get program/item details (overview, genres) for guide modal
+scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
+  try {
+    const { jellyfinClient } = req.app.locals;
+    const itemId = req.params.itemId as string;
+    if (!itemId) {
+      res.status(400).json({ error: 'itemId required' });
+      return;
+    }
+    const details = await (jellyfinClient as JellyfinClient).getItemDetails(itemId);
+    res.json(details);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
 
 // GET /api/schedule - Get full schedule for all channels
 scheduleRoutes.get('/', (req: Request, res: Response) => {

@@ -271,6 +271,40 @@ export class JellyfinClient {
     return this.libraryItems.get(id);
   }
 
+  /**
+   * Get item details (e.g. Overview) by ID. Uses cache first, then fetches from Jellyfin if needed.
+   */
+  async getItemDetails(itemId: string): Promise<{ overview: string | null; genres?: string[] }> {
+    const cached = this.libraryItems.get(itemId);
+    if (cached) {
+      return {
+        overview: cached.Overview ?? null,
+        genres: cached.Genres ?? undefined,
+      };
+    }
+    const api = this.getApi();
+    const itemsApi = getItemsApi(api);
+    const userId = this.getUserId();
+    try {
+      const response = await itemsApi.getItems({
+        userId,
+        ids: [itemId],
+        fields: ['Overview', 'Genres'],
+      });
+      const item = response.data.Items?.[0] as JellyfinItem | undefined;
+      if (!item) {
+        return { overview: null };
+      }
+      return {
+        overview: item.Overview ?? null,
+        genres: item.Genres ?? undefined,
+      };
+    } catch (err) {
+      console.error('[Jellyfin] getItemDetails failed:', err);
+      return { overview: null };
+    }
+  }
+
   getItemsByGenre(genre: string): JellyfinItem[] {
     return this.getLibraryItems().filter(
       item => item.Genres?.some(g => g.toLowerCase() === genre.toLowerCase())
@@ -370,7 +404,8 @@ export class JellyfinClient {
   // ─── Playback Session ──────────────────────────────────
 
   /**
-   * Get playback info including a PlaySessionId for streaming
+   * Get playback info including a PlaySessionId for streaming.
+   * Uses a device profile that prefers direct play / direct stream (no transcoding) when possible.
    */
   async getPlaybackInfo(itemId: string): Promise<PlaybackInfoResponse> {
     const api = this.getApi();
@@ -382,8 +417,13 @@ export class JellyfinClient {
         itemId,
         userId,
         playbackInfoDto: {
+          EnableDirectPlay: true,
+          EnableDirectStream: true,
+          EnableTranscoding: true,
+          AllowVideoStreamCopy: true,
+          AllowAudioStreamCopy: true,
           DeviceProfile: {
-            MaxStreamingBitrate: 20000000,
+            MaxStreamingBitrate: 120000000,
             TranscodingProfiles: [
               {
                 Container: 'ts',
@@ -398,10 +438,10 @@ export class JellyfinClient {
             ],
             DirectPlayProfiles: [
               {
-                Container: 'mp4,mkv,webm',
+                Container: 'mp4,mkv,webm,m4v',
                 Type: 'Video',
-                VideoCodec: 'h264,hevc,vp9',
-                AudioCodec: 'aac,mp3,opus',
+                VideoCodec: 'h264,hevc,vp9,av1',
+                AudioCodec: 'aac,mp3,opus,ac3,eac3',
               },
             ],
           },

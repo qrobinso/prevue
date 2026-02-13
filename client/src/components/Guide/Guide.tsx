@@ -3,6 +3,7 @@ import { useSchedule } from '../../hooks/useSchedule';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import GuideGrid from './GuideGrid';
 import PreviewPanel from './PreviewPanel';
+import ProgramInfoModal from './ProgramInfoModal';
 import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours } from '../Settings/DisplaySettings';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
@@ -23,6 +24,8 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   const [focusedProgramIdx, setFocusedProgramIdx] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
   const hasRestoredPosition = useRef(false);
+  /** When returning from player, scroll this channel to top once; cleared after scroll */
+  const [scrollToChannelIdxOnce, setScrollToChannelIdxOnce] = useState<number | null>(null);
   // Store the initial channel ID so we can restore it even if channels load later
   const initialChannelIdRef = useRef(initialChannelId);
   
@@ -90,11 +93,18 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
     if (idx >= 0) {
       setFocusedChannelIdx(idx);
       setFocusedProgramIdx(findCurrentProgramIdx(channels[idx].id));
-      // Also set auto-scroll offset so the channel is visible
       setAutoScrollOffset(idx);
+      setScrollToChannelIdxOnce(idx); // So grid scrolls this channel to top
       hasRestoredPosition.current = true;
     }
   }, [channels, scheduleByChannel, findCurrentProgramIdx]);
+
+  // Clear one-time scroll target after grid has snapped (so normal auto-scroll/focus scroll takes over)
+  useEffect(() => {
+    if (scrollToChannelIdxOnce === null) return;
+    const t = setTimeout(() => setScrollToChannelIdxOnce(null), 100);
+    return () => clearTimeout(t);
+  }, [scrollToChannelIdxOnce]);
 
   // Auto-scroll through channels (page at a time, like classic TV Guide)
   // This only moves the display, not the user's selection
@@ -152,6 +162,62 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   const focusedChannel = channels[focusedChannelIdx] || null;
   const focusedPrograms = focusedChannel ? scheduleByChannel.get(focusedChannel.id) || [] : [];
   const focusedProgram = focusedPrograms[focusedProgramIdx] || null;
+
+  // Compute the currently airing program from schedule + currentTime (updates every second).
+  // This ensures the preview automatically switches when one program ends and the next starts,
+  // instead of waiting for the 60-second schedule refresh.
+  const currentAiringProgram = focusedChannel ? (() => {
+    const programs = scheduleByChannel.get(focusedChannel.id) || [];
+    const now = currentTime.getTime();
+    return programs.find(p => {
+      const start = new Date(p.start_time).getTime();
+      const end = new Date(p.end_time).getTime();
+      return now >= start && now < end;
+    }) ?? null;
+  })() : null;
+
+  /** When set, show program info modal (future program click). */
+  const [programInfoModal, setProgramInfoModal] = useState<{ channel: Channel; program: ScheduleProgram } | null>(null);
+
+  // Fullscreen support
+  const guideRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(() => {
+    const el = guideRef.current;
+    if (!el) return;
+    const doc = document as Document & { exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void; msExitFullscreen?: () => void };
+    const fsEl = (document as { fullscreenElement?: Element | null; webkitFullscreenElement?: Element | null; msFullscreenElement?: Element | null }).fullscreenElement
+      ?? (document as { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
+      ?? (document as { msFullscreenElement?: Element | null }).msFullscreenElement;
+    if (fsEl === el) {
+      if (doc.exitFullscreen) doc.exitFullscreen();
+      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+      else if (doc.msExitFullscreen) doc.msExitFullscreen();
+    } else {
+      const htmlEl = el as HTMLElement & { requestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => void; msRequestFullscreen?: () => void };
+      if (htmlEl.requestFullscreen) htmlEl.requestFullscreen();
+      else if (htmlEl.webkitRequestFullscreen) htmlEl.webkitRequestFullscreen();
+      else if (htmlEl.msRequestFullscreen) htmlEl.msRequestFullscreen();
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const fsEl = (document as { fullscreenElement?: Element | null; webkitFullscreenElement?: Element | null; msFullscreenElement?: Element | null }).fullscreenElement
+        ?? (document as { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
+        ?? (document as { msFullscreenElement?: Element | null }).msFullscreenElement;
+      setIsFullscreen(fsEl === guideRef.current);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    document.addEventListener('MSFullscreenChange', onFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('webkitfullscreenchange', onFsChange);
+      document.removeEventListener('MSFullscreenChange', onFsChange);
+    };
+  }, []);
 
   const handleUp = useCallback(() => {
     pauseAutoScroll();
@@ -247,7 +313,15 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   }
 
   return (
-    <div className="guide">
+    <div className={`guide ${isFullscreen ? 'guide-fullscreen' : ''}`} ref={guideRef}>
+      <button
+        className="guide-fullscreen-btn"
+        onClick={toggleFullscreen}
+        title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+      >
+        {isFullscreen ? '⊡' : '⛶'}
+      </button>
       <button
         className="guide-settings-btn"
         onClick={onOpenSettings}
@@ -257,11 +331,20 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
       </button>
       <PreviewPanel
         channel={focusedChannel}
-        program={focusedChannel?.current_program || focusedProgram}
+        program={currentAiringProgram}
         currentTime={currentTime}
         streamingPaused={streamingPaused}
         onTune={handleEnter}
+        onSwipeUp={handleUp}
+        onSwipeDown={handleDown}
       />
+      {programInfoModal && (
+        <ProgramInfoModal
+          channel={programInfoModal.channel}
+          program={programInfoModal.program}
+          onClose={() => setProgramInfoModal(null)}
+        />
+      )}
       <GuideGrid
         channels={channels}
         scheduleByChannel={scheduleByChannel}
@@ -270,7 +353,7 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
         currentTime={currentTime}
         visibleChannels={visibleChannels}
         guideHours={guideHours}
-        scrollToChannelIdx={autoScrollEnabled && !autoScrollPaused ? autoScrollOffset : undefined}
+        scrollToChannelIdx={scrollToChannelIdxOnce ?? (autoScrollEnabled && !autoScrollPaused ? autoScrollOffset : undefined)}
         onChannelClick={(chIdx) => {
           pauseAutoScroll();
           setFocusedChannelIdx(chIdx);
@@ -281,12 +364,21 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
         }}
         onProgramClick={(chIdx, progIdx) => {
           pauseAutoScroll();
-          setFocusedChannelIdx(chIdx);
-          setFocusedProgramIdx(progIdx);
           const ch = channels[chIdx];
-          const progs = scheduleByChannel.get(ch.id) || [];
+          const progs = scheduleByChannel.get(ch?.id ?? 0) || [];
           const prog = progs[progIdx];
-          if (ch && prog) onTune(ch, prog);
+          if (!ch || !prog) return;
+          const now = Date.now();
+          const progStart = new Date(prog.start_time).getTime();
+          if (progStart > now) {
+            // Future program: only show info modal, don't change channel/preview
+            setProgramInfoModal({ channel: ch, program: prog });
+          } else {
+            // Current/past program: change selection and tune
+            setFocusedChannelIdx(chIdx);
+            setFocusedProgramIdx(progIdx);
+            onTune(ch, prog);
+          }
         }}
       />
     </div>

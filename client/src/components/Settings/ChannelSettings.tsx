@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   getChannels, 
   deleteChannel, 
@@ -8,6 +8,8 @@ import {
   getChannelPresets,
   getSelectedPresets,
   generateChannels,
+  getSettings,
+  updateSettings,
   type ChannelWithProgram,
   type ChannelPresetData,
   type ChannelPreset,
@@ -15,6 +17,30 @@ import {
 import { wsClient } from '../../services/websocket';
 
 type ViewMode = 'list' | 'presets';
+
+const PRESET_MULTIPLIER_STORAGE_KEY = 'prevue_preset_multipliers';
+const MULTIPLIER_OPTIONS = [1, 2, 3, 4] as const;
+
+function loadSavedMultipliers(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(PRESET_MULTIPLIER_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      return typeof parsed === 'object' && parsed !== null ? parsed : {};
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function saveMultipliers(m: Record<string, number>) {
+  try {
+    localStorage.setItem(PRESET_MULTIPLIER_STORAGE_KEY, JSON.stringify(m));
+  } catch {
+    // ignore
+  }
+}
 
 interface GenerationProgress {
   step: string;
@@ -27,6 +53,7 @@ export default function ChannelSettings() {
   const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
   const [presetData, setPresetData] = useState<ChannelPresetData | null>(null);
   const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
+  const [presetMultipliers, setPresetMultipliers] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [aiAvailable, setAiAvailable] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -39,6 +66,8 @@ export default function ChannelSettings() {
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('presets');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [separateContentTypes, setSeparateContentTypes] = useState(true);
+  const separateLoadedRef = useRef(false);
 
   // Subscribe to WebSocket for progress updates
   useEffect(() => {
@@ -56,17 +85,34 @@ export default function ChannelSettings() {
 
   const loadData = async () => {
     try {
-      const [channelsData, aiStatus, presetsData, savedPresets] = await Promise.all([
+      const [channelsData, aiStatus, presetsData, savedPresets, settingsData] = await Promise.all([
         getChannels(),
         getAIStatus().catch(() => ({ available: false })),
         getChannelPresets(),
         getSelectedPresets().catch(() => []),
+        getSettings().catch(() => ({})),
       ]);
       setChannels(channelsData);
       setAiAvailable(aiStatus.available);
       setPresetData(presetsData);
-      setSelectedPresets(new Set(savedPresets));
-      
+      if (!separateLoadedRef.current) {
+        setSeparateContentTypes(settingsData.separate_content_types !== false);
+        separateLoadedRef.current = true;
+      }
+      const savedSet = new Set(savedPresets);
+      setSelectedPresets(savedSet);
+      // Derive multipliers from saved list when expanded (duplicates present); else use saved/localStorage
+      const fromServer: Record<string, number> = {};
+      for (const id of savedPresets) {
+        fromServer[id] = (fromServer[id] ?? 0) + 1;
+      }
+      const hasExpanded = savedPresets.length > savedSet.size;
+      const savedMultipliers = loadSavedMultipliers();
+      const multipliers = hasExpanded
+        ? fromServer
+        : { ...savedMultipliers, ...Object.fromEntries([...savedSet].map(id => [id, savedMultipliers[id] ?? 1])) };
+      setPresetMultipliers(multipliers);
+
       // Expand all categories by default
       setExpandedCategories(new Set(presetsData.categories.map(c => c.id)));
     } catch {
@@ -126,9 +172,36 @@ export default function ChannelSettings() {
         newSet.delete(presetId);
       } else {
         newSet.add(presetId);
+        setPresetMultipliers(m => {
+          const next = { ...m };
+          if (next[presetId] == null) next[presetId] = 1;
+          return next;
+        });
       }
       return newSet;
     });
+  };
+
+  const setMultiplier = (presetId: string, value: number) => {
+    setPresetMultipliers(prev => {
+      const next = { ...prev, [presetId]: value };
+      saveMultipliers(next);
+      return next;
+    });
+  };
+
+  const getMultiplier = (presetId: string): number =>
+    presetMultipliers[presetId] ?? 1;
+
+  const handleSeparateToggle = async () => {
+    const newValue = !separateContentTypes;
+    setSeparateContentTypes(newValue);
+    try {
+      await updateSettings({ separate_content_types: newValue });
+    } catch {
+      // Revert on failure
+      setSeparateContentTypes(!newValue);
+    }
   };
 
   const toggleCategory = (categoryId: string) => {
@@ -143,6 +216,23 @@ export default function ChannelSettings() {
     });
   };
 
+  // Build preset list in UI order (by category, then preset) so same channel type is back-to-back: Action, Action 2, Action 3, etc.
+  const expandedPresetIds = useMemo(() => {
+    const ids: string[] = [];
+    if (!presetData) return ids;
+    for (const category of presetData.categories) {
+      const categoryPresets = presetData.presets.filter(p => p.category === category.id);
+      for (const preset of categoryPresets) {
+        if (!selectedPresets.has(preset.id)) continue;
+        const count = getMultiplier(preset.id);
+        for (let i = 0; i < count; i++) ids.push(preset.id);
+      }
+    }
+    return ids;
+  }, [presetData, selectedPresets, presetMultipliers]);
+
+  const totalChannelCount = expandedPresetIds.length;
+
   const handleRegenerate = async () => {
     if (selectedPresets.size === 0) {
       setError('Please select at least one channel type');
@@ -152,7 +242,7 @@ export default function ChannelSettings() {
     setGenerationProgress({ step: 'starting', message: 'Starting channel generation...' });
     setError('');
     try {
-      await generateChannels(Array.from(selectedPresets));
+      await generateChannels(expandedPresetIds);
       await loadData();
     } catch (err) {
       setError((err as Error).message);
@@ -202,6 +292,28 @@ export default function ChannelSettings() {
             Select channel types to add to your lineup.
           </p>
 
+          {/* Content Type Separation Toggle */}
+          <div className="settings-separate-toggle">
+            <div className="settings-toggle-row">
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={separateContentTypes}
+                  onChange={handleSeparateToggle}
+                />
+                <span className="settings-toggle-slider" />
+              </label>
+              <span className="settings-toggle-label">
+                {separateContentTypes ? 'SEPARATE MOVIES & TV' : 'MIX MOVIES & TV'}
+              </span>
+            </div>
+            <p className="settings-field-hint" style={{ marginTop: 4 }}>
+              {separateContentTypes
+                ? 'Each channel type creates separate movie and TV channels.'
+                : 'Movies and TV shows are mixed together in each channel.'}
+            </p>
+          </div>
+
           {/* Regenerate Button */}
           <div className="settings-preset-actions">
             <button
@@ -209,7 +321,7 @@ export default function ChannelSettings() {
               onClick={handleRegenerate}
               disabled={generating || selectedPresets.size === 0}
             >
-              {generating ? 'GENERATING...' : `REGENERATE CHANNELS (${selectedPresets.size} SELECTED)`}
+              {generating ? 'GENERATING...' : `REGENERATE CHANNELS (${totalChannelCount} CHANNELS)`}
             </button>
           </div>
 
@@ -256,23 +368,42 @@ export default function ChannelSettings() {
                       {categoryPresets.map(preset => {
                         const isSelected = selectedPresets.has(preset.id);
                         const isDynamic = preset.isDynamic;
-                        
+                        const multiplier = getMultiplier(preset.id);
+
                         return (
-                          <button
+                          <div
                             key={preset.id}
-                            className={`settings-preset-item ${isSelected ? 'selected' : ''} ${isDynamic ? 'dynamic' : ''}`}
-                            onClick={() => togglePreset(preset.id)}
+                            className={`settings-preset-item-wrap ${isSelected ? 'selected' : ''}`}
                           >
-                            <span className="settings-preset-check">{isSelected ? '✓' : ''}</span>
-                            <span className="settings-preset-icon">{preset.icon}</span>
-                            <div className="settings-preset-info">
-                              <span className="settings-preset-name">
-                                {preset.name}
-                                {isDynamic && <span className="settings-preset-dynamic-badge">AUTO</span>}
-                              </span>
-                              <span className="settings-preset-desc">{preset.description}</span>
-                            </div>
-                          </button>
+                            <button
+                              className={`settings-preset-item ${isSelected ? 'selected' : ''} ${isDynamic ? 'dynamic' : ''}`}
+                              onClick={() => togglePreset(preset.id)}
+                            >
+                              <span className="settings-preset-check">{isSelected ? '✓' : ''}</span>
+                              <span className="settings-preset-icon">{preset.icon}</span>
+                              <div className="settings-preset-info">
+                                <span className="settings-preset-name">
+                                  {preset.name}
+                                </span>
+                                <span className="settings-preset-desc">{preset.description}</span>
+                              </div>
+                            </button>
+                            {isSelected && (
+                              <div className="settings-preset-multiplier" onClick={e => e.stopPropagation()}>
+                                {MULTIPLIER_OPTIONS.map(n => (
+                                  <button
+                                    key={n}
+                                    type="button"
+                                    className={`settings-multiplier-btn ${multiplier === n ? 'active' : ''}`}
+                                    onClick={() => setMultiplier(preset.id, n)}
+                                    title={`${n} channel${n > 1 ? 's' : ''}`}
+                                  >
+                                    {n}X
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>

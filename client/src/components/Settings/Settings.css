@@ -636,6 +636,14 @@
   color: var(--accent-red);
 }
 
+.settings-blocked-unrated {
+  font-family: var(--font-retro);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-red);
+  opacity: 0.85;
+}
+
 .settings-autosave-indicator {
   font-family: var(--font-retro);
   font-size: 11px;
@@ -1167,6 +1175,18 @@
   border: 1px solid var(--border-grid);
 }
 
+.settings-separate-toggle {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-cell);
+  border-radius: 6px;
+  border: 1px solid var(--border-grid);
+}
+
+.settings-separate-toggle .settings-toggle-row {
+  gap: 10px;
+}
+
 .settings-preset-actions {
   display: flex;
   justify-content: center;
@@ -1326,6 +1346,47 @@
   flex-direction: column;
   padding: 0 8px 8px;
   gap: 4px;
+}
+
+.settings-preset-item-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-preset-item-wrap .settings-preset-item {
+  flex: 1;
+}
+
+.settings-preset-multiplier {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.settings-multiplier-btn {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 6px;
+  min-width: 28px;
+  border: 1px solid var(--border-grid);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.settings-multiplier-btn:hover {
+  border-color: var(--accent-cyan);
+  color: var(--text-primary);
+}
+
+.settings-multiplier-btn.active {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.15);
+  color: var(--accent-cyan);
 }
 
 .settings-preset-item {
@@ -1573,17 +1634,18 @@
 @media (max-width: 767px) {
   .settings-overlay {
     padding: 0;
-    align-items: flex-end;
+    align-items: stretch;
+    justify-content: stretch;
   }
 
   .settings-panel {
     width: 100%;
     max-width: none;
-    height: auto;
-    min-height: 60vh;
-    max-height: 95vh;
-    border-radius: 16px 16px 0 0;
-    border-bottom: none;
+    height: 100%;
+    min-height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    border: none;
   }
 
   .settings-header {

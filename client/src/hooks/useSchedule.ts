@@ -17,8 +17,14 @@ export function useSchedule(): ScheduleData {
   const [error, setError] = useState<string | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setInterval>>();
 
+  const hasLoadedOnce = useRef(false);
+
   const loadData = useCallback(async () => {
-    setLoading(true);
+    // Only show loading spinner on the initial load; background refreshes are silent
+    // so that PreviewPanel (and its HLS stream) is never unmounted mid-playback.
+    if (!hasLoadedOnce.current) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [channelsData, scheduleData] = await Promise.all([
@@ -40,8 +46,12 @@ export function useSchedule(): ScheduleData {
       }
       setScheduleByChannel(schedMap);
       setError(null);
+      hasLoadedOnce.current = true;
     } catch (err) {
-      setError((err as Error).message);
+      // Only set error if we haven't loaded successfully before (don't break the UI on a transient refresh failure)
+      if (!hasLoadedOnce.current) {
+        setError((err as Error).message);
+      }
     } finally {
       setLoading(false);
     }

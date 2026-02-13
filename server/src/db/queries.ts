@@ -99,6 +99,11 @@ export function getChannelById(db: Database.Database, id: number): ChannelParsed
   return row ? parseChannel(row) : undefined;
 }
 
+export function getChannelNames(db: Database.Database): string[] {
+  const rows = db.prepare('SELECT name FROM channels').all() as { name: string }[];
+  return rows.map((r) => r.name);
+}
+
 export function getNextChannelNumber(db: Database.Database): number {
   const result = db.prepare('SELECT MAX(number) as max_num FROM channels').get() as { max_num: number | null };
   return (result.max_num ?? 0) + 1;

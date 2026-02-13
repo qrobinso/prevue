@@ -155,6 +155,7 @@ const RATING_SYSTEMS: RatingSystem[] = [
 export default function FilterSettings() {
   const [genres, setGenres] = useState<GenreInfo[]>([]);
   const [ratings, setRatings] = useState<RatingInfo[]>([]);
+  const [unratedCount, setUnratedCount] = useState(0);
   const [genreFilter, setGenreFilter] = useState<{ mode: string; genres: string[] }>({ mode: 'allow', genres: [] });
   const [contentTypes, setContentTypes] = useState<{ movies: boolean; tv_shows: boolean }>({ movies: true, tv_shows: true });
   const [ratingFilter, setRatingFilter] = useState<{ mode: string; ratings: string[]; ratingSystem: string }>({ 
@@ -221,7 +222,13 @@ export default function FilterSettings() {
           setRatingFilter({ ...filter, mode: 'allow' });
         }
         setGenres(genresData);
-        setRatings(ratingsData);
+        if (Array.isArray(ratingsData)) {
+          setRatings(ratingsData);
+          setUnratedCount(0);
+        } else {
+          setRatings(ratingsData.ratings ?? []);
+          setUnratedCount(ratingsData.unratedCount ?? 0);
+        }
       } catch {
         // Data may not be available if no server is connected
       } finally {
@@ -284,19 +291,6 @@ export default function FilterSettings() {
     });
   };
 
-  const handleContentTypeChange = (type: 'movies' | 'tv_shows', checked: boolean) => {
-    setContentTypes(prev => {
-      const newTypes = { ...prev, [type]: checked };
-      
-      // Auto-save after change
-      if (!initialLoadRef.current) {
-        autoSave(genreFilter, newTypes, ratingFilter);
-      }
-      
-      return newTypes;
-    });
-  };
-
   const handleRatingSystemChange = (systemId: string) => {
     setRatingFilter(prev => {
       const newFilter = {
@@ -352,6 +346,7 @@ export default function FilterSettings() {
   if (loading) return <div className="settings-loading">Loading...</div>;
 
   const blockedCount = getBlockedItemCount();
+  const hasRatingBlocks = ratingFilter.ratings.length > 0;
 
   return (
     <div className="settings-section">
@@ -362,33 +357,16 @@ export default function FilterSettings() {
           <div className="settings-blocked-count">
             <span className="settings-blocked-icon">🚫</span>
             <span className="settings-blocked-text">{blockedCount.toLocaleString()} items blocked</span>
+            {hasRatingBlocks && unratedCount > 0 && (
+              <span className="settings-blocked-unrated">
+                ({unratedCount.toLocaleString()} with no rating)
+              </span>
+            )}
           </div>
         )}
         {saving && (
           <span className="settings-autosave-indicator">Saving...</span>
         )}
-      </div>
-
-      <div className="settings-subsection">
-        <h4>Content Types</h4>
-        <div className="settings-checkboxes">
-          <label className="settings-checkbox">
-            <input
-              type="checkbox"
-              checked={contentTypes.movies}
-              onChange={e => handleContentTypeChange('movies', e.target.checked)}
-            />
-            <span>Movies</span>
-          </label>
-          <label className="settings-checkbox">
-            <input
-              type="checkbox"
-              checked={contentTypes.tv_shows}
-              onChange={e => handleContentTypeChange('tv_shows', e.target.checked)}
-            />
-            <span>TV Shows</span>
-          </label>
-        </div>
       </div>
 
       <div className="settings-subsection">

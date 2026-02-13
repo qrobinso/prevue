@@ -4,11 +4,26 @@ import type { ChannelParsed, ScheduleProgram, ScheduleBlockParsed, JellyfinItem 
 import { JellyfinClient } from './JellyfinClient.js';
 import * as queries from '../db/queries.js';
 import { generateSeed } from '../utils/crypto.js';
-import { getBlockStart, getBlockEnd, getNextBlockStart, snapForwardTo15Min } from '../utils/time.js';
+import { getBlockStart, getBlockEnd, getNextBlockStart, getBlockHours, snapForwardTo15Min } from '../utils/time.js';
 
 const EPISODE_RUN_LENGTH_MIN = 3;
 const EPISODE_RUN_LENGTH_MAX = 4;
 const MAX_GAP_MS = 30 * 60 * 1000; // Maximum 30-minute gap before we try to fill it
+
+/** Kids/family ratings (US); everything else is treated as adult so we don't mix with kids. */
+const KIDS_RATINGS = new Set([
+  'g', 'pg', 'tv-y', 'tv-y7', 'tv-y7-fv', 'tv-g', 'tv-pg'
+]);
+
+function getRatingBucket(rating: string | undefined): 'kids' | 'adult' {
+  if (!rating) return 'adult';
+  return KIDS_RATINGS.has(rating.toLowerCase().trim()) ? 'kids' : 'adult';
+}
+
+function isUnratedOrNotRated(rating: string | undefined): boolean {
+  if (!rating || rating.trim() === '') return true;
+  return rating.toLowerCase().trim() === 'not rated';
+}
 
 /**
  * Tracks which items are playing at which times across all channels.
@@ -162,8 +177,14 @@ export class ScheduleEngine {
     // Create a local tracker if none provided
     const tracker = globalTracker || { itemSlots: new Map() };
 
-    const items = this.getChannelItems(channel);
-    
+    let items = this.getChannelItems(channel);
+
+    // When rating filter is on, exclude unrated / "Not Rated" from the schedule
+    const ratingFilter = (queries.getSetting(this.db, 'rating_filter') as { mode: string; ratings: string[] } | null) ?? { ratings: [] };
+    if (ratingFilter.ratings.length > 0) {
+      items = items.filter(i => !isUnratedOrNotRated(i.OfficialRating));
+    }
+
     if (items.length === 0) {
       // Empty channel - return block with no programs
       return queries.upsertScheduleBlock(
@@ -184,6 +205,13 @@ export class ScheduleEngine {
     const seriesIds = Array.from(seriesMap.keys());
     const standaloneItems = items.filter(i => i.Type === 'Movie');
 
+    // Rating buckets: don't mix kids and adult content
+    const seriesBucket = new Map<string, 'kids' | 'adult'>();
+    for (const [sid, episodes] of seriesMap) {
+      const first = episodes[0];
+      if (first) seriesBucket.set(sid, getRatingBucket(first.OfficialRating));
+    }
+
     // Track episode position per series - start at random positions for variety
     const seriesEpisodeIndex = new Map<string, number>();
     for (const [seriesId, episodes] of seriesMap) {
@@ -196,6 +224,8 @@ export class ScheduleEngine {
     const usedInBlock = new Set<string>();
     let failedAttempts = 0;
     const MAX_FAILED_ATTEMPTS = 50; // Prevent infinite loops
+    /** Current rating bucket so we don't mix kids and adult content. */
+    let lastScheduledBucket: 'kids' | 'adult' | null = null;
 
     while (currentTime.getTime() < blockEndMs && failedAttempts < MAX_FAILED_ATTEMPTS) {
       const remainingMs = blockEndMs - currentTime.getTime();
@@ -217,10 +247,15 @@ export class ScheduleEngine {
       let scheduledSomething = false;
 
       if (doEpisodeRun && seriesIds.length > 0) {
+        // Restrict to same rating bucket (don't mix kids and adult)
+        const seriesIdsInBucket = lastScheduledBucket === null
+          ? seriesIds
+          : seriesIds.filter(s => seriesBucket.get(s) === lastScheduledBucket);
+        const candidateSeriesIds = seriesIdsInBucket.length > 0 ? seriesIdsInBucket : seriesIds;
         // Pick a series (avoid back-to-back same series)
         const seriesId = this.pickRandom(
-          seriesIds.filter(s => s !== lastItemId),
-          seriesIds,
+          candidateSeriesIds.filter(s => s !== lastItemId),
+          candidateSeriesIds,
           rng
         );
         const episodes = seriesMap.get(seriesId) || [];
@@ -252,6 +287,7 @@ export class ScheduleEngine {
               this.addToTracker(tracker, episode.Id, epStartMs, epEndMs);
               usedInBlock.add(episode.Id);
               lastItemId = seriesId;
+              lastScheduledBucket = getRatingBucket(episode.OfficialRating);
               currentTime = endTime;
               episodeIdx = (episodeIdx + attempt + 1) % episodes.length;
               found = true;
@@ -266,8 +302,13 @@ export class ScheduleEngine {
       
       // If episode scheduling didn't work or wasn't chosen, try movies
       if (!scheduledSomething && standaloneItems.length > 0) {
+        // Restrict to same rating bucket (don't mix kids and adult)
+        const moviesInBucket = lastScheduledBucket === null
+          ? standaloneItems
+          : standaloneItems.filter(i => getRatingBucket(i.OfficialRating) === lastScheduledBucket);
+        const moviePool = moviesInBucket.length > 0 ? moviesInBucket : standaloneItems;
         // Get all movies, preferring ones not used in this block and not conflicting
-        const movieCandidates = standaloneItems
+        const movieCandidates = moviePool
           .filter(i => {
             const dur = this.jellyfin.getItemDurationMs(i);
             return dur > 0 && dur <= remainingMs;
@@ -302,6 +343,7 @@ export class ScheduleEngine {
           }
           usedInBlock.add(selected.item.Id);
           lastItemId = selected.item.Id;
+          lastScheduledBucket = getRatingBucket(selected.item.OfficialRating);
           currentTime = endTime;
           scheduledSomething = true;
         }
@@ -312,11 +354,12 @@ export class ScheduleEngine {
         failedAttempts++;
         // Try to make progress by skipping a small amount of time if truly stuck
         if (failedAttempts >= MAX_FAILED_ATTEMPTS / 2) {
-          // Skip 30 minutes and try again
+          // Skip 30 minutes and try again; next content can be any rating bucket
           const skipEnd = new Date(currentTime.getTime() + 30 * 60 * 1000);
           if (skipEnd.getTime() < blockEndMs) {
             programs.push(this.createInterstitial(currentTime, skipEnd, null));
             currentTime = skipEnd;
+            lastScheduledBucket = null;
           } else {
             break;
           }
@@ -344,8 +387,13 @@ export class ScheduleEngine {
           break;
         }
 
+        // Restrict to same rating bucket when filling gaps
+        const gapPool = lastScheduledBucket === null
+          ? allItems
+          : allItems.filter(i => getRatingBucket(i.OfficialRating) === lastScheduledBucket);
+        const itemsForGap = gapPool.length > 0 ? gapPool : allItems;
         // Find items that fit, prioritizing non-conflicting and non-recently-used
-        const candidates = allItems
+        const candidates = itemsForGap
           .map(i => ({
             item: i,
             duration: this.jellyfin.getItemDurationMs(i),
@@ -369,12 +417,14 @@ export class ScheduleEngine {
             this.addToTracker(tracker, item.Id, startMs, endMs);
           }
           usedInBlock.add(item.Id);
+          lastScheduledBucket = getRatingBucket(item.OfficialRating);
           currentTime = endTime;
         } else {
-          // No content fits - create a 30-min interstitial and continue
+          // No content fits - create a 30-min interstitial; next content can be any rating bucket
           const interstitialEnd = new Date(Math.min(startMs + 30 * 60 * 1000, blockEndMs));
           programs.push(this.createInterstitial(currentTime, interstitialEnd, null));
           currentTime = interstitialEnd;
+          lastScheduledBucket = null;
         }
       }
     }
@@ -417,6 +467,55 @@ export class ScheduleEngine {
     // Clean blocks older than 24 hours
     const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     queries.cleanOldScheduleBlocks(this.db, cutoff.toISOString());
+  }
+
+  /**
+   * Extend schedules for all channels to ensure content is available far into the future.
+   * Generates enough blocks so each channel has at least 24 hours of schedule from now.
+   * Designed to run periodically (e.g. every 4 hours) so returning users always have content.
+   */
+  async extendSchedules(): Promise<void> {
+    const channels = queries.getAllChannels(this.db);
+    if (channels.length === 0) return;
+
+    const now = new Date();
+    const currentBlockStart = getBlockStart(now);
+    const blockHours = getBlockHours();
+
+    // Number of blocks needed to cover at least 24 hours from current block start
+    const blocksNeeded = Math.ceil(24 / blockHours) + 1;
+
+    // Calculate the farthest block end for the global tracker
+    let farEnd = new Date(currentBlockStart);
+    for (let i = 0; i < blocksNeeded; i++) {
+      farEnd = new Date(farEnd.getTime() + blockHours * 60 * 60 * 1000);
+    }
+    const tracker = this.buildGlobalTracker(currentBlockStart, farEnd);
+
+    let blocksCreated = 0;
+    for (const channel of channels) {
+      let blockStart = new Date(currentBlockStart);
+      for (let i = 0; i < blocksNeeded; i++) {
+        const existing = queries.getScheduleBlock(
+          this.db, channel.id, blockStart.toISOString()
+        );
+        if (!existing) {
+          await this.generateBlock(channel, blockStart, tracker);
+          blocksCreated++;
+        }
+        blockStart = getNextBlockStart(blockStart);
+      }
+      // Yield to event loop between channels
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    // Clean blocks older than 24 hours
+    const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    queries.cleanOldScheduleBlocks(this.db, cutoff.toISOString());
+
+    if (blocksCreated > 0) {
+      console.log(`[ScheduleEngine] Extended schedules: created ${blocksCreated} new blocks for ${channels.length} channels`);
+    }
   }
 
   /**
@@ -518,6 +617,7 @@ export class ScheduleEngine {
       type: 'program',
       content_type: isEpisode ? 'episode' : 'movie',
       thumbnail_url: `/api/images/${item.Id}/Primary`,
+      banner_url: `/api/images/${item.Id}/Banner`,
       year: item.ProductionYear || null,
       rating: item.OfficialRating || null,
     };
@@ -534,6 +634,7 @@ export class ScheduleEngine {
       type: 'interstitial',
       content_type: null,
       thumbnail_url: nextItem ? `/api/images/${nextItem.Id}/Primary` : null,
+      banner_url: nextItem ? `/api/images/${nextItem.Id}/Banner` : null,
       year: null,
       rating: null,
     };

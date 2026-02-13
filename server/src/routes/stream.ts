@@ -1,3 +1,4 @@
+import type { Express } from 'express';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { JellyfinClient } from '../services/JellyfinClient.js';
@@ -7,6 +8,12 @@ export const streamRoutes = Router();
 // Track active play sessions so we can stop them when user leaves
 // Maps itemId -> playSessionId
 const activeSessions = new Map<string, string>();
+
+// Last proxy activity (segment/playlist request) per itemId — used to stop idle transcodes
+const lastActivityByItemId = new Map<string, number>();
+
+const IDLE_CLEANUP_INTERVAL_MS = 2 * 60 * 1000;  // 2 minutes
+const IDLE_THRESHOLD_MS = 5 * 60 * 1000;         // stop if no activity for 5 minutes
 
 // Request deduplication: coalesce concurrent requests for the same URL
 // This prevents multiple FFmpeg processes from starting when hls.js retries
@@ -24,11 +31,10 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
     const sessionId = playSessionId || activeSessions.get(itemId);
     
     if (sessionId) {
-      // Stop the playback session and delete transcoding job
       await jf.stopPlaybackSession(sessionId);
       await jf.deleteTranscodingJob(sessionId);
       activeSessions.delete(itemId);
-      
+      lastActivityByItemId.delete(itemId);
       console.log(`[Stream] Stopped playback for item: ${itemId}, session: ${sessionId}`);
       res.json({ success: true, stopped: sessionId });
     } else {
@@ -68,8 +74,8 @@ streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
       console.error(`[Stream] Failed to stop session ${playSessionId}:`, err);
     }
   }
-  
   activeSessions.clear();
+  lastActivityByItemId.clear();
   console.log(`[Stream] Stopped ${stopped.length}/${count} sessions`);
   res.json({ cleared: count, stopped });
 });
@@ -82,7 +88,7 @@ export function trackSession(itemId: string, playSessionId: string): void {
 // Helper: rewrite M3U8 URLs to route through our proxy
 function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: string, deviceId: string): string {
   return body.replace(
-    /^(?!#)(.*\.m3u8.*|.*\.ts.*)$/gm,
+    /^(?!#)(.*\.(m3u8|ts|vtt).*)$/gm,
     (match) => {
       // If already absolute URL, extract just the path+query portion
       let path: string;
@@ -206,21 +212,34 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
 
     if (!responseData.ok) {
       console.error(`[Stream Proxy] Jellyfin returned ${responseData.status}`);
-      
-      // On 500 errors, clear the session cache for this item
+
+      // On 500 errors, tell Jellyfin to stop the transcode job so cache can be freed
       if (responseData.status === 500) {
         const match = jellyfinPath.match(/\/Videos\/([^/]+)\//);
-        if (match) {
+        const params = new URLSearchParams(queryString.substring(1));
+        const playSessionId = params.get('PlaySessionId');
+        if (match && playSessionId) {
           const itemId = match[1];
-          if (activeSessions.has(itemId)) {
-            console.log(`[Stream Proxy] Clearing cached session for ${itemId} due to 500 error`);
-            activeSessions.delete(itemId);
+          console.log(`[Stream Proxy] Stopping Jellyfin transcode for ${itemId} due to 500 error`);
+          try {
+            await jf.stopPlaybackSession(playSessionId);
+            await jf.deleteTranscodingJob(playSessionId);
+          } catch (err) {
+            console.error(`[Stream Proxy] Failed to stop session ${playSessionId}:`, err);
           }
+          activeSessions.delete(itemId);
+          lastActivityByItemId.delete(itemId);
         }
       }
-      
+
       res.status(responseData.status).end();
       return;
+    }
+
+    // Track activity so idle cleanup doesn't stop active streams
+    const pathMatch = jellyfinPath.match(/\/Videos\/([^/]+)\//);
+    if (pathMatch) {
+      lastActivityByItemId.set(pathMatch[1], Date.now());
     }
 
     // Forward relevant headers
@@ -252,30 +271,42 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
 // 1. Jellyfin uses static HLS transcoding (not dynamic/on-demand)
 // 2. StartTimeTicks causes FFmpeg conflicts (exit code 234) when switching videos
 // 3. The seek is handled client-side by hls.js using startPosition
+//
+// If Jellyfin logs "FFmpeg exited with code 234" during VAAPI transcoding, that is a
+// Jellyfin/FFmpeg/VAAPI issue (e.g. try disabling "Low power encoding" in Jellyfin
+// transcoding settings). The client recovers by requesting a new stream session on 500s.
 streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
   try {
     const { jellyfinClient } = req.app.locals;
     const jf = jellyfinClient as JellyfinClient;
     const itemId = req.params.itemId as string;
     
-    // Get quality parameters from query string
+    // Get quality and audio track from query string. Omit for "auto" = prefer direct stream (no transcoding).
+    const hasExplicitQuality = req.query.bitrate != null || req.query.maxWidth != null;
     const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : 120000000;
     const maxWidth = req.query.maxWidth ? parseInt(req.query.maxWidth as string, 10) : undefined;
+    const audioStreamIndex = req.query.audioStreamIndex != null
+      ? parseInt(req.query.audioStreamIndex as string, 10)
+      : undefined;
 
     const baseUrl = jf.getBaseUrl();
     const headers = jf.getProxyHeaders();
     const deviceId = jf.getDeviceId();
 
-    // Get playback info without startTicks - let Jellyfin transcode from beginning
+    // Get playback info and session
     const hlsInfo = await jf.getHlsStreamUrl(itemId);
     const playSessionId = hlsInfo.playSessionId;
-    
-    // Track this session so we can stop it when user leaves
-    activeSessions.set(itemId, playSessionId);
-    
-    console.log(`[Stream Master] Created session: ${playSessionId} for item: ${itemId}, bitrate: ${bitrate}, maxWidth: ${maxWidth || 'auto'}`);
 
-    // Build Jellyfin HLS URL with session info and quality settings
+    activeSessions.set(itemId, playSessionId);
+    lastActivityByItemId.set(itemId, Date.now());
+    console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} audioStreamIndex=${audioStreamIndex ?? 'default'}`);
+
+    // Build Jellyfin HLS URL for browser playback via HLS.js.
+    // VideoCodec must be h264 (browsers don't support HEVC/VP9/AV1 in MSE).
+    // AudioCodec should be aac for broad compatibility.
+    // AllowStreamCopy tells FFmpeg to copy streams when input codec matches output.
+    // VideoBitrate explicitly sets the encoding bitrate (Jellyfin bug: resolution is calculated
+    // from bitrate, so setting a high VideoBitrate ensures high resolution output).
     const params = new URLSearchParams({
       DeviceId: deviceId,
       MediaSourceId: itemId,
@@ -283,15 +314,26 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
       VideoCodec: 'h264',
       AudioCodec: 'aac',
       MaxStreamingBitrate: String(bitrate),
+      VideoBitrate: String(bitrate),
       TranscodingMaxAudioChannels: '2',
       SegmentContainer: 'ts',
       MinSegments: '2',
       BreakOnNonKeyFrames: 'true',
     });
-    
-    // Add max width/height if specified (for resolution limiting)
-    if (maxWidth) {
+    if (!hasExplicitQuality) {
+      // Auto: allow stream copy - if source is h264/aac it will be copied (no transcoding).
+      // If source is HEVC/AC3/etc, Jellyfin transcodes to h264/aac for browser compatibility.
+      // MaxWidth/MaxHeight 3840x2160 tells Jellyfin to allow up to 4K resolution.
+      params.set('AllowVideoStreamCopy', 'true');
+      params.set('AllowAudioStreamCopy', 'true');
+      params.set('EnableAutoStreamCopy', 'true');
+      params.set('MaxWidth', '3840');
+      params.set('MaxHeight', '2160');
+    } else if (maxWidth) {
       params.set('MaxWidth', String(maxWidth));
+    }
+    if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
+      params.set('AudioStreamIndex', String(audioStreamIndex));
     }
 
     const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
@@ -302,8 +344,12 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
       console.error(`[Stream Master] Jellyfin returned ${response.status}: ${errorText.slice(0, 500)}`);
-      // Clear session cache on error
+      try {
+        await jf.stopPlaybackSession(playSessionId);
+        await jf.deleteTranscodingJob(playSessionId);
+      } catch (_err) { /* best-effort */ }
       activeSessions.delete(itemId);
+      lastActivityByItemId.delete(itemId);
       res.status(response.status).json({ error: 'Jellyfin stream unavailable' });
       return;
     }
@@ -358,3 +404,39 @@ streamRoutes.get('/images/:itemId/:imageType', async (req: Request, res: Respons
     res.status(500).end();
   }
 });
+
+/**
+ * Start periodic cleanup of idle transcoding sessions so Jellyfin's transcode cache
+ * doesn't grow when clients leave without calling stop (e.g. closed tab).
+ * Call once after app is ready (e.g. from index.ts).
+ */
+export function startTranscodeIdleCleanup(app: Express): void {
+  setInterval(async () => {
+    const jf = app.locals.jellyfinClient as JellyfinClient | undefined;
+    if (!jf) return;
+
+    const now = Date.now();
+    const toStop: { itemId: string; playSessionId: string }[] = [];
+
+    for (const [itemId, playSessionId] of activeSessions.entries()) {
+      const last = lastActivityByItemId.get(itemId) ?? 0;
+      if (now - last >= IDLE_THRESHOLD_MS) {
+        toStop.push({ itemId, playSessionId });
+      }
+    }
+
+    for (const { itemId, playSessionId } of toStop) {
+      try {
+        await jf.stopPlaybackSession(playSessionId);
+        await jf.deleteTranscodingJob(playSessionId);
+        activeSessions.delete(itemId);
+        lastActivityByItemId.delete(itemId);
+        console.log(`[Stream] Idle cleanup: stopped session ${playSessionId} for item ${itemId}`);
+      } catch (err) {
+        console.error(`[Stream] Idle cleanup failed for ${playSessionId}:`, err);
+      }
+    }
+  }, IDLE_CLEANUP_INTERVAL_MS);
+
+  console.log(`[Stream] Idle transcode cleanup every ${IDLE_CLEANUP_INTERVAL_MS / 1000}s (threshold ${IDLE_THRESHOLD_MS / 1000}s)`);
+}

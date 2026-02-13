@@ -52,7 +52,7 @@ function PlayerView({
   onBack 
 }: { 
   channels: ChannelWithProgram[];
-  onBack: () => void;
+  onBack: (channel?: Channel) => void;
 }) {
   const { channelNumber } = useParams<{ channelNumber: string }>();
   const navigate = useNavigate();
@@ -77,8 +77,24 @@ function PlayerView({
     }
   }, [channelNumber, channels, navigate]);
 
+  const handleChannelUp = useCallback(() => {
+    if (channels.length === 0 || !currentChannel) return;
+    const idx = channels.findIndex(ch => ch.id === currentChannel.id);
+    const prevIdx = idx <= 0 ? channels.length - 1 : idx - 1;
+    navigate(`/channel/${channels[prevIdx].number}`);
+  }, [channels, currentChannel, navigate]);
+
+  const handleChannelDown = useCallback(() => {
+    if (channels.length === 0 || !currentChannel) return;
+    const idx = channels.findIndex(ch => ch.id === currentChannel.id);
+    const nextIdx = idx < 0 || idx >= channels.length - 1 ? 0 : idx + 1;
+    navigate(`/channel/${channels[nextIdx].number}`);
+  }, [channels, currentChannel, navigate]);
+
   useKeyboard('player', {
     onEscape: onBack,
+    onUp: handleChannelUp,
+    onDown: handleChannelDown,
   });
 
   if (!currentChannel) {
@@ -95,7 +111,9 @@ function PlayerView({
     <Player
       channel={currentChannel}
       program={currentProgram}
-      onBack={onBack}
+      onBack={() => onBack(currentChannel)}
+      onChannelUp={handleChannelUp}
+      onChannelDown={handleChannelDown}
     />
   );
 }
@@ -128,7 +146,8 @@ function AppContent() {
     navigate(`/channel/${channel.number}`);
   }, [navigate]);
 
-  const handleBackToGuide = useCallback(() => {
+  const handleBackToGuide = useCallback((channel?: Channel) => {
+    if (channel) setLastChannelId(channel.id);
     navigate('/');
   }, [navigate]);
 

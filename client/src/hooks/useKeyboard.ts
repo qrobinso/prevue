@@ -24,10 +24,14 @@ export function useKeyboard(view: AppView, handlers: KeyboardHandlers) {
           handlers.onEscape?.();
           break;
         case 'ArrowUp':
+        case 'w':
+        case 'W':
           e.preventDefault();
           handlers.onUp?.();
           break;
         case 'ArrowDown':
+        case 's':
+        case 'S':
           e.preventDefault();
           handlers.onDown?.();
           break;

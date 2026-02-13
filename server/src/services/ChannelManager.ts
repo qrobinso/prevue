@@ -52,9 +52,12 @@ export class ChannelManager {
     const created: ChannelParsed[] = [];
     const libraryItems = this.jellyfin.getLibraryItems();
     const totalPresets = presetIds.length;
+    const presetCountThisBatch = new Map<string, number>();
 
     // Get global filter settings
     const settings = this.getFilterSettings();
+
+    const usedNames = new Set(queries.getChannelNames(this.db));
 
     for (let i = 0; i < presetIds.length; i++) {
       if (created.length >= maxCount) break;
@@ -63,12 +66,36 @@ export class ChannelManager {
       const preset = getPresetById(presetId);
       if (!preset) continue;
 
+      // Count consecutive same preset (multiplier) so we create same type back-to-back: Action, Action 2, Action 3
+      let runLength = 0;
+      while (i + runLength < presetIds.length && presetIds[i + runLength] === presetId) runLength++;
+
       this.reportProgress('generating', `Processing: ${preset.name}...`, i + 1, totalPresets);
 
-      // Handle dynamic presets (genres, eras, collections, etc.)
+      // Handle dynamic presets (genres, eras, collections, etc.) — create runLength channels per type, back-to-back
       if (preset.isDynamic) {
-        const dynamicChannels = await this.generateDynamicChannels(preset, libraryItems, maxCount - created.length);
-        created.push(...dynamicChannels);
+        const maxConfigs = Math.floor((maxCount - created.length) / runLength);
+        if (maxConfigs <= 0) { i += runLength - 1; continue; }
+        let configs = await this.getDynamicChannelConfigs(preset, libraryItems, maxConfigs, usedNames);
+
+        // Apply content type separation if enabled (only when both types are allowed)
+        const shouldSeparate = settings.separateContentTypes && settings.contentTypes.movies && settings.contentTypes.tv_shows;
+        const presetAllowsBoth = preset.filter.includeMovies !== false && preset.filter.includeEpisodes !== false;
+        if (shouldSeparate && presetAllowsBoth) {
+          const isCastCrew = ['directors', 'actors', 'composers'].includes(preset.dynamicType || '');
+          const minDuration = isCastCrew ? MIN_CAST_CHANNEL_DURATION_MS : MIN_CHANNEL_DURATION_MS;
+          configs = this.splitConfigsByContentType(configs, usedNames, minDuration);
+        }
+
+        for (const config of configs) {
+          for (let copy = 0; copy < runLength && created.length < maxCount; copy++) {
+            const channelName = copy === 0 ? config.name : this.getUniqueChannelName(`${config.name} ${copy + 1}`, usedNames);
+            const channel = queries.createChannel(this.db, { ...config, name: channelName });
+            created.push(channel);
+            console.log(`[ChannelManager] Created ${preset.dynamicType} channel: ${channelName} (${config.item_ids.length} items)`);
+          }
+        }
+        i += runLength - 1;
         continue;
       }
 
@@ -101,16 +128,49 @@ export class ChannelManager {
         continue;
       }
 
-      const channel = queries.createChannel(this.db, {
-        name: preset.name,
-        type: 'preset',
-        preset_id: preset.id,
-        filter: preset.filter,
-        item_ids: filteredItems.map(i => i.Id),
-      });
+      // Apply content type separation if enabled (only for presets that include both types)
+      const shouldSeparateStatic = settings.separateContentTypes && settings.contentTypes.movies && settings.contentTypes.tv_shows;
+      const presetAllowsBothTypes = preset.filter.includeMovies !== false && preset.filter.includeEpisodes !== false;
 
-      created.push(channel);
-      console.log(`[ChannelManager] Created preset channel: ${preset.name} (${filteredItems.length} items)`);
+      if (shouldSeparateStatic && presetAllowsBothTypes) {
+        const splits = [
+          { items: filteredItems.filter(i => i.Type === 'Movie'), suffix: 'Movies', includeMovies: true, includeEpisodes: false },
+          { items: filteredItems.filter(i => i.Type === 'Episode'), suffix: 'TV', includeMovies: false, includeEpisodes: true },
+        ];
+
+        for (const split of splits) {
+          if (split.items.length === 0 || created.length >= maxCount) continue;
+          const splitDuration = split.items.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+          if (splitDuration < MIN_CHANNEL_DURATION_MS) continue;
+
+          const channelName = this.getUniqueChannelName(`${preset.name} ${split.suffix}`, usedNames);
+          const channel = queries.createChannel(this.db, {
+            name: channelName,
+            type: 'preset',
+            preset_id: `${preset.id}-${split.suffix.toLowerCase()}`,
+            filter: { ...preset.filter, includeMovies: split.includeMovies, includeEpisodes: split.includeEpisodes },
+            item_ids: split.items.map(i => i.Id),
+          });
+          created.push(channel);
+          console.log(`[ChannelManager] Created preset channel: ${channelName} (${split.items.length} items)`);
+        }
+      } else {
+        const countForPreset = (presetCountThisBatch.get(presetId) ?? 0) + 1;
+        presetCountThisBatch.set(presetId, countForPreset);
+        const channelName = countForPreset > 1 ? `${preset.name} ${countForPreset}` : preset.name;
+
+        const channel = queries.createChannel(this.db, {
+          name: channelName,
+          type: 'preset',
+          preset_id: preset.id,
+          filter: preset.filter,
+          item_ids: filteredItems.map(i => i.Id),
+        });
+
+        created.push(channel);
+        usedNames.add(channelName);
+        console.log(`[ChannelManager] Created preset channel: ${channelName} (${filteredItems.length} items)`);
+      }
     }
 
     console.log(`[ChannelManager] Generated ${created.length} preset channels`);
@@ -127,11 +187,200 @@ export class ChannelManager {
     }
   }
 
+  /** Config for creating one channel (used to create multiple copies back-to-back). */
+  private async getDynamicChannelConfigs(
+    preset: typeof CHANNEL_PRESETS[0],
+    libraryItems: JellyfinItem[],
+    maxCount: number,
+    usedNames: Set<string>
+  ): Promise<Array<{ name: string; type: 'preset'; preset_id: string; filter: ChannelFilter; item_ids: string[]; genre?: string }>> {
+    const configs: Array<{ name: string; type: 'preset'; preset_id: string; filter: ChannelFilter; item_ids: string[]; genre?: string }> = [];
+    const settings = this.getFilterSettings();
+
+    if (preset.dynamicType === 'genres') {
+      const genres = this.jellyfin.getGenres();
+      const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
+      for (const [genre, items] of sortedGenres) {
+        if (configs.length >= maxCount) break;
+        if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
+        const filteredItems = items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const g of itemGenres) {
+            if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
+        const name = this.getUniqueChannelName(genre, usedNames);
+        configs.push({
+          name,
+          type: 'preset',
+          preset_id: `${preset.id}:${genre.toLowerCase().replace(/\s+/g, '-')}`,
+          filter: { ...preset.filter, genres: [genre] },
+          item_ids: filteredItems.map(i => i.Id),
+          genre,
+        });
+      }
+    } else if (preset.dynamicType === 'eras') {
+      const decades = this.getDecadesFromLibrary(libraryItems);
+      for (const decade of decades) {
+        if (configs.length >= maxCount) break;
+        const filter: ChannelFilter = { ...preset.filter, minYear: decade.startYear, maxYear: decade.endYear };
+        let filteredItems = this.filterItemsByChannelFilter(libraryItems, filter);
+        filteredItems = filteredItems.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
+        const name = this.getUniqueChannelName(decade.name, usedNames);
+        configs.push({ name, type: 'preset', preset_id: `${preset.id}:${decade.id}`, filter, item_ids: filteredItems.map(i => i.Id) });
+      }
+    } else if (preset.dynamicType === 'directors') {
+      const directors = this.getDirectorsFromLibrary(libraryItems);
+      for (const director of directors) {
+        if (configs.length >= maxCount) break;
+        const filteredItems = director.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (totalDuration < MIN_CAST_CHANNEL_DURATION_MS) continue;
+        const name = this.getUniqueChannelName(director.name, usedNames);
+        configs.push({
+          name,
+          type: 'preset',
+          preset_id: `${preset.id}:${director.name.toLowerCase().replace(/\s+/g, '-')}`,
+          filter: { ...preset.filter, directors: [director.name] },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+      }
+    } else if (preset.dynamicType === 'actors') {
+      const actors = this.getActorsFromLibrary(libraryItems);
+      for (const actor of actors) {
+        if (configs.length >= maxCount) break;
+        const filteredItems = actor.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (totalDuration < MIN_CAST_CHANNEL_DURATION_MS) continue;
+        const name = this.getUniqueChannelName(actor.name, usedNames);
+        configs.push({
+          name,
+          type: 'preset',
+          preset_id: `${preset.id}:${actor.name.toLowerCase().replace(/\s+/g, '-')}`,
+          filter: { ...preset.filter, actors: [actor.name] },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+      }
+    } else if (preset.dynamicType === 'composers') {
+      const composers = this.getComposersFromLibrary(libraryItems);
+      for (const composer of composers) {
+        if (configs.length >= maxCount) break;
+        const filteredItems = composer.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (totalDuration < MIN_CAST_CHANNEL_DURATION_MS) continue;
+        const name = this.getUniqueChannelName(composer.name, usedNames);
+        configs.push({
+          name,
+          type: 'preset',
+          preset_id: `${preset.id}:${composer.name.toLowerCase().replace(/\s+/g, '-')}`,
+          filter: { ...preset.filter, composers: [composer.name] },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+      }
+    } else if (preset.dynamicType === 'collections') {
+      const collections = await this.jellyfin.getCollections();
+      for (const collection of collections) {
+        if (configs.length >= maxCount) break;
+        const filteredItems = collection.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
+        const name = this.getUniqueChannelName(collection.name, usedNames);
+        configs.push({
+          name,
+          type: 'preset',
+          preset_id: `${preset.id}:${collection.id}`,
+          filter: { ...preset.filter, collectionId: collection.id },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+      }
+    } else if (preset.dynamicType === 'studios') {
+      const studios = this.getStudiosFromLibrary(libraryItems);
+      for (const studio of studios) {
+        if (configs.length >= maxCount) break;
+        const filteredItems = studio.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
+        const name = this.getUniqueChannelName(studio.name, usedNames);
+        configs.push({
+          name,
+          type: 'preset',
+          preset_id: `${preset.id}:${studio.name.toLowerCase().replace(/\s+/g, '-')}`,
+          filter: { ...preset.filter, studios: [studio.name] },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+      }
+    }
+    return configs;
+  }
+
   /**
    * Generate multiple channels from a dynamic preset (genres, eras, collections, etc.)
    */
   private async generateDynamicChannels(preset: typeof CHANNEL_PRESETS[0], libraryItems: JellyfinItem[], maxCount: number): Promise<ChannelParsed[]> {
     const created: ChannelParsed[] = [];
+    const usedNames = new Set(queries.getChannelNames(this.db));
 
     if (preset.dynamicType === 'genres') {
       // Generate genre-based channels
@@ -166,8 +415,9 @@ export class ChannelManager {
 
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
 
+        const channelName = this.getUniqueChannelName(genre, usedNames);
         const channel = queries.createChannel(this.db, {
-          name: genre,
+          name: channelName,
           type: 'preset',
           preset_id: `${preset.id}:${genre.toLowerCase().replace(/\s+/g, '-')}`,
           filter: { ...preset.filter, genres: [genre] },
@@ -176,7 +426,7 @@ export class ChannelManager {
         });
 
         created.push(channel);
-        console.log(`[ChannelManager] Created genre channel: ${genre} (${filteredItems.length} items)`);
+        console.log(`[ChannelManager] Created genre channel: ${channelName} (${filteredItems.length} items)`);
       }
     } else if (preset.dynamicType === 'eras') {
       // Generate era-based channels based on content in library
@@ -215,8 +465,9 @@ export class ChannelManager {
 
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
 
+        const channelName = this.getUniqueChannelName(decade.name, usedNames);
         const channel = queries.createChannel(this.db, {
-          name: decade.name,
+          name: channelName,
           type: 'preset',
           preset_id: `${preset.id}:${decade.id}`,
           filter,
@@ -224,7 +475,7 @@ export class ChannelManager {
         });
 
         created.push(channel);
-        console.log(`[ChannelManager] Created era channel: ${decade.name} (${filteredItems.length} items)`);
+        console.log(`[ChannelManager] Created era channel: ${channelName} (${filteredItems.length} items)`);
       }
     } else if (preset.dynamicType === 'directors') {
       // Generate director-based channels
@@ -259,8 +510,9 @@ export class ChannelManager {
           continue;
         }
 
+        const channelName = this.getUniqueChannelName(director.name, usedNames);
         const channel = queries.createChannel(this.db, {
-          name: `${director.name}`,
+          name: channelName,
           type: 'preset',
           preset_id: `${preset.id}:${director.name.toLowerCase().replace(/\s+/g, '-')}`,
           filter: { ...preset.filter, directors: [director.name] },
@@ -268,7 +520,7 @@ export class ChannelManager {
         });
 
         created.push(channel);
-        console.log(`[ChannelManager] Created director channel: ${director.name} (${filteredItems.length} items, ${Math.round(totalDuration / 3600000)}h)`);
+        console.log(`[ChannelManager] Created director channel: ${channelName} (${filteredItems.length} items, ${Math.round(totalDuration / 3600000)}h)`);
       }
     } else if (preset.dynamicType === 'actors') {
       // Generate actor-based channels
@@ -298,8 +550,9 @@ export class ChannelManager {
 
         if (totalDuration < MIN_CAST_CHANNEL_DURATION_MS) continue;
 
+        const channelName = this.getUniqueChannelName(actor.name, usedNames);
         const channel = queries.createChannel(this.db, {
-          name: `${actor.name}`,
+          name: channelName,
           type: 'preset',
           preset_id: `${preset.id}:${actor.name.toLowerCase().replace(/\s+/g, '-')}`,
           filter: { ...preset.filter, actors: [actor.name] },
@@ -307,7 +560,7 @@ export class ChannelManager {
         });
 
         created.push(channel);
-        console.log(`[ChannelManager] Created actor channel: ${actor.name} (${filteredItems.length} items)`);
+        console.log(`[ChannelManager] Created actor channel: ${channelName} (${filteredItems.length} items)`);
       }
     } else if (preset.dynamicType === 'composers') {
       // Generate composer-based channels
@@ -337,8 +590,9 @@ export class ChannelManager {
 
         if (totalDuration < MIN_CAST_CHANNEL_DURATION_MS) continue;
 
+        const channelName = this.getUniqueChannelName(composer.name, usedNames);
         const channel = queries.createChannel(this.db, {
-          name: `${composer.name}`,
+          name: channelName,
           type: 'preset',
           preset_id: `${preset.id}:${composer.name.toLowerCase().replace(/\s+/g, '-')}`,
           filter: { ...preset.filter, composers: [composer.name] },
@@ -346,7 +600,7 @@ export class ChannelManager {
         });
 
         created.push(channel);
-        console.log(`[ChannelManager] Created composer channel: ${composer.name} (${filteredItems.length} items)`);
+        console.log(`[ChannelManager] Created composer channel: ${channelName} (${filteredItems.length} items)`);
       }
     } else if (preset.dynamicType === 'collections') {
       // Generate collection-based channels
@@ -388,8 +642,9 @@ export class ChannelManager {
           continue;
         }
 
+        const channelName = this.getUniqueChannelName(collection.name, usedNames);
         const channel = queries.createChannel(this.db, {
-          name: collection.name,
+          name: channelName,
           type: 'preset',
           preset_id: `${preset.id}:${collection.id}`,
           filter: { ...preset.filter, collectionId: collection.id },
@@ -397,7 +652,7 @@ export class ChannelManager {
         });
 
         created.push(channel);
-        console.log(`[ChannelManager] Created collection channel: ${collection.name} (${filteredItems.length} items)`);
+        console.log(`[ChannelManager] Created collection channel: ${channelName} (${filteredItems.length} items)`);
       }
     } else if (preset.dynamicType === 'studios') {
       // Generate studio-based channels
@@ -432,8 +687,9 @@ export class ChannelManager {
           continue;
         }
 
+        const channelName = this.getUniqueChannelName(studio.name, usedNames);
         const channel = queries.createChannel(this.db, {
-          name: studio.name,
+          name: channelName,
           type: 'preset',
           preset_id: `${preset.id}:${studio.name.toLowerCase().replace(/\s+/g, '-')}`,
           filter: { ...preset.filter, studios: [studio.name] },
@@ -441,7 +697,7 @@ export class ChannelManager {
         });
 
         created.push(channel);
-        console.log(`[ChannelManager] Created studio channel: ${studio.name} (${filteredItems.length} items, ${Math.round(totalDuration / 3600000)}h)`);
+        console.log(`[ChannelManager] Created studio channel: ${channelName} (${filteredItems.length} items, ${Math.round(totalDuration / 3600000)}h)`);
       }
     }
 
@@ -665,6 +921,7 @@ export class ChannelManager {
     // Remove existing auto channels only (keep preset channels)
     queries.deleteAutoChannels(this.db);
 
+    const usedNames = new Set(queries.getChannelNames(this.db));
     const created: ChannelParsed[] = [];
 
     // Sort genres by content count (descending) to prioritize bigger genres
@@ -697,8 +954,9 @@ export class ChannelManager {
 
       if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
 
+      const channelName = this.getUniqueChannelName(genre, usedNames);
       const channel = queries.createChannel(this.db, {
-        name: genre,
+        name: channelName,
         type: 'auto',
         genre,
         item_ids: filteredItems.map(i => i.Id),
@@ -727,8 +985,10 @@ export class ChannelManager {
       throw new Error(`No content matches the "${preset.name}" preset`);
     }
 
+    const usedNames = new Set(queries.getChannelNames(this.db));
+    const channelName = this.getUniqueChannelName(preset.name, usedNames);
     const channel = queries.createChannel(this.db, {
-      name: preset.name,
+      name: channelName,
       type: 'preset',
       preset_id: preset.id,
       filter: preset.filter,
@@ -752,8 +1012,10 @@ export class ChannelManager {
       throw new Error('No valid items found for channel');
     }
 
+    const usedNames = new Set(queries.getChannelNames(this.db));
+    const channelName = this.getUniqueChannelName(name, usedNames);
     const channel = queries.createChannel(this.db, {
-      name,
+      name: channelName,
       type: 'custom',
       item_ids: validIds,
       ai_prompt: aiPrompt,
@@ -776,8 +1038,10 @@ export class ChannelManager {
       throw new Error('No content matches the specified filter');
     }
 
+    const usedNames = new Set(queries.getChannelNames(this.db));
+    const channelName = this.getUniqueChannelName(name, usedNames);
     const channel = queries.createChannel(this.db, {
-      name,
+      name: channelName,
       type: 'custom',
       filter,
       item_ids: filteredItems.map(i => i.Id),
@@ -952,25 +1216,29 @@ export class ChannelManager {
   }
 
   /**
-   * Get all available content ratings from the library
+   * Get all available content ratings from the library and count of items with no rating.
    */
-  getAvailableRatings(): { rating: string; count: number }[] {
+  getAvailableRatings(): { ratings: { rating: string; count: number }[]; unratedCount: number } {
     const libraryItems = this.jellyfin.getLibraryItems();
     const ratingCounts = new Map<string, number>();
+    let unratedCount = 0;
 
     for (const item of libraryItems) {
       const rating = item.OfficialRating;
-      if (rating) {
+      if (!rating || rating.trim() === '' || rating.toLowerCase().trim() === 'not rated') {
+        unratedCount++;
+      } else {
         ratingCounts.set(rating, (ratingCounts.get(rating) || 0) + 1);
       }
     }
 
-    const result: { rating: string; count: number }[] = [];
+    const ratings: { rating: string; count: number }[] = [];
     for (const [rating, count] of ratingCounts) {
-      result.push({ rating, count });
+      ratings.push({ rating, count });
     }
+    ratings.sort((a, b) => b.count - a.count);
 
-    return result.sort((a, b) => b.count - a.count);
+    return { ratings, unratedCount };
   }
 
   /**
@@ -1207,23 +1475,92 @@ export class ChannelManager {
 
   // ─── Private helpers ──────────────────────────────────
 
+  /**
+   * Split channel configs into separate Movies and TV configs.
+   * Each split must independently meet the minimum duration threshold.
+   */
+  private splitConfigsByContentType(
+    configs: Array<{ name: string; type: 'preset'; preset_id: string; filter: ChannelFilter; item_ids: string[]; genre?: string }>,
+    usedNames: Set<string>,
+    minDurationMs: number
+  ): Array<{ name: string; type: 'preset'; preset_id: string; filter: ChannelFilter; item_ids: string[]; genre?: string }> {
+    const result: typeof configs = [];
+
+    for (const config of configs) {
+      const movieIds: string[] = [];
+      const tvIds: string[] = [];
+      let movieDuration = 0;
+      let tvDuration = 0;
+
+      for (const id of config.item_ids) {
+        const item = this.jellyfin.getItem(id);
+        if (!item) continue;
+        const duration = this.jellyfin.getItemDurationMs(item);
+        if (item.Type === 'Movie') {
+          movieIds.push(id);
+          movieDuration += duration;
+        } else if (item.Type === 'Episode') {
+          tvIds.push(id);
+          tvDuration += duration;
+        }
+      }
+
+      if (movieDuration >= minDurationMs) {
+        const name = this.getUniqueChannelName(`${config.name} Movies`, usedNames);
+        result.push({
+          ...config,
+          name,
+          preset_id: `${config.preset_id}-movies`,
+          filter: { ...config.filter, includeMovies: true, includeEpisodes: false },
+          item_ids: movieIds,
+        });
+      }
+
+      if (tvDuration >= minDurationMs) {
+        const name = this.getUniqueChannelName(`${config.name} TV`, usedNames);
+        result.push({
+          ...config,
+          name,
+          preset_id: `${config.preset_id}-tv`,
+          filter: { ...config.filter, includeMovies: false, includeEpisodes: true },
+          item_ids: tvIds,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  private getUniqueChannelName(baseName: string, usedNames: Set<string>): string {
+    let name = baseName;
+    let n = 1;
+    while (usedNames.has(name)) {
+      name = `${baseName} (${++n})`;
+    }
+    usedNames.add(name);
+    return name;
+  }
+
   private getFilterSettings(): { 
     genreFilter: { mode: string; genres: string[] }; 
     contentTypes: { movies: boolean; tv_shows: boolean };
     ratingFilter: { mode: string; ratings: string[]; ratingSystem: string };
+    separateContentTypes: boolean;
   } {
     const genreFilter = (queries.getSetting(this.db, 'genre_filter') as { mode: string; genres: string[] }) || { mode: 'allow', genres: [] };
     const contentTypes = (queries.getSetting(this.db, 'content_types') as { movies: boolean; tv_shows: boolean }) || { movies: true, tv_shows: true };
     const ratingFilter = (queries.getSetting(this.db, 'rating_filter') as { mode: string; ratings: string[]; ratingSystem: string }) || { mode: 'allow', ratings: [], ratingSystem: 'us' };
-    return { genreFilter, contentTypes, ratingFilter };
+    const separateContentTypes = (queries.getSetting(this.db, 'separate_content_types') as boolean) ?? true;
+    return { genreFilter, contentTypes, ratingFilter, separateContentTypes };
   }
 
   private isRatingAllowed(rating: string | undefined, filter: { mode: string; ratings: string[] }): boolean {
     // If no ratings selected, allow all
     if (filter.ratings.length === 0) return true;
 
-    // If item has no rating, allow it (unrated content is not blocked)
-    if (!rating) return true;
+    // When rating filter is on, exclude items with no rating or "Not Rated"
+    if (!rating || rating.trim() === '') return false;
+    if (rating.toLowerCase().trim() === 'not rated') return false;
 
     const lowerRating = rating.toLowerCase();
     const filterRatings = filter.ratings.map(r => r.toLowerCase());

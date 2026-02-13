@@ -30,6 +30,7 @@ export interface ScheduleProgram {
   type: 'program' | 'interstitial';
   content_type: 'movie' | 'episode' | null;
   thumbnail_url: string | null;
+  banner_url: string | null;
   year: number | null;
   rating: string | null;
 }
@@ -44,6 +45,18 @@ export interface ScheduleBlock {
   created_at: string;
 }
 
+export interface AudioTrackInfo {
+  index: number;
+  language: string;
+  name: string;
+}
+
+export interface SubtitleTrackInfo {
+  index: number;
+  language: string;
+  name: string;
+}
+
 export interface PlaybackInfo {
   stream_url: string;
   seek_position_ms: number;
@@ -51,6 +64,12 @@ export interface PlaybackInfo {
   program: ScheduleProgram;
   next_program: ScheduleProgram | null;
   channel: Channel;
+  audio_tracks?: AudioTrackInfo[];
+  /** Effective audio track index (from request or preferred_audio_language). */
+  audio_stream_index?: number | null;
+  subtitle_tracks?: SubtitleTrackInfo[];
+  /** Preferred subtitle track index from user settings (null = off). */
+  subtitle_index?: number | null;
 }
 
 export interface Settings {

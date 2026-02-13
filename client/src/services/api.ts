@@ -82,7 +82,12 @@ export async function getGenres(): Promise<{ genre: string; count: number; total
   return request('/channels/genres');
 }
 
-export async function getRatings(): Promise<{ rating: string; count: number }[]> {
+export interface RatingsResponse {
+  ratings: { rating: string; count: number }[];
+  unratedCount: number;
+}
+
+export async function getRatings(): Promise<RatingsResponse> {
   return request('/channels/ratings');
 }
 
@@ -163,11 +168,21 @@ export async function getCurrentProgram(channelId: number): Promise<{
   return request(`/schedule/${channelId}/now`);
 }
 
+export interface ProgramDetails {
+  overview: string | null;
+  genres?: string[];
+}
+
+export async function getProgramDetails(itemId: string): Promise<ProgramDetails> {
+  return request(`/schedule/item/${encodeURIComponent(itemId)}`);
+}
+
 // ─── Playback ─────────────────────────────────────────
 
 export interface QualityParams {
   bitrate?: number;
   maxWidth?: number;
+  audioStreamIndex?: number;
 }
 
 export async function getPlaybackInfo(
@@ -177,6 +192,7 @@ export async function getPlaybackInfo(
   const params = new URLSearchParams();
   if (quality?.bitrate) params.set('bitrate', String(quality.bitrate));
   if (quality?.maxWidth) params.set('maxWidth', String(quality.maxWidth));
+  if (quality?.audioStreamIndex != null) params.set('audioStreamIndex', String(quality.audioStreamIndex));
   
   const queryString = params.toString();
   return request(`/playback/${channelId}${queryString ? `?${queryString}` : ''}`);

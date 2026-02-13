@@ -17,9 +17,10 @@ interface GuideGridProps {
 }
 
 const BASE_ROW_HEIGHT = 52;
-const BASE_CHANNEL_COL_WIDTH = 120;
-const MIN_CHANNEL_COL_WIDTH = 60;
+const BASE_CHANNEL_COL_WIDTH = 144; /* ~20% larger for readable channel names */
+const MIN_CHANNEL_COL_WIDTH = 72;
 const MIN_ROW_HEIGHT = 44; // Touch-friendly minimum
+const PROGRAM_CELL_GAP = 6; // Horizontal spacing between schedule blocks
 
 export default function GuideGrid({
   channels,
@@ -39,7 +40,7 @@ export default function GuideGrid({
   const focusedRowRef = useRef<HTMLDivElement>(null);
   const [gridHeight, setGridHeight] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
-  const [scrollLeft, setScrollLeft] = useState(0); // Track horizontal scroll for sticky titles
+  const scrollLeftRef = useRef(0); // Track horizontal scroll for sticky titles (ref to avoid per-frame re-renders)
   const isScrollingSynced = useRef(false);
 
   // Measure the container to compute dynamic sizes
@@ -74,8 +75,8 @@ export default function GuideGrid({
   const rowHeight = Math.max(rawRowHeight, MIN_ROW_HEIGHT);
   const scale = rowHeight / BASE_ROW_HEIGHT;
   
-  // Channel column width - smaller on mobile, but with minimum
-  const baseColWidth = isMobile ? (isSmallMobile ? 65 : 80) : BASE_CHANNEL_COL_WIDTH;
+  // Channel column width - smaller on mobile, but with minimum (~20% larger for readability)
+  const baseColWidth = isMobile ? (isSmallMobile ? 78 : 96) : BASE_CHANNEL_COL_WIDTH;
   const channelColWidth = Math.max(
     Math.round(baseColWidth * Math.min(scale, 1.5)),
     MIN_CHANNEL_COL_WIDTH
@@ -126,137 +127,71 @@ export default function GuideGrid({
   const effectiveScrollIdx = scrollToChannelIdx ?? focusedChannelIdx;
   const isAutoScrolling = scrollToChannelIdx !== undefined;
 
-  // Custom slow scroll animation for auto-scroll (less jarring)
-  const smoothScrollTo = (element: HTMLElement, duration: number) => {
+  // Snap target row to top of view (return from player or auto-scroll)
+  const scrollRowToTop = (element: HTMLElement) => {
     const container = gridRef.current;
     if (!container) return;
-    
     const elementRect = element.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
-    
-    // Calculate if element is already in view
-    const isAbove = elementRect.top < containerRect.top;
-    const isBelow = elementRect.bottom > containerRect.bottom;
-    
-    if (!isAbove && !isBelow) return; // Already in view
-    
-    // Calculate target scroll position
-    let targetScroll: number;
-    if (isAbove) {
-      targetScroll = container.scrollTop + (elementRect.top - containerRect.top);
-    } else {
-      targetScroll = container.scrollTop + (elementRect.bottom - containerRect.bottom);
-    }
-    
-    const startScroll = container.scrollTop;
-    const distance = targetScroll - startScroll;
-    const startTime = performance.now();
-    
-    const easeInOutCubic = (t: number) => {
-      return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-    };
-    
-    const animateScroll = (currentTime: number) => {
-      const elapsed = currentTime - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = easeInOutCubic(progress);
-      
-      container.scrollTop = startScroll + (distance * eased);
-      
-      if (progress < 1) {
-        requestAnimationFrame(animateScroll);
-      }
-    };
-    
-    requestAnimationFrame(animateScroll);
+    container.scrollTop = container.scrollTop + (elementRect.top - containerRect.top);
   };
 
-  // Auto-scroll target row into view with slow animation
+  // When scroll target is set, snap that row to the top
   useEffect(() => {
     if (scrollTargetRef.current && isAutoScrolling) {
-      // Use slower animation (1.5 seconds) for auto-scroll
-      smoothScrollTo(scrollTargetRef.current, 1500);
+      scrollRowToTop(scrollTargetRef.current);
     }
   }, [effectiveScrollIdx, isAutoScrolling]);
   
-  // Also scroll focused row into view when user navigates (faster for manual navigation)
+  // Scroll focused row into view when user navigates (centered so guide moves with user)
   useEffect(() => {
     if (scrollToChannelIdx === undefined) {
-      focusedRowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      focusedRowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
   }, [focusedChannelIdx, scrollToChannelIdx]);
 
-  // Sync horizontal scroll between grid and time header, and track scroll position for sticky titles
+  // Drive horizontal scroll by continuous time so the schedule slides left smoothly (classic TV guide strip).
+  // Uses direct DOM manipulation only — no React state updates per frame, so no re-render jank.
+  const SLOT_MS = 30 * 60 * 1000;
   useEffect(() => {
     const grid = gridRef.current;
     const timeHeader = timeHeaderRef.current;
-    if (!grid || !timeHeader) return;
+    if (!grid || !timeHeader || availableWidth <= 0 || timeSlotWidth <= 0) return;
 
-    const handleGridScroll = () => {
-      // Track scroll position for sticky program titles
-      setScrollLeft(grid.scrollLeft);
-      
-      if (isScrollingSynced.current) return;
-      isScrollingSynced.current = true;
-      timeHeader.scrollLeft = grid.scrollLeft;
-      requestAnimationFrame(() => { isScrollingSynced.current = false; });
-    };
-
-    const handleHeaderScroll = () => {
-      if (isScrollingSynced.current) return;
-      isScrollingSynced.current = true;
-      grid.scrollLeft = timeHeader.scrollLeft;
-      setScrollLeft(timeHeader.scrollLeft);
-      requestAnimationFrame(() => { isScrollingSynced.current = false; });
-    };
-
-    grid.addEventListener('scroll', handleGridScroll);
-    timeHeader.addEventListener('scroll', handleHeaderScroll);
-
-    return () => {
-      grid.removeEventListener('scroll', handleGridScroll);
-      timeHeader.removeEventListener('scroll', handleHeaderScroll);
-    };
-  }, []);
-
-  // Scroll to current time on initial load (so "now" is visible)
-  const hasInitialScrolled = useRef(false);
-  useEffect(() => {
-    // Skip if already scrolled
-    if (hasInitialScrolled.current) return;
-    
-    // Wait for DOM refs to be ready
-    if (!gridRef.current || !timeHeaderRef.current) return;
-    
-    // Wait for container to be measured (ResizeObserver needs to fire)
-    if (containerWidth === 0) return;
-    
-    // Use actual current time (not the prop which might be stale on first render)
-    const now = new Date();
     const rangeStartMs = timeRange.start.getTime();
-    const elapsedMs = now.getTime() - rangeStartMs;
-    
-    // Calculate scroll position: each 30-min slot = timeSlotWidth
-    const scrollPosition = (elapsedMs / (30 * 60 * 1000)) * timeSlotWidth;
-    
-    // Scroll so current time is about 10% from the left edge
-    const paddingLeft = Math.max(availableWidth * 0.1, 20);
-    const targetScroll = Math.max(0, scrollPosition - paddingLeft);
-    
-    gridRef.current.scrollLeft = targetScroll;
-    timeHeaderRef.current.scrollLeft = targetScroll;
-    setScrollLeft(targetScroll); // Update state for sticky titles
-    hasInitialScrolled.current = true;
-  }, [containerWidth, timeSlotWidth, availableWidth, timeRange]);
+    const maxScroll = Math.max(0, timeSlots.length * timeSlotWidth - availableWidth);
 
-  // Current time marker position (includes channel col width since it's part of the layout)
-  const nowOffset = ((currentTime.getTime() - timeRange.start.getTime()) / (30 * 60 * 1000)) * timeSlotWidth + channelColWidth;
+    let rafId: number;
+    const tick = () => {
+      const elapsedMs = Date.now() - rangeStartMs;
+      // Continuous position — no Math.floor, so it moves every frame
+      const scrollPosition = (elapsedMs / SLOT_MS) * timeSlotWidth;
+      const scroll = Math.max(0, Math.min(maxScroll, scrollPosition));
+
+      // Direct DOM writes only — no setState to avoid re-render overhead
+      grid.scrollLeft = scroll;
+      timeHeader.scrollLeft = scroll;
+      scrollLeftRef.current = scroll;
+
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [timeRange, timeSlotWidth, availableWidth, timeSlots.length]);
+
+  const currentTimeStr = currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
 
   return (
-    <div className="guide-grid-container" ref={containerRef}>
-      {/* Time header */}
+    <div
+      className="guide-grid-container"
+      ref={containerRef}
+      style={{ '--guide-channel-col-width': `${channelColWidth}px` } as React.CSSProperties}
+    >
+      {/* Time header - width must match channel column exactly */}
       <div className="guide-time-header">
-        <div className="guide-time-header-spacer" style={{ width: channelColWidth }} />
+        <div className="guide-time-header-spacer guide-time-header-clock-wrap">
+          <span className="guide-time-header-clock">{currentTimeStr}</span>
+        </div>
         <div className="guide-time-header-slots" ref={timeHeaderRef}>
           {timeSlots.map((slot, i) => (
             <div
@@ -272,12 +207,6 @@ export default function GuideGrid({
 
       {/* Grid body */}
       <div className="guide-grid" ref={gridRef}>
-        {/* Now marker */}
-        <div
-          className="guide-now-marker"
-          style={{ left: nowOffset, height: channels.length * rowHeight }}
-        />
-
         {channels.map((channel, chIdx) => {
           const programs = scheduleByChannel.get(channel.id) || [];
           const isFocusedRow = chIdx === focusedChannelIdx;
@@ -296,7 +225,6 @@ export default function GuideGrid({
               {/* Channel number/name column */}
               <div
                 className="guide-channel-col"
-                style={{ width: channelColWidth }}
                 onClick={() => onChannelClick(chIdx)}
               >
                 <span className="guide-channel-num" style={{ fontSize: channelNumFontSize }}>
@@ -318,11 +246,11 @@ export default function GuideGrid({
                   // Skip programs outside visible range
                   if (progEnd <= rangeStart || progStart >= rangeEnd) return null;
 
-                  // Calculate position and width
+                  // Calculate position and width (with gap between adjacent blocks)
                   const visibleStart = Math.max(progStart, rangeStart);
                   const visibleEnd = Math.min(progEnd, rangeEnd);
-                  const left = ((visibleStart - rangeStart) / (30 * 60 * 1000)) * timeSlotWidth;
-                  const width = ((visibleEnd - visibleStart) / (30 * 60 * 1000)) * timeSlotWidth;
+                  const left = ((visibleStart - rangeStart) / (30 * 60 * 1000)) * timeSlotWidth + PROGRAM_CELL_GAP / 2;
+                  const width = Math.max(((visibleEnd - visibleStart) / (30 * 60 * 1000)) * timeSlotWidth - PROGRAM_CELL_GAP, 2);
                   
                   const isFocused = isFocusedRow && progIdx === focusedProgramIdx;
                   const isCurrentlyAiring =
@@ -332,10 +260,10 @@ export default function GuideGrid({
                   const subtitleThreshold = isMobile ? 120 : 150;
                   const showSubtitle = width > subtitleThreshold && prog.subtitle && prog.type !== 'interstitial';
                   
-                  // Calculate sticky title offset - title slides within cell bounds as user scrolls
+                  // Calculate sticky title offset - title slides within cell bounds as time scrolls
                   const padding = 8; // Match CSS padding
-                  // How far has the user scrolled past this cell's left edge?
-                  const scrollPastCell = scrollLeft - left;
+                  // How far has the grid scrolled past this cell's left edge?
+                  const scrollPastCell = scrollLeftRef.current - left;
                   // Reserve space for title text (estimate ~150px for title, but at least show something)
                   const reservedForText = Math.min(150, width * 0.4);
                   // Clamp the offset: 0 if not scrolled past, or capped so title stays within cell
@@ -346,7 +274,7 @@ export default function GuideGrid({
                     <div
                       key={`${prog.start_time}-${progIdx}`}
                       className={`guide-program-cell ${isFocused ? 'guide-program-focused' : ''} ${isCurrentlyAiring ? 'guide-program-airing' : ''} ${prog.type === 'interstitial' ? 'guide-program-interstitial' : ''}`}
-                      style={{ left, width: Math.max(width, 2) }}
+                      style={{ left, width }}
                       onClick={() => onProgramClick(chIdx, progIdx)}
                       title={prog.title + (prog.subtitle ? ` - ${prog.subtitle}` : '')}
                     >

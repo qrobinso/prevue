@@ -144,7 +144,7 @@ export interface QualityPreset {
 }
 
 export const QUALITY_PRESETS: QualityPreset[] = [
-  { id: 'auto', label: 'Auto', bitrate: 120000000, description: 'Best quality available' },
+  { id: 'auto', label: 'Auto', bitrate: 120000000, description: 'Full quality (direct stream when source is h264)' },
   { id: '4k', label: '4K', bitrate: 80000000, maxWidth: 3840, description: '2160p, ~80 Mbps' },
   { id: '1080p', label: '1080p', bitrate: 20000000, maxWidth: 1920, description: '1080p, ~20 Mbps' },
   { id: '720p', label: '720p', bitrate: 8000000, maxWidth: 1280, description: '720p, ~8 Mbps' },
