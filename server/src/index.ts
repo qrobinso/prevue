@@ -11,9 +11,11 @@ import { scheduleRoutes } from './routes/schedule.js';
 import { playbackRoutes } from './routes/playback.js';
 import { settingsRoutes } from './routes/settings.js';
 import { serverRoutes } from './routes/servers.js';
+import { metricsRoutes } from './routes/metrics.js';
 import { JellyfinClient } from './services/JellyfinClient.js';
 import { ScheduleEngine } from './services/ScheduleEngine.js';
 import { ChannelManager } from './services/ChannelManager.js';
+import { MetricsService } from './services/MetricsService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +35,7 @@ const db = initDatabase();
 const jellyfinClient = new JellyfinClient(db);
 const scheduleEngine = new ScheduleEngine(db, jellyfinClient);
 const channelManager = new ChannelManager(db, jellyfinClient, scheduleEngine);
+const metricsService = new MetricsService(db);
 
 // Initialize WebSocket
 const wss = initWebSocket(server);
@@ -42,6 +45,7 @@ app.locals.db = db;
 app.locals.jellyfinClient = jellyfinClient;
 app.locals.scheduleEngine = scheduleEngine;
 app.locals.channelManager = channelManager;
+app.locals.metricsService = metricsService;
 app.locals.wss = wss;
 
 // API Routes
@@ -50,6 +54,7 @@ app.use('/api/schedule', scheduleRoutes);
 app.use('/api/playback', playbackRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/servers', serverRoutes);
+app.use('/api/metrics', metricsRoutes);
 
 // Proxy routes for Jellyfin streams and images (mounted at /api root)
 import { streamRoutes, startTranscodeIdleCleanup } from './routes/stream.js';

@@ -3,6 +3,7 @@ import ServerSettings from './ServerSettings';
 import FilterSettings from './FilterSettings';
 import ChannelSettings from './ChannelSettings';
 import DisplaySettings from './DisplaySettings';
+import MetricsSettings from './MetricsSettings';
 import { wsClient } from '../../services/websocket';
 import './Settings.css';
 
@@ -10,7 +11,7 @@ interface SettingsProps {
   onClose: () => void;
 }
 
-type SettingsTab = 'servers' | 'filters' | 'channels' | 'display';
+type SettingsTab = 'servers' | 'filters' | 'channels' | 'display' | 'metrics';
 
 interface SyncProgress {
   step: string;
@@ -111,6 +112,12 @@ export default function Settings({ onClose }: SettingsProps) {
           >
             DISPLAY
           </button>
+          <button
+            className={`settings-tab ${activeTab === 'metrics' ? 'settings-tab-active' : ''}`}
+            onClick={() => setActiveTab('metrics')}
+          >
+            METRICS
+          </button>
         </div>
 
         <div className="settings-content">
@@ -118,6 +125,7 @@ export default function Settings({ onClose }: SettingsProps) {
           {activeTab === 'filters' && <FilterSettings />}
           {activeTab === 'channels' && <ChannelSettings />}
           {activeTab === 'display' && <DisplaySettings />}
+          {activeTab === 'metrics' && <MetricsSettings />}
         </div>
       </div>
     </div>

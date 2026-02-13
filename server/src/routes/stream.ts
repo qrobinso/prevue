@@ -9,6 +9,7 @@ export const streamRoutes = Router();
 // Track active play sessions so we can stop them when user leaves
 // Maps itemId -> { playSessionId, mediaSourceId }
 const activeSessions = new Map<string, { playSessionId: string; mediaSourceId: string }>();
+const progressStartedSessions = new Set<string>(); // playSessionId set when PlaybackStart has been reported
 
 // Last proxy activity (segment/playlist request) per itemId — used to stop idle transcodes
 const lastActivityByItemId = new Map<string, number>();
@@ -19,6 +20,16 @@ const IDLE_THRESHOLD_MS = 5 * 60 * 1000;         // stop if no activity for 5 mi
 // Request deduplication: coalesce concurrent requests for the same URL
 // This prevents multiple FFmpeg processes from starting when hls.js retries
 const pendingRequests = new Map<string, Promise<{ ok: boolean; status: number; headers: Headers; buffer: ArrayBuffer | null; text: string | null }>>();
+
+function isProgressSharingEnabled(rawSetting: unknown): boolean {
+  if (typeof rawSetting === 'boolean') return rawSetting;
+  if (typeof rawSetting === 'string') {
+    const normalized = rawSetting.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+  }
+  if (typeof rawSetting === 'number') return rawSetting !== 0;
+  return false;
+}
 
 // POST /api/stream/stop - Stop playback and release server resources
 // Client should call this when user leaves video or closes page
@@ -36,13 +47,15 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
       // Report playback stopped to Jellyfin if progress sharing is enabled and we have position data
       if (positionMs != null && session) {
         const { db } = req.app.locals;
-        const enabled = queries.getSetting(db, 'share_playback_progress');
+        const enabled = isProgressSharingEnabled(queries.getSetting(db, 'share_playback_progress'));
         if (enabled) {
+          console.log(`[Stream Progress] Sending PlaybackStopped item=${itemId} session=${sessionId} positionMs=${positionMs}`);
           await jf.reportPlaybackStopped(itemId, sessionId, session.mediaSourceId, positionMs).catch(() => {});
         }
       }
       await jf.stopPlaybackSession(sessionId);
       await jf.deleteTranscodingJob(sessionId);
+      progressStartedSessions.delete(sessionId);
       activeSessions.delete(itemId);
       lastActivityByItemId.delete(itemId);
       console.log(`[Stream] Stopped playback for item: ${itemId}, session: ${sessionId}`);
@@ -66,8 +79,9 @@ streamRoutes.post('/stream/progress', async (req: Request, res: Response) => {
     const jf = jellyfinClient as JellyfinClient;
 
     // Check if progress sharing is enabled
-    const enabled = queries.getSetting(db, 'share_playback_progress');
+    const enabled = isProgressSharingEnabled(queries.getSetting(db, 'share_playback_progress'));
     if (!enabled) {
+      console.log(`[Stream Progress] Skipped (disabled) item=${req.body?.itemId ?? 'unknown'} positionMs=${req.body?.positionMs ?? 'unknown'}`);
       res.json({ success: true, reported: false, reason: 'disabled' });
       return;
     }
@@ -80,10 +94,19 @@ streamRoutes.post('/stream/progress', async (req: Request, res: Response) => {
 
     const session = activeSessions.get(itemId);
     if (!session) {
+      console.log(`[Stream Progress] Skipped (no active session) item=${itemId} positionMs=${positionMs}`);
       res.json({ success: true, reported: false, reason: 'no_session' });
       return;
     }
 
+    // Jellyfin expects PlaybackStart before progress updates for robust watch tracking.
+    if (!progressStartedSessions.has(session.playSessionId)) {
+      console.log(`[Stream Progress] Starting playback share item=${itemId} session=${session.playSessionId} positionMs=${positionMs}`);
+      await jf.reportPlaybackStart(itemId, session.playSessionId, session.mediaSourceId, positionMs);
+      progressStartedSessions.add(session.playSessionId);
+    }
+
+    console.log(`[Stream Progress] Reporting playback progress item=${itemId} session=${session.playSessionId} positionMs=${positionMs}`);
     await jf.reportPlaybackProgress(
       itemId,
       session.playSessionId,
@@ -124,6 +147,7 @@ streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
     }
   }
   activeSessions.clear();
+  progressStartedSessions.clear();
   lastActivityByItemId.clear();
   console.log(`[Stream] Stopped ${stopped.length}/${count} sessions`);
   res.json({ cleared: count, stopped });
@@ -132,6 +156,7 @@ streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
 // Helper to track a new session
 export function trackSession(itemId: string, playSessionId: string, mediaSourceId?: string): void {
   activeSessions.set(itemId, { playSessionId, mediaSourceId: mediaSourceId || itemId });
+  progressStartedSessions.delete(playSessionId);
 }
 
 // Helper to look up session info for an item
@@ -335,13 +360,17 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     const jf = jellyfinClient as JellyfinClient;
     const itemId = req.params.itemId as string;
     
-    // Get quality and audio track from query string. Omit for "auto" = prefer direct stream (no transcoding).
+    // Get quality, audio track, and subtitle track from query string. Omit for "auto" = prefer direct stream (no transcoding).
     const hasExplicitQuality = req.query.bitrate != null || req.query.maxWidth != null;
     const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : 120000000;
     const maxWidth = req.query.maxWidth ? parseInt(req.query.maxWidth as string, 10) : undefined;
     const audioStreamIndex = req.query.audioStreamIndex != null
       ? parseInt(req.query.audioStreamIndex as string, 10)
       : undefined;
+    const subtitleStreamIndex = req.query.subtitleStreamIndex != null
+      ? parseInt(req.query.subtitleStreamIndex as string, 10)
+      : undefined;
+    const clientSupportsHevc = req.query.hevc === '1';
 
     const baseUrl = jf.getBaseUrl();
     const headers = jf.getProxyHeaders();
@@ -353,30 +382,33 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
 
     activeSessions.set(itemId, { playSessionId, mediaSourceId: itemId });
     lastActivityByItemId.set(itemId, Date.now());
-    console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} audioStreamIndex=${audioStreamIndex ?? 'default'}`);
+    console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} hevc=${clientSupportsHevc} audioStreamIndex=${audioStreamIndex ?? 'default'} subtitleStreamIndex=${subtitleStreamIndex ?? 'off'}`);
 
     // Build Jellyfin HLS URL for browser playback via HLS.js.
-    // VideoCodec must be h264 (browsers don't support HEVC/VP9/AV1 in MSE).
-    // AudioCodec should be aac for broad compatibility.
+    // When the client supports HEVC (e.g. Safari, Edge on Windows with HEVC extension),
+    // we request hevc,h264 so Jellyfin can stream-copy HEVC/HDR content without transcoding.
+    // HEVC in HLS requires fMP4 segments (not MPEG-TS), so we switch SegmentContainer accordingly.
     // AllowStreamCopy tells FFmpeg to copy streams when input codec matches output.
     // VideoBitrate explicitly sets the encoding bitrate (Jellyfin bug: resolution is calculated
     // from bitrate, so setting a high VideoBitrate ensures high resolution output).
+    const videoCodec = clientSupportsHevc ? 'hevc,h264' : 'h264';
+    const segmentContainer = clientSupportsHevc ? 'mp4' : 'ts';
     const params = new URLSearchParams({
       DeviceId: deviceId,
       MediaSourceId: itemId,
       PlaySessionId: playSessionId,
-      VideoCodec: 'h264',
+      VideoCodec: videoCodec,
       AudioCodec: 'aac',
       MaxStreamingBitrate: String(bitrate),
       VideoBitrate: String(bitrate),
       TranscodingMaxAudioChannels: '2',
-      SegmentContainer: 'ts',
+      SegmentContainer: segmentContainer,
       MinSegments: '2',
       BreakOnNonKeyFrames: 'true',
     });
     if (!hasExplicitQuality) {
-      // Auto: allow stream copy - if source is h264/aac it will be copied (no transcoding).
-      // If source is HEVC/AC3/etc, Jellyfin transcodes to h264/aac for browser compatibility.
+      // Auto: allow stream copy - if source codec matches requested output, no transcoding occurs.
+      // With HEVC support, HEVC/HDR content is stream-copied preserving HDR metadata.
       // MaxWidth/MaxHeight 3840x2160 tells Jellyfin to allow up to 4K resolution.
       params.set('AllowVideoStreamCopy', 'true');
       params.set('AllowAudioStreamCopy', 'true');
@@ -388,6 +420,9 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     }
     if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
       params.set('AudioStreamIndex', String(audioStreamIndex));
+    }
+    if (subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex)) {
+      params.set('SubtitleStreamIndex', String(subtitleStreamIndex));
     }
 
     const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
@@ -483,6 +518,7 @@ export function startTranscodeIdleCleanup(app: Express): void {
       try {
         await jf.stopPlaybackSession(playSessionId);
         await jf.deleteTranscodingJob(playSessionId);
+        progressStartedSessions.delete(playSessionId);
         activeSessions.delete(itemId);
         lastActivityByItemId.delete(itemId);
         console.log(`[Stream] Idle cleanup: stopped session ${playSessionId} for item ${itemId}`);

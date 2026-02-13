@@ -112,16 +112,6 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
       }
     }
 
-    // Build stream URL with quality and optional audio track
-    const streamParams = new URLSearchParams();
-    if (bitrate) streamParams.set('bitrate', String(bitrate));
-    if (maxWidth) streamParams.set('maxWidth', String(maxWidth));
-    if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
-      streamParams.set('audioStreamIndex', String(audioStreamIndex));
-    }
-    const queryString = streamParams.toString();
-    const streamUrl = `/api/stream/${program.jellyfin_item_id}${queryString ? `?${queryString}` : ''}`;
-
     // Preferred subtitle index from DB (default on/off and track)
     const preferredSub = queries.getSetting(db, 'preferred_subtitle_index');
     const preferredSubIndex =
@@ -132,6 +122,22 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
         : subtitle_tracks.length > 0 && preferredSubIndex >= 0 && preferredSubIndex < subtitle_tracks.length
           ? preferredSubIndex
           : null;
+
+    // Build stream URL with quality, optional audio track, and optional subtitle track
+    const streamParams = new URLSearchParams();
+    if (bitrate) streamParams.set('bitrate', String(bitrate));
+    if (maxWidth) streamParams.set('maxWidth', String(maxWidth));
+    if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
+      streamParams.set('audioStreamIndex', String(audioStreamIndex));
+    }
+    if (subtitle_index != null && subtitle_tracks[subtitle_index]) {
+      streamParams.set('subtitleStreamIndex', String(subtitle_tracks[subtitle_index].index));
+    }
+    if (req.query.hevc === '1') {
+      streamParams.set('hevc', '1');
+    }
+    const queryString = streamParams.toString();
+    const streamUrl = `/api/stream/${program.jellyfin_item_id}${queryString ? `?${queryString}` : ''}`;
 
     const seekSeconds = seekMs / 1000;
     console.log(`[Playback] Channel ${channelId}: seekMs=${seekMs}, item=${program.jellyfin_item_id}, audio_tracks=${audio_tracks.length}, audioStreamIndex=${audioStreamIndex ?? 'default'}, subtitle_index=${subtitle_index ?? 'off'}`);

@@ -335,6 +335,269 @@ export function clearLibraryCache(db: Database.Database, serverId: number): void
   db.prepare('DELETE FROM library_cache WHERE server_id = ?').run(serverId);
 }
 
+// ─── Metrics: Watch Sessions ──────────────────────────────
+
+export interface WatchSession {
+  id: number;
+  client_id: string;
+  channel_id: number | null;
+  channel_name: string | null;
+  item_id: string | null;
+  title: string | null;
+  series_name: string | null;
+  content_type: string | null;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number;
+  user_agent: string | null;
+}
+
+export function createWatchSession(
+  db: Database.Database,
+  data: {
+    client_id: string;
+    channel_id?: number;
+    channel_name?: string;
+    item_id?: string;
+    title?: string;
+    series_name?: string;
+    content_type?: string;
+    user_agent?: string;
+  }
+): WatchSession {
+  const result = db.prepare(
+    `INSERT INTO watch_sessions (client_id, channel_id, channel_name, item_id, title, series_name, content_type, user_agent)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    data.client_id,
+    data.channel_id ?? null,
+    data.channel_name ?? null,
+    data.item_id ?? null,
+    data.title ?? null,
+    data.series_name ?? null,
+    data.content_type ?? null,
+    data.user_agent ?? null
+  );
+  return db.prepare('SELECT * FROM watch_sessions WHERE id = ?').get(result.lastInsertRowid) as WatchSession;
+}
+
+export function endWatchSession(db: Database.Database, sessionId: number): void {
+  db.prepare(
+    `UPDATE watch_sessions
+     SET ended_at = datetime('now'),
+         duration_seconds = ROUND((julianday(datetime('now')) - julianday(started_at)) * 86400, 1)
+     WHERE id = ? AND ended_at IS NULL`
+  ).run(sessionId);
+}
+
+export function getActiveSessionForClient(
+  db: Database.Database,
+  clientId: string
+): WatchSession | undefined {
+  return db.prepare(
+    'SELECT * FROM watch_sessions WHERE client_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1'
+  ).get(clientId) as WatchSession | undefined;
+}
+
+export interface WatchEvent {
+  id: number;
+  client_id: string;
+  event_type: string;
+  channel_id: number | null;
+  channel_name: string | null;
+  item_id: string | null;
+  title: string | null;
+  metadata: string | null;
+  created_at: string;
+}
+
+export function insertWatchEvent(
+  db: Database.Database,
+  data: {
+    client_id: string;
+    event_type: string;
+    channel_id?: number;
+    channel_name?: string;
+    item_id?: string;
+    title?: string;
+    metadata?: Record<string, unknown>;
+  }
+): void {
+  db.prepare(
+    `INSERT INTO watch_events (client_id, event_type, channel_id, channel_name, item_id, title, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    data.client_id,
+    data.event_type,
+    data.channel_id ?? null,
+    data.channel_name ?? null,
+    data.item_id ?? null,
+    data.title ?? null,
+    data.metadata ? JSON.stringify(data.metadata) : null
+  );
+}
+
+export function upsertClient(
+  db: Database.Database,
+  clientId: string,
+  userAgent?: string
+): void {
+  db.prepare(
+    `INSERT INTO client_registry (client_id, user_agent, first_seen, last_seen)
+     VALUES (?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(client_id) DO UPDATE SET
+       last_seen = datetime('now'),
+       user_agent = COALESCE(excluded.user_agent, client_registry.user_agent)`
+  ).run(clientId, userAgent ?? null);
+}
+
+// ─── Metrics: Aggregated Reads ────────────────────────────
+
+export interface MetricsSummary {
+  total_watch_seconds: number;
+  total_sessions: number;
+  active_clients: number;
+}
+
+export function getMetricsSummary(db: Database.Database, since: string): MetricsSummary {
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(duration_seconds), 0) as total_watch_seconds,
+      COUNT(*) as total_sessions,
+      COUNT(DISTINCT client_id) as active_clients
+    FROM watch_sessions
+    WHERE started_at >= ?
+  `).get(since) as MetricsSummary;
+  return row;
+}
+
+export interface TopChannel {
+  channel_id: number;
+  channel_name: string;
+  total_seconds: number;
+  session_count: number;
+}
+
+export function getTopChannels(db: Database.Database, since: string, limit: number = 10): TopChannel[] {
+  return db.prepare(`
+    SELECT
+      channel_id,
+      channel_name,
+      COALESCE(SUM(duration_seconds), 0) as total_seconds,
+      COUNT(*) as session_count
+    FROM watch_sessions
+    WHERE started_at >= ? AND channel_id IS NOT NULL
+    GROUP BY channel_id
+    ORDER BY total_seconds DESC
+    LIMIT ?
+  `).all(since, limit) as TopChannel[];
+}
+
+export interface TopShow {
+  item_id: string;
+  title: string;
+  content_type: string | null;
+  total_seconds: number;
+  session_count: number;
+}
+
+export function getTopShows(db: Database.Database, since: string, limit: number = 10): TopShow[] {
+  return db.prepare(`
+    SELECT
+      item_id,
+      title,
+      content_type,
+      COALESCE(SUM(duration_seconds), 0) as total_seconds,
+      COUNT(*) as session_count
+    FROM watch_sessions
+    WHERE started_at >= ? AND item_id IS NOT NULL
+    GROUP BY item_id
+    ORDER BY total_seconds DESC
+    LIMIT ?
+  `).all(since, limit) as TopShow[];
+}
+
+export interface TopSeries {
+  series_name: string;
+  total_seconds: number;
+  session_count: number;
+  episode_count: number;
+}
+
+export function getTopSeries(db: Database.Database, since: string, limit: number = 10): TopSeries[] {
+  return db.prepare(`
+    SELECT
+      series_name,
+      COALESCE(SUM(duration_seconds), 0) as total_seconds,
+      COUNT(*) as session_count,
+      COUNT(DISTINCT item_id) as episode_count
+    FROM watch_sessions
+    WHERE started_at >= ? AND series_name IS NOT NULL AND series_name != ''
+    GROUP BY series_name
+    ORDER BY total_seconds DESC
+    LIMIT ?
+  `).all(since, limit) as TopSeries[];
+}
+
+export interface TopClient {
+  client_id: string;
+  user_agent: string | null;
+  total_seconds: number;
+  session_count: number;
+  last_seen: string | null;
+}
+
+export function getTopClients(db: Database.Database, since: string, limit: number = 10): TopClient[] {
+  return db.prepare(`
+    SELECT
+      ws.client_id,
+      cr.user_agent,
+      COALESCE(SUM(ws.duration_seconds), 0) as total_seconds,
+      COUNT(*) as session_count,
+      cr.last_seen
+    FROM watch_sessions ws
+    LEFT JOIN client_registry cr ON ws.client_id = cr.client_id
+    WHERE ws.started_at >= ?
+    GROUP BY ws.client_id
+    ORDER BY total_seconds DESC
+    LIMIT ?
+  `).all(since, limit) as TopClient[];
+}
+
+export interface HourlyActivity {
+  hour: number;
+  total_seconds: number;
+  session_count: number;
+}
+
+export function getHourlyActivity(db: Database.Database, since: string): HourlyActivity[] {
+  return db.prepare(`
+    SELECT
+      CAST(strftime('%H', started_at) AS INTEGER) as hour,
+      COALESCE(SUM(duration_seconds), 0) as total_seconds,
+      COUNT(*) as session_count
+    FROM watch_sessions
+    WHERE started_at >= ?
+    GROUP BY hour
+    ORDER BY hour
+  `).all(since) as HourlyActivity[];
+}
+
+export function getRecentSessions(db: Database.Database, limit: number = 20): WatchSession[] {
+  return db.prepare(
+    'SELECT * FROM watch_sessions ORDER BY started_at DESC LIMIT ?'
+  ).all(limit) as WatchSession[];
+}
+
+export function clearMetricsData(db: Database.Database): void {
+  const txn = db.transaction(() => {
+    db.prepare('DELETE FROM watch_sessions').run();
+    db.prepare('DELETE FROM watch_events').run();
+    db.prepare('DELETE FROM client_registry').run();
+  });
+  txn();
+}
+
 // ─── Factory Reset ─────────────────────────────────────────
 
 export function factoryReset(db: Database.Database): void {
@@ -344,6 +607,9 @@ export function factoryReset(db: Database.Database): void {
     db.prepare('DELETE FROM library_cache').run();
     db.prepare('DELETE FROM servers').run();
     db.prepare('DELETE FROM settings').run();
+    db.prepare('DELETE FROM watch_sessions').run();
+    db.prepare('DELETE FROM watch_events').run();
+    db.prepare('DELETE FROM client_registry').run();
 
     // Re-insert default settings
     const insertSetting = db.prepare(
@@ -352,6 +618,8 @@ export function factoryReset(db: Database.Database): void {
     insertSetting.run('genre_filter', JSON.stringify({ mode: 'allow', genres: [] }));
     insertSetting.run('content_types', JSON.stringify({ movies: true, tv_shows: true }));
     insertSetting.run('schedule_block_hours', JSON.stringify(8));
+    insertSetting.run('share_playback_progress', JSON.stringify(false));
+    insertSetting.run('metrics_enabled', JSON.stringify(true));
   });
   txn();
 }

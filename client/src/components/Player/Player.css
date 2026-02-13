@@ -1,3 +1,11 @@
+/* ── Player Overlay (single-shell PWA) ──────────── */
+.player-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #000;
+}
+
 /* ── Player Container ────────────────────────────── */
 .player {
   width: 100%;
@@ -1922,7 +1930,8 @@
   }
 
   .player-progress {
-    padding-bottom: env(safe-area-inset-bottom);
+    bottom: env(safe-area-inset-bottom);
+    padding-bottom: 0;
   }
 
   /* Landscape specific safe areas */

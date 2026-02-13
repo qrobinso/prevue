@@ -185,6 +185,24 @@ export interface QualityParams {
   audioStreamIndex?: number;
 }
 
+/** Detect whether the browser supports HEVC (H.265) in MSE for HLS playback. */
+let _hevcSupported: boolean | null = null;
+function supportsHevc(): boolean {
+  if (_hevcSupported !== null) return _hevcSupported;
+  try {
+    if (typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported) {
+      _hevcSupported =
+        MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L150.B0"') ||
+        MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L150.B0"');
+    } else {
+      _hevcSupported = false;
+    }
+  } catch {
+    _hevcSupported = false;
+  }
+  return _hevcSupported;
+}
+
 export async function getPlaybackInfo(
   channelId: number,
   quality?: QualityParams
@@ -193,6 +211,7 @@ export async function getPlaybackInfo(
   if (quality?.bitrate) params.set('bitrate', String(quality.bitrate));
   if (quality?.maxWidth) params.set('maxWidth', String(quality.maxWidth));
   if (quality?.audioStreamIndex != null) params.set('audioStreamIndex', String(quality.audioStreamIndex));
+  if (supportsHevc()) params.set('hevc', '1');
   
   const queryString = params.toString();
   return request(`/playback/${channelId}${queryString ? `?${queryString}` : ''}`);
@@ -289,6 +308,75 @@ export async function reauthenticateServer(id: number, password: string): Promis
     method: 'POST',
     body: JSON.stringify({ password }),
   });
+}
+
+// ─── Metrics ──────────────────────────────────────────
+
+export async function metricsStart(data: {
+  client_id: string;
+  channel_id?: number;
+  channel_name?: string;
+  item_id?: string;
+  title?: string;
+  series_name?: string;
+  content_type?: string;
+}): Promise<{ success: boolean; session_id?: number; enabled?: boolean }> {
+  return request('/metrics/start', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function metricsStop(clientId: string): Promise<{ success: boolean }> {
+  return request('/metrics/stop', {
+    method: 'POST',
+    body: JSON.stringify({ client_id: clientId }),
+  });
+}
+
+export async function metricsChannelSwitch(data: {
+  client_id: string;
+  from_channel_id?: number;
+  from_channel_name?: string;
+  to_channel_id?: number;
+  to_channel_name?: string;
+}): Promise<{ success: boolean }> {
+  return request('/metrics/channel-switch', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export interface MetricsDashboard {
+  enabled: boolean;
+  summary?: {
+    total_watch_seconds: number;
+    total_sessions: number;
+    active_clients: number;
+  };
+  topChannels?: { channel_id: number; channel_name: string; total_seconds: number; session_count: number }[];
+  topShows?: { item_id: string; title: string; content_type: string | null; total_seconds: number; session_count: number }[];
+  topSeries?: { series_name: string; total_seconds: number; session_count: number; episode_count: number }[];
+  topClients?: { client_id: string; user_agent: string | null; total_seconds: number; session_count: number; last_seen: string | null }[];
+  hourlyActivity?: { hour: number; total_seconds: number; session_count: number }[];
+  recentSessions?: {
+    id: number;
+    client_id: string;
+    channel_name: string | null;
+    title: string | null;
+    content_type: string | null;
+    started_at: string;
+    ended_at: string | null;
+    duration_seconds: number;
+  }[];
+}
+
+export async function getMetricsDashboard(range: string = '7d'): Promise<MetricsDashboard> {
+  return request(`/metrics/dashboard?range=${encodeURIComponent(range)}`);
+}
+
+export async function clearMetricsData(): Promise<{ success: boolean }> {
+  return request('/metrics/data', { method: 'DELETE' });
 }
 
 // ─── Health ───────────────────────────────────────────

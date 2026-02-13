@@ -3,6 +3,8 @@ import {
   getBlockStart,
   getBlockEnd,
   getNextBlockStart,
+  getBlockHours,
+  getDayStartHour,
   snapTo15Min,
   snapForwardTo15Min,
   ticksToMs,
@@ -12,56 +14,62 @@ import {
 
 describe('time utilities', () => {
   describe('getBlockStart', () => {
-    it('should align to 00:00 for times between 00:00-07:59', () => {
-      const date = new Date('2026-02-11T03:30:00.000Z');
+    it('should align to previous 4am for times before 4am', () => {
+      const date = new Date(2026, 1, 11, 3, 30); // Feb 11 3:30 local
       const result = getBlockStart(date);
-      expect(result.getHours()).toBe(0);
+      expect(result.getHours()).toBe(getDayStartHour());
       expect(result.getMinutes()).toBe(0);
       expect(result.getSeconds()).toBe(0);
+      expect(result.getDate()).toBe(10); // previous day
     });
 
-    it('should align to 08:00 for times between 08:00-15:59', () => {
-      const date = new Date('2026-02-11T12:45:00.000Z');
+    it('should align to today 4am for times at or after 4am', () => {
+      const date = new Date(2026, 1, 11, 12, 45); // Feb 11 12:45 local
       const result = getBlockStart(date);
-      expect(result.getHours()).toBe(8);
+      expect(result.getHours()).toBe(getDayStartHour());
       expect(result.getMinutes()).toBe(0);
+      expect(result.getDate()).toBe(11);
     });
 
-    it('should align to 16:00 for times between 16:00-23:59', () => {
-      const date = new Date('2026-02-11T22:15:00.000Z');
+    it('should align to today 4am for evening times', () => {
+      const date = new Date(2026, 1, 11, 22, 15); // Feb 11 22:15 local
       const result = getBlockStart(date);
-      expect(result.getHours()).toBe(16);
+      expect(result.getHours()).toBe(getDayStartHour());
       expect(result.getMinutes()).toBe(0);
+      expect(result.getDate()).toBe(11);
     });
 
-    it('should handle midnight exactly', () => {
-      const date = new Date('2026-02-11T00:00:00.000Z');
+    it('should return same time for 4am exactly', () => {
+      const date = new Date(2026, 1, 11, 4, 0, 0, 0);
       const result = getBlockStart(date);
-      expect(result.getHours()).toBe(0);
-      expect(result.getMinutes()).toBe(0);
+      expect(result.getHours()).toBe(getDayStartHour());
+      expect(result.getDate()).toBe(11);
     });
   });
 
   describe('getBlockEnd', () => {
-    it('should return 8 hours after block start', () => {
-      const start = new Date('2026-02-11T00:00:00.000Z');
+    it('should return 24 hours after block start', () => {
+      const start = new Date(2026, 1, 11, 4, 0); // Feb 11 4am local
       const end = getBlockEnd(start);
-      expect(end.getHours()).toBe(8);
-      expect(end.getDate()).toBe(start.getDate());
+      expect(end.getTime() - start.getTime()).toBe(getBlockHours() * 60 * 60 * 1000);
+      expect(end.getDate()).toBe(12);
+      expect(end.getHours()).toBe(getDayStartHour());
     });
 
     it('should handle day boundary crossing', () => {
-      const start = new Date('2026-02-11T16:00:00.000Z');
+      const start = new Date(2026, 1, 10, 4, 0);
       const end = getBlockEnd(start);
-      expect(end.getTime() - start.getTime()).toBe(8 * 60 * 60 * 1000);
+      expect(end.getTime() - start.getTime()).toBe(24 * 60 * 60 * 1000);
+      expect(end.getDate()).toBe(11);
     });
   });
 
   describe('getNextBlockStart', () => {
-    it('should return the end of the given block', () => {
-      const start = new Date('2026-02-11T00:00:00.000Z');
+    it('should return the end of the given block (next 4am)', () => {
+      const start = new Date(2026, 1, 11, 4, 0);
       const next = getNextBlockStart(start);
-      expect(next.getHours()).toBe(8);
+      expect(next.getHours()).toBe(getDayStartHour());
+      expect(next.getDate()).toBe(12);
     });
   });
 

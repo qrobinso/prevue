@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
-import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings } from '../../services/api';
+import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings, metricsStart, metricsStop } from '../../services/api';
+import { getClientId } from '../../services/clientIdentity';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import { useSwipe } from '../../hooks/useSwipe';
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
@@ -246,6 +247,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getVideoFit);
+  const [autoplayMutedLock, setAutoplayMutedLock] = useState(true);
   const { volume, muted, setVolume, toggleMute } = useVolume();
   const mutedRef = useRef(muted);
   const volumeRef = useRef(volume);
@@ -276,6 +278,26 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     setShowOverlay(true);
     if (overlayTimer.current) clearTimeout(overlayTimer.current);
     overlayTimer.current = setTimeout(() => setShowOverlay(false), 5000);
+  }, []);
+
+  const tryAutoplayMuted = useCallback((video: HTMLVideoElement) => {
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    const attemptPlay = () => {
+      attempts += 1;
+      setAutoplayMutedLock(true);
+      video.muted = true;
+      video
+        .play()
+        .catch(() => {
+          if (attempts < maxAttempts) {
+            setTimeout(attemptPlay, 200);
+          }
+        });
+    };
+
+    attemptPlay();
   }, []);
 
   // Load and start playback (optionally with a specific audio track)
@@ -338,6 +360,18 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       currentItemIdRef.current = info.program?.jellyfin_item_id || null;
       updateActivePlaybackSession('player', channel.id, info, reuseInfo?.startPositionSec ?? (info.seek_position_seconds || 0));
 
+      // Report metrics for this playback
+      const isEpisode = info.program?.content_type === 'episode';
+      metricsStart({
+        client_id: getClientId(),
+        channel_id: channel.id,
+        channel_name: channel.name,
+        item_id: info.program?.jellyfin_item_id,
+        title: isEpisode ? (info.program?.subtitle || info.program?.title) : info.program?.title,
+        series_name: isEpisode ? info.program?.title : undefined,
+        content_type: info.program?.content_type ?? undefined,
+      }).catch(() => {});
+
       // Reset playback progress tracking for the new item
       watchStartRef.current = Date.now();
       progressActivatedRef.current = false;
@@ -386,7 +420,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const onFirstPlaying = () => {
           if (cancelledRef?.current) return;
           removePlayingListeners();
-          // Restore user's volume/muted (we start muted for iOS autoplay compat)
+          // Playback has started; release autoplay mute lock and restore user audio prefs.
+          setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
           video.volume = volumeRef.current;
           // Wait a brief moment for video to actually render frames before fading in
@@ -423,26 +458,30 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelledRef?.current) return;
           errorCountRef.current = 0; // Reset on success
-          video.muted = true; // iOS: autoplay requires muted
-          video.play().catch(() => {});
+          tryAutoplayMuted(video);
           setLoading(false);
           showOverlayBriefly();
-          // Apply subtitle selection via hls.js (so subtitles actually display)
+          // Apply subtitle selection via hls.js (so subtitles actually display).
+          // When stream was requested with one subtitle, manifest may have a single track at index 0.
           const idx = selectedSubtitleIndexRef.current;
           if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-            hls.subtitleDisplay = idx !== null && idx >= 0;
-            hls.subtitleTrack = idx !== null && idx >= 0 && idx < hls.subtitleTracks.length ? idx : -1;
+            const wantOn = idx !== null && idx >= 0;
+            hls.subtitleDisplay = wantOn;
+            hls.subtitleTrack = wantOn ? Math.min(idx, hls.subtitleTracks.length - 1) : -1;
           }
           // Set native track mode after a brief delay for HLS.js to add tracks
-          setTimeout(() => setNativeSubtitleMode(idx), 100);
+          const trackIdx = idx !== null && idx >= 0 && hls.subtitleTracks?.length ? Math.min(idx, hls.subtitleTracks.length - 1) : null;
+          setTimeout(() => setNativeSubtitleMode(trackIdx), 100);
         });
         hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
           const idx = selectedSubtitleIndexRef.current;
           if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-            hls.subtitleDisplay = idx !== null && idx >= 0;
-            hls.subtitleTrack = idx !== null && idx >= 0 && idx < hls.subtitleTracks.length ? idx : -1;
+            const wantOn = idx !== null && idx >= 0;
+            hls.subtitleDisplay = wantOn;
+            hls.subtitleTrack = wantOn ? Math.min(idx, hls.subtitleTracks.length - 1) : -1;
           }
-          setTimeout(() => setNativeSubtitleMode(idx), 100);
+          const trackIdx = idx !== null && idx >= 0 && hls.subtitleTracks?.length ? Math.min(idx, hls.subtitleTracks.length - 1) : null;
+          setTimeout(() => setNativeSubtitleMode(trackIdx), 100);
         });
 
         hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -496,7 +535,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const onFirstPlaying = () => {
           if (cancelledRef?.current) return;
           removePlayingListeners();
-          // Restore user's volume/muted (we start muted for iOS autoplay compat)
+          // Playback has started; release autoplay mute lock and restore user audio prefs.
+          setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
           video.volume = volumeRef.current;
           setTimeout(() => {
@@ -521,8 +561,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const onCanPlay = () => {
           if (cancelledRef?.current) return;
           if (startPosition > 0) video.currentTime = startPosition;
-          video.muted = true; // iOS: autoplay requires muted
-          video.play().catch(() => {});
+          tryAutoplayMuted(video);
           setLoading(false);
           showOverlayBriefly();
         };
@@ -535,7 +574,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       setError(formatPlaybackError(err instanceof Error ? err : String(err)));
       setLoading(false);
     }
-  }, [channel.id, currentQuality, showOverlayBriefly]);
+  }, [channel.id, currentQuality, showOverlayBriefly, tryAutoplayMuted]);
 
   // Load stream on mount and when channel/quality changes. Cleanup runs when channel
   // changes or on unmount: we tell Jellyfin to stop the transcode session (saves resources).
@@ -564,6 +603,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
         const data = JSON.stringify({ itemId: currentItemIdRef.current, positionMs });
         navigator.sendBeacon('/api/stream/stop', new Blob([data], { type: 'application/json' }));
+        navigator.sendBeacon('/api/metrics/stop', new Blob([JSON.stringify({ client_id: getClientId() })], { type: 'application/json' }));
       }
     };
 
@@ -598,6 +638,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           stopPlaybackTimeoutRef.current = null;
           stopPlaybackChannelIdRef.current = null;
           stopPlayback(itemId, undefined, positionMs).catch(() => {});
+          metricsStop(getClientId()).catch(() => {});
         }, 0);
       }
     };
@@ -673,6 +714,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   useKeyboard('player', {
     onEscape: handleBackToGuide,
     onEnter: showOverlayBriefly,
+    onUp: onChannelUp,
+    onDown: onChannelDown,
   });
 
   // Toggle video fit between letterbox (contain) and fill (cover)
@@ -685,15 +728,17 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   }, []);
 
   // Apply volume settings to video element
-  useVideoVolume(videoRef, volume, muted);
+  useVideoVolume(videoRef, volume, autoplayMutedLock ? true : muted);
 
   // Click/tap handler with double-tap detection
   const handleClick = useCallback(() => {
     // iOS fallback: if video loaded but is paused (autoplay blocked), tap-to-play
     const video = videoRef.current;
     if (video && !isInterstitial && video.paused && video.readyState >= 2) {
+      setAutoplayMutedLock(true);
       video.muted = true;
       video.play().then(() => {
+        setAutoplayMutedLock(false);
         video.muted = mutedRef.current;
         video.volume = volumeRef.current;
       }).catch(() => {});
@@ -731,8 +776,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     if (video && !isInterstitial) {
       autoAdvanceDisabledRef.current = true; // Disable auto-advance to next program
       video.currentTime = 0;
+      setAutoplayMutedLock(true);
       video.muted = true; // iOS: autoplay requires muted
       video.play().then(() => {
+        setAutoplayMutedLock(false);
         video.muted = mutedRef.current;
         video.volume = volumeRef.current;
       }).catch(() => {});
@@ -819,30 +866,37 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     const hls = hlsRef.current;
     const video = videoRef.current;
     if (hls && hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-      hls.subtitleDisplay = positionIndex !== null && positionIndex >= 0;
-      hls.subtitleTrack = positionIndex !== null && positionIndex >= 0 && positionIndex < hls.subtitleTracks.length ? positionIndex : -1;
+      const wantOn = positionIndex !== null && positionIndex >= 0;
+      hls.subtitleDisplay = wantOn;
+      hls.subtitleTrack = wantOn ? Math.min(positionIndex, hls.subtitleTracks.length - 1) : -1;
     }
     // Also set native text track mode for browser rendering
     if (video && video.textTracks) {
+      const trackIdx = positionIndex !== null && positionIndex >= 0 ? Math.min(positionIndex, video.textTracks.length - 1) : null;
       for (let i = 0; i < video.textTracks.length; i++) {
         const track = video.textTracks[i];
         if (track.kind === 'subtitles' || track.kind === 'captions') {
-          track.mode = (positionIndex !== null && i === positionIndex) ? 'showing' : 'hidden';
+          track.mode = (trackIdx !== null && i === trackIdx) ? 'showing' : 'hidden';
         }
       }
     }
   }, []);
 
-  // Select subtitle track (position index in list); null = Off
-  const handleSelectSubtitleTrack = useCallback((positionIndex: number | null) => {
+  // Select subtitle track (position index in list); null = Off. Reloads stream so Jellyfin includes subtitles.
+  const handleSelectSubtitleTrack = useCallback(async (positionIndex: number | null) => {
     setSelectedSubtitleIndex(positionIndex);
     selectedSubtitleIndexRef.current = positionIndex;
     setStoredSubtitleIndex(positionIndex);
-    updateSettings({ preferred_subtitle_index: positionIndex }).catch(() => {});
     setShowSettingsOpen(false);
-    applySubtitleTrack(positionIndex);
+    try {
+      await updateSettings({ preferred_subtitle_index: positionIndex });
+      await loadPlayback();
+    } catch {
+      // Keep UI in sync even if reload fails
+      applySubtitleTrack(positionIndex);
+    }
     showOverlayBriefly();
-  }, [showOverlayBriefly, applySubtitleTrack]);
+  }, [showOverlayBriefly, applySubtitleTrack, loadPlayback]);
 
   // Keep ref in sync and apply subtitle to hls when selection changes (e.g. from guide)
   useEffect(() => {
@@ -900,7 +954,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         <video
           ref={videoRef}
           className={`player-video ${videoFit === 'cover' ? 'player-video-fill' : ''} ${videoReady ? 'player-video-ready' : ''}`}
+          autoPlay
           playsInline
+          muted={autoplayMutedLock ? true : muted}
         />
       )}
 
@@ -972,7 +1028,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       )}
 
       {/* Non-interactive progress bar */}
-      {!isInterstitial && currentProgram && (
+      {showOverlay && !isInterstitial && currentProgram && (
         <div className="player-progress">
           <div className="player-progress-bar" style={{ width: `${progress}%` }} />
         </div>

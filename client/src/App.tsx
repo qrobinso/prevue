@@ -1,36 +1,40 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
 import Guide from './components/Guide/Guide';
 import Player from './components/Player/Player';
 import Settings from './components/Settings/Settings';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useKeyboard } from './hooks/useKeyboard';
-import { getChannels, getSettings, type ChannelWithProgram } from './services/api';
+import { getChannels, getSettings, metricsChannelSwitch, type ChannelWithProgram } from './services/api';
+import { getClientId } from './services/clientIdentity';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
 import { isIOS } from './utils/platform';
 import type { Channel, ScheduleProgram } from './types';
 
-// Guide view component
-function GuideView({ 
-  onTune, 
-  settingsOpen, 
-  onOpenSettings, 
-  onCloseSettings,
-  guideRefreshKey,
-  initialChannelId 
-}: {
-  onTune: (channel: Channel, program: ScheduleProgram, opts?: { fromFullscreen?: boolean }) => void;
-  settingsOpen: boolean;
-  onOpenSettings: () => void;
-  onCloseSettings: () => void;
-  guideRefreshKey: number;
-  initialChannelId: number | null;
-}) {
-  useWebSocket();
+export type AppView = 'guide' | 'player';
+
+// Single app shell: Guide is always mounted, Player appears as overlay
+function AppContent() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Derive active channel from URL
+  const channelMatch = location.pathname.match(/^\/channel\/(\d+)$/);
+  const activeChannelNumber = channelMatch ? parseInt(channelMatch[1], 10) : null;
+  const playerActive = activeChannelNumber !== null;
+
+  const [guideRefreshKey, setGuideRefreshKey] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
+  const [lastChannelId, setLastChannelId] = useState<number | null>(null);
+  const enterFullscreenRef = useRef(false);
+
+  // iOS interaction detection (required for video autoplay)
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const interactedRef = useRef(false);
 
-  // On iOS, don't start preview stream until user has touched the page (required for video autoplay)
+  useWebSocket();
+
   useEffect(() => {
     if (!isIOS() || interactedRef.current) return;
     const onInteraction = () => {
@@ -48,113 +52,7 @@ function GuideView({
     };
   }, []);
 
-  useKeyboard('guide', {
-    onEscape: settingsOpen ? onCloseSettings : undefined,
-  });
-
-  const streamingPaused = settingsOpen || (isIOS() && !hasUserInteracted);
-
-  return (
-    <>
-      <Guide
-        key={guideRefreshKey}
-        onTune={onTune}
-        onOpenSettings={onOpenSettings}
-        streamingPaused={streamingPaused}
-        initialChannelId={initialChannelId}
-      />
-      {settingsOpen && (
-        <Settings onClose={onCloseSettings} />
-      )}
-    </>
-  );
-}
-
-// Player view component
-function PlayerView({ 
-  channels,
-  onBack 
-}: { 
-  channels: ChannelWithProgram[];
-  onBack: (channel?: Channel) => void;
-}) {
-  const { channelNumber } = useParams<{ channelNumber: string }>();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const enterFullscreenOnMount = (location.state as { fromFullscreen?: boolean } | null)?.fromFullscreen === true;
-  
-  const [currentChannel, setCurrentChannel] = useState<Channel | null>(null);
-  const [currentProgram, setCurrentProgram] = useState<ScheduleProgram | null>(null);
-
-  useWebSocket();
-
-  // Find channel from URL parameter
-  useEffect(() => {
-    if (channelNumber && channels.length > 0) {
-      const num = parseInt(channelNumber, 10);
-      const channel = channels.find(ch => ch.number === num);
-      if (channel) {
-        setCurrentChannel(channel);
-        setCurrentProgram(channel.current_program || null);
-      } else {
-        // Channel not found, redirect to guide
-        navigate('/', { replace: true });
-      }
-    }
-  }, [channelNumber, channels, navigate]);
-
-  const handleChannelUp = useCallback(() => {
-    if (channels.length === 0 || !currentChannel) return;
-    const idx = channels.findIndex(ch => ch.id === currentChannel.id);
-    const prevIdx = idx <= 0 ? channels.length - 1 : idx - 1;
-    navigate(`/channel/${channels[prevIdx].number}`);
-  }, [channels, currentChannel, navigate]);
-
-  const handleChannelDown = useCallback(() => {
-    if (channels.length === 0 || !currentChannel) return;
-    const idx = channels.findIndex(ch => ch.id === currentChannel.id);
-    const nextIdx = idx < 0 || idx >= channels.length - 1 ? 0 : idx + 1;
-    navigate(`/channel/${channels[nextIdx].number}`);
-  }, [channels, currentChannel, navigate]);
-
-  useKeyboard('player', {
-    onEscape: onBack,
-    onUp: handleChannelUp,
-    onDown: handleChannelDown,
-  });
-
-  if (!currentChannel) {
-    return (
-      <div className="guide">
-        <div className="guide-loading">
-          <div className="guide-loading-text">LOADING CHANNEL...</div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <Player
-      channel={currentChannel}
-      program={currentProgram}
-      onBack={() => onBack(currentChannel)}
-      onChannelUp={handleChannelUp}
-      onChannelDown={handleChannelDown}
-      enterFullscreenOnMount={enterFullscreenOnMount}
-    />
-  );
-}
-
-// Main App content with shared state
-function AppContent() {
-  const navigate = useNavigate();
-  
-  const [guideRefreshKey, setGuideRefreshKey] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
-  const [lastChannelId, setLastChannelId] = useState<number | null>(null);
-
-  // Fetch channels for URL-based navigation
+  // Fetch channels for player channel resolution
   useEffect(() => {
     const fetchChannels = async () => {
       try {
@@ -180,11 +78,33 @@ function AppContent() {
       .catch(() => {});
   }, []);
 
+  // Resolve current channel and program for Player
+  const currentChannel = playerActive && channels.length > 0
+    ? channels.find(ch => ch.number === activeChannelNumber) ?? null
+    : null;
+  const currentProgram = currentChannel?.current_program ?? null;
+
+  // Redirect to guide if channel not found (only after channels have loaded)
+  useEffect(() => {
+    if (playerActive && channels.length > 0 && !currentChannel) {
+      navigate('/', { replace: true });
+    }
+  }, [playerActive, channels.length, currentChannel, navigate]);
+
   const handleTune = useCallback((channel: Channel, program: ScheduleProgram, opts?: { fromFullscreen?: boolean }) => {
+    const prevChannelId = lastChannelId;
+    const prevChannel = prevChannelId ? channels.find(ch => ch.id === prevChannelId) : null;
     setLastChannelId(channel.id);
-    // Navigate to channel URL; preserve fullscreen state when switching from guide
-    navigate(`/channel/${channel.number}`, { state: opts?.fromFullscreen ? { fromFullscreen: true } : undefined });
-  }, [navigate]);
+    enterFullscreenRef.current = opts?.fromFullscreen === true;
+    navigate(`/channel/${channel.number}`);
+    metricsChannelSwitch({
+      client_id: getClientId(),
+      from_channel_id: prevChannel?.id,
+      from_channel_name: prevChannel?.name,
+      to_channel_id: channel.id,
+      to_channel_name: channel.name,
+    }).catch(() => {});
+  }, [navigate, lastChannelId, channels]);
 
   const handleBackToGuide = useCallback((channel?: Channel) => {
     if (channel) setLastChannelId(channel.id);
@@ -200,33 +120,93 @@ function AppContent() {
     setSettingsOpen(false);
   }, []);
 
+  // Player channel navigation
+  const handleChannelUp = useCallback(() => {
+    if (channels.length === 0 || !currentChannel) return;
+    const idx = channels.findIndex(ch => ch.id === currentChannel.id);
+    const prevIdx = idx <= 0 ? channels.length - 1 : idx - 1;
+    const target = channels[prevIdx];
+    navigate(`/channel/${target.number}`);
+    metricsChannelSwitch({
+      client_id: getClientId(),
+      from_channel_id: currentChannel.id,
+      from_channel_name: currentChannel.name,
+      to_channel_id: target.id,
+      to_channel_name: target.name,
+    }).catch(() => {});
+  }, [channels, currentChannel, navigate]);
+
+  const handleChannelDown = useCallback(() => {
+    if (channels.length === 0 || !currentChannel) return;
+    const idx = channels.findIndex(ch => ch.id === currentChannel.id);
+    const nextIdx = idx < 0 || idx >= channels.length - 1 ? 0 : idx + 1;
+    const target = channels[nextIdx];
+    navigate(`/channel/${target.number}`);
+    metricsChannelSwitch({
+      client_id: getClientId(),
+      from_channel_id: currentChannel.id,
+      from_channel_name: currentChannel.name,
+      to_channel_id: target.id,
+      to_channel_name: target.name,
+    }).catch(() => {});
+  }, [channels, currentChannel, navigate]);
+
+  // Guide-level keyboard (disabled when player overlay is active)
+  useKeyboard('guide', {
+    onEscape: settingsOpen ? handleCloseSettings : undefined,
+  }, !playerActive);
+
+  // Guide streaming paused when player overlay is active, settings open, or iOS not yet interacted
+  const guideStreamingPaused = playerActive || settingsOpen || (isIOS() && !hasUserInteracted);
+
+  // Fullscreen signal: consumed once when player opens, reset when player closes
+  const enterFullscreenOnMount = playerActive ? enterFullscreenRef.current : false;
+  useEffect(() => {
+    if (!playerActive) {
+      enterFullscreenRef.current = false;
+    }
+  }, [playerActive]);
+
   return (
     <div className="app">
       <div className="app-content">
-        <Routes>
-          <Route
-            path="/"
-            element={
-            <GuideView
-              onTune={handleTune}
-              settingsOpen={settingsOpen}
-              onOpenSettings={handleOpenSettings}
-              onCloseSettings={handleCloseSettings}
-              guideRefreshKey={guideRefreshKey}
-              initialChannelId={lastChannelId}
+        {/* Guide - always mounted as base layer */}
+        <Guide
+          key={guideRefreshKey}
+          onTune={handleTune}
+          onOpenSettings={handleOpenSettings}
+          streamingPaused={guideStreamingPaused}
+          initialChannelId={lastChannelId}
+          keyboardDisabled={playerActive}
+        />
+        {settingsOpen && !playerActive && (
+          <Settings onClose={handleCloseSettings} />
+        )}
+
+        {/* Player overlay - shown when a channel URL is active */}
+        {playerActive && currentChannel && (
+          <div className="player-overlay">
+            <Player
+              channel={currentChannel}
+              program={currentProgram}
+              onBack={() => handleBackToGuide(currentChannel)}
+              onChannelUp={handleChannelUp}
+              onChannelDown={handleChannelDown}
+              enterFullscreenOnMount={enterFullscreenOnMount}
             />
-            }
-          />
-          <Route
-            path="/channel/:channelNumber"
-            element={
-            <PlayerView 
-              channels={channels}
-              onBack={handleBackToGuide}
-            />
-            }
-          />
-        </Routes>
+          </div>
+        )}
+
+        {/* Loading overlay while channels resolve for deep links */}
+        {playerActive && !currentChannel && (
+          <div className="player-overlay">
+            <div className="guide">
+              <div className="guide-loading">
+                <div className="guide-loading-text">LOADING CHANNEL...</div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

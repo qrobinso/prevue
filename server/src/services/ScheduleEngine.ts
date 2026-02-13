@@ -6,13 +6,13 @@ import * as queries from '../db/queries.js';
 import { generateSeed } from '../utils/crypto.js';
 import { getBlockStart, getBlockEnd, getNextBlockStart, getBlockHours, snapForwardTo15Min } from '../utils/time.js';
 
-const EPISODE_RUN_LENGTH_MIN = 3;
-const EPISODE_RUN_LENGTH_MAX = 4;
+const EPISODE_RUN_LENGTH_MIN = 2;
+const EPISODE_RUN_LENGTH_MAX = 5;
 const MAX_GAP_MS = 30 * 60 * 1000; // Maximum 30-minute gap before we try to fill it
 const INTERSTITIAL_FALLBACK_MS = 5 * 60 * 1000; // Minimal interstitial when no content fits (was 30 min)
 const COOLDOWN_HOURS = 24; // Avoid reusing same program within this many hours
 const COOLDOWN_HOURS_MOVIE_CHANNEL = 8; // Shorter cooldown for movie-only channels = more back-to-back content
-const MOVIE_POOL_SIZE = 12; // Pick randomly from top N candidates (more = more variety)
+const MOVIE_POOL_SIZE = 20; // Pick randomly from top N candidates (more = more variety)
 
 /** Kids/family ratings (US); everything else is treated as adult so we don't mix with kids. */
 const KIDS_RATINGS = new Set([
@@ -165,7 +165,7 @@ export class ScheduleEngine {
   }
 
   /**
-   * Generate a single 8-hour schedule block for a channel.
+   * Generate a single 24-hour schedule block for a channel (4am–4am).
    * Yields periodically to allow API requests to be processed during generation.
    * Uses globalTracker to avoid scheduling the same content at the same time as other channels.
    */
@@ -250,6 +250,8 @@ export class ScheduleEngine {
 
     // Track items used in this block to prefer variety
     const usedInBlock = new Set<string>();
+    // Track how many times each series has been used in this block (for diversity weighting)
+    const seriesUsedCount = new Map<string, number>();
     let failedAttempts = 0;
     const MAX_FAILED_ATTEMPTS = 50; // Prevent infinite loops
     /** Current rating bucket so we don't mix kids and adult content. */
@@ -281,12 +283,21 @@ export class ScheduleEngine {
           : seriesIds.filter(s => seriesBucket.get(s) === lastScheduledBucket);
         const candidateSeriesIds = seriesIdsInBucket.length > 0 ? seriesIdsInBucket : seriesIds;
         // Prefer series not in 24h cooldown, avoid back-to-back same series
-        const preferred = candidateSeriesIds.filter(s =>
+        // Sort by least-used-in-block first, then filter for cooldown/last-item
+        const sortedByUsage = [...candidateSeriesIds].sort((a, b) =>
+          (seriesUsedCount.get(a) || 0) - (seriesUsedCount.get(b) || 0)
+        );
+        const minUsage = seriesUsedCount.get(sortedByUsage[0]) || 0;
+        // Pick from the least-used tier (series with the lowest usage count)
+        const leastUsedTier = sortedByUsage.filter(s =>
+          (seriesUsedCount.get(s) || 0) <= minUsage + 1
+        );
+        const preferred = leastUsedTier.filter(s =>
           s !== lastItemId && !seriesInCooldown.has(s)
         );
-        const fallback = candidateSeriesIds.filter(s => s !== lastItemId);
+        const fallback = leastUsedTier.filter(s => s !== lastItemId);
         const seriesId = this.pickRandom(
-          preferred.length > 0 ? preferred : fallback,
+          preferred.length > 0 ? preferred : fallback.length > 0 ? fallback : candidateSeriesIds,
           candidateSeriesIds,
           rng
         );
@@ -298,9 +309,12 @@ export class ScheduleEngine {
 
           // Episodes play back-to-back with no gaps
           for (let i = 0; i < runLength && currentTime.getTime() < blockEndMs; i++) {
-            // Try multiple episodes to find one that doesn't conflict and isn't in 24h cooldown
+            // Try multiple episodes to find one that doesn't conflict and isn't in cooldown
+            // Prefer episodes not yet used in this block for diversity
             let found = false;
-            for (let attempt = 0; attempt < episodes.length && !found; attempt++) {
+            let bestCandidate: { episode: JellyfinItem; attempt: number; durationMs: number; usedInBlock: boolean } | null = null;
+
+            for (let attempt = 0; attempt < episodes.length; attempt++) {
               const episode = episodes[(episodeIdx + attempt) % episodes.length];
               const durationMs = this.jellyfin.getItemDurationMs(episode);
               if (durationMs === 0) continue;
@@ -317,6 +331,22 @@ export class ScheduleEngine {
                 continue;
               }
 
+              // If not used in block, use immediately (best case)
+              if (!usedInBlock.has(episode.Id)) {
+                bestCandidate = { episode, attempt, durationMs, usedInBlock: false };
+                break;
+              }
+
+              // Otherwise keep as fallback (already used in block but still valid)
+              if (!bestCandidate) {
+                bestCandidate = { episode, attempt, durationMs, usedInBlock: true };
+              }
+            }
+
+            if (bestCandidate) {
+              const { episode, attempt, durationMs } = bestCandidate;
+              const epStartMs = currentTime.getTime();
+              const epEndMs = epStartMs + durationMs;
               const endTime = new Date(epEndMs);
               programs.push(this.createProgram(episode, currentTime, endTime));
               this.addToTracker(tracker, episode.Id, epStartMs, epEndMs);
@@ -332,6 +362,8 @@ export class ScheduleEngine {
           }
 
           seriesEpisodeIndex.set(seriesId, episodeIdx);
+          // Track how many runs this series has had in this block
+          seriesUsedCount.set(seriesId, (seriesUsedCount.get(seriesId) || 0) + 1);
         }
       }
       
@@ -508,7 +540,9 @@ export class ScheduleEngine {
             .map(i => ({
               item: i,
               duration: this.jellyfin.getItemDurationMs(i),
-              conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i))
+              conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i)),
+              usedInBlock: usedInBlock.has(i.Id),
+              inCooldown: scheduledInCooldown.has(i.Id)
             }))
             .filter(x => x.duration > 0 && x.duration <= remainingGap && !x.conflicts)
             .sort((a, b) => b.duration - a.duration);

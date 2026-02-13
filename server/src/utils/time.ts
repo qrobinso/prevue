@@ -1,32 +1,40 @@
 /**
  * Time utilities for schedule block alignment
+ * Schedule "day" is 24 hours starting at 4am (cable-style reset).
  */
 
-const DEFAULT_BLOCK_HOURS = 8;
+const DEFAULT_BLOCK_HOURS = 24;
+/** Hour of day (0–23) when the schedule day starts; 4 = 4am. */
+const DEFAULT_DAY_START_HOUR = 4;
 
 export function getBlockHours(): number {
   return parseInt(process.env.SCHEDULE_BLOCK_HOURS || '', 10) || DEFAULT_BLOCK_HOURS;
 }
 
+export function getDayStartHour(): number {
+  const parsed = parseInt(process.env.SCHEDULE_DAY_START_HOUR || '', 10);
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 23) return DEFAULT_DAY_START_HOUR;
+  return parsed;
+}
+
 /**
- * Get the block boundary times (e.g., 00:00, 08:00, 16:00 for 8-hour blocks)
- * Uses LOCAL time for block boundaries so schedules align with user's timezone
+ * Get the start of the current 24-hour schedule block.
+ * Blocks start at 4am (configurable) and run 24 hours, e.g. 4am–4am.
+ * Uses local time so schedules align with the server's timezone.
  */
 export function getBlockStart(date: Date): Date {
-  const blockHours = getBlockHours();
+  const dayStartHour = getDayStartHour();
   const d = new Date(date);
-  // Use local hours for block boundaries (getHours returns local time)
-  const hour = d.getHours();
-  const blockIndex = Math.floor(hour / blockHours);
-  d.setHours(blockIndex * blockHours, 0, 0, 0);
+  d.setHours(dayStartHour, 0, 0, 0);
+  if (date.getTime() < d.getTime()) {
+    d.setDate(d.getDate() - 1);
+  }
   return d;
 }
 
 export function getBlockEnd(blockStart: Date): Date {
   const blockHours = getBlockHours();
-  const end = new Date(blockStart);
-  end.setHours(end.getHours() + blockHours);
-  return end;
+  return new Date(blockStart.getTime() + blockHours * 60 * 60 * 1000);
 }
 
 export function getNextBlockStart(blockStart: Date): Date {

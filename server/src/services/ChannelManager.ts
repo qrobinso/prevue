@@ -9,6 +9,60 @@ const MIN_CHANNEL_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours minimum content
 const MIN_CAST_CHANNEL_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours minimum for cast/crew channels (directors, actors, etc.)
 const DEFAULT_MAX_CHANNELS = 100;
 
+// ─── Curated popularity priority lists ────────────────────
+// People in these lists are ranked first (by list order) when generating
+// director/actor/composer channels, before falling back to library-count sorting.
+// Only names that actually appear in the user's library will be used.
+
+const PRIORITY_DIRECTORS: string[] = [
+  'Steven Spielberg', 'Christopher Nolan', 'Martin Scorsese',
+  'Quentin Tarantino', 'David Fincher', 'Ridley Scott',
+  'Denis Villeneuve', 'James Cameron', 'Stanley Kubrick',
+  'Alfred Hitchcock', 'Francis Ford Coppola', 'Clint Eastwood',
+  'Coen Brothers', 'Joel Coen', 'Ethan Coen',
+  'Tim Burton', 'Wes Anderson', 'Peter Jackson',
+  'Guillermo del Toro', 'Michael Mann', 'David Lynch',
+  'Spike Lee', 'Ron Howard', 'Robert Zemeckis',
+  'Sam Raimi', 'Danny Boyle', 'Guy Ritchie',
+  'Jordan Peele', 'Greta Gerwig', 'Damien Chazelle',
+  'Bong Joon-ho', 'Park Chan-wook', 'Hayao Miyazaki',
+  'Akira Kurosawa', 'Wong Kar-wai', 'Alfonso Cuarón',
+  'Alejandro González Iñárritu', 'Kathryn Bigelow', 'Sofia Coppola',
+  'Paul Thomas Anderson', 'Darren Aronofsky', 'Edgar Wright',
+  'Rian Johnson', 'Taika Waititi', 'Barry Jenkins',
+  'Chloé Zhao', 'Ryan Coogler',
+];
+
+const PRIORITY_ACTORS: string[] = [
+  'Tom Hanks', 'Leonardo DiCaprio', 'Robert De Niro',
+  'Meryl Streep', 'Denzel Washington', 'Brad Pitt',
+  'Morgan Freeman', 'Al Pacino', 'Cate Blanchett',
+  'Matt Damon', 'Christian Bale', 'Joaquin Phoenix',
+  'Tom Cruise', 'Samuel L. Jackson', 'Anthony Hopkins',
+  'Scarlett Johansson', 'Will Smith', 'Jake Gyllenhaal',
+  'Amy Adams', 'Natalie Portman', 'Ryan Gosling',
+  'Margot Robbie', 'Viola Davis', 'Florence Pugh',
+  'Timothée Chalamet', 'Robert Downey Jr.', 'Keanu Reeves',
+  'Harrison Ford', 'Frances McDormand', 'Tilda Swinton',
+  'Willem Dafoe', 'Gary Oldman', 'Kate Winslet',
+  'Sandra Bullock', 'Nicole Kidman', 'Charlize Theron',
+  'Michael B. Jordan', 'Oscar Isaac', 'Adam Driver',
+  'Emma Stone', 'Jennifer Lawrence', 'Saoirse Ronan',
+  'Daniel Craig', 'Benedict Cumberbatch', 'Idris Elba',
+];
+
+const PRIORITY_COMPOSERS: string[] = [
+  'John Williams', 'Hans Zimmer', 'Ennio Morricone',
+  'Howard Shore', 'Danny Elfman', 'Alexandre Desplat',
+  'Thomas Newman', 'James Horner', 'Alan Silvestri',
+  'Ludwig Göransson', 'Michael Giacchino', 'James Newton Howard',
+  'Randy Newman', 'Trent Reznor', 'Atticus Ross',
+  'Bernard Herrmann', 'Jerry Goldsmith', 'Jonny Greenwood',
+  'Hildur Guðnadóttir', 'Justin Hurwitz', 'Carter Burwell',
+  'Joe Hisaishi', 'Ramin Djawadi', 'Bear McCreary',
+  'Clint Mansell', 'Max Richter', 'Nicholas Britell',
+];
+
 export class ChannelManager {
   private db: Database.Database;
   private jellyfin: JellyfinClient;
@@ -752,7 +806,8 @@ export class ChannelManager {
   }
 
   /**
-   * Analyze library to find directors with multiple works
+   * Analyze library to find directors with multiple works.
+   * Curated popular directors are ranked first, then filled by library count.
    */
   private getDirectorsFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
     const directorMap = new Map<string, JellyfinItem[]>();
@@ -787,14 +842,16 @@ export class ChannelManager {
       });
     }
 
-    // Sort by count (most prolific first) and limit to top 10
-    const result = directors.sort((a, b) => b.count - a.count).slice(0, 10);
+    // Priority-first ranking: curated popular directors first (in list order),
+    // then remaining directors sorted by library count
+    const result = this.rankByPriority(directors, PRIORITY_DIRECTORS).slice(0, 10);
     console.log(`[ChannelManager] Top 10 directors: ${result.map(d => `${d.name} (${d.count})`).join(', ')}`);
     return result;
   }
 
   /**
-   * Analyze library to find lead actors with multiple appearances
+   * Analyze library to find lead actors with multiple appearances.
+   * Curated popular actors are ranked first, then filled by library count.
    */
   private getActorsFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
     const actorMap = new Map<string, JellyfinItem[]>();
@@ -828,12 +885,14 @@ export class ChannelManager {
       });
     }
 
-    // Sort by count (most appearances first) and limit to top 10
-    return actors.sort((a, b) => b.count - a.count).slice(0, 10);
+    // Priority-first ranking: curated popular actors first (in list order),
+    // then remaining actors sorted by library count
+    return this.rankByPriority(actors, PRIORITY_ACTORS).slice(0, 10);
   }
 
   /**
-   * Analyze library to find composers with multiple works
+   * Analyze library to find composers with multiple works.
+   * Curated popular composers are ranked first, then filled by library count.
    */
   private getComposersFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
     const composerMap = new Map<string, JellyfinItem[]>();
@@ -864,8 +923,9 @@ export class ChannelManager {
       });
     }
 
-    // Sort by count (most prolific first) and limit to top 10
-    return composers.sort((a, b) => b.count - a.count).slice(0, 10);
+    // Priority-first ranking: curated popular composers first (in list order),
+    // then remaining composers sorted by library count
+    return this.rankByPriority(composers, PRIORITY_COMPOSERS).slice(0, 10);
   }
 
   /**
@@ -1428,15 +1488,16 @@ export class ChannelManager {
       }
     } else if (preset.dynamicType === 'studios') {
       const studios = this.getStudiosFromLibrary(libraryItems);
+      const studioSettings = this.getFilterSettings();
 
       for (const studio of studios) {
         const filteredItems = studio.items.filter(item => {
-          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
-          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
-          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          if (item.Type === 'Movie' && !studioSettings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !studioSettings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, studioSettings.ratingFilter)) return false;
           const itemGenres = item.Genres || [];
           for (const genre of itemGenres) {
-            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+            if (!this.isGenreAllowed(genre, studioSettings.genreFilter)) return false;
           }
           return true;
         });
@@ -1572,6 +1633,36 @@ export class ChannelManager {
     }
     // 'deny' mode (legacy): block all except selected
     return filterRatings.includes(lowerRating);
+  }
+
+  /**
+   * Rank people by curated priority list first, then by library count.
+   * Names are matched case-insensitively. Priority-list order is preserved for
+   * names found in the library; remaining entries are sorted by descending count.
+   */
+  private rankByPriority(
+    people: { name: string; items: JellyfinItem[]; count: number }[],
+    priorityList: string[]
+  ): { name: string; items: JellyfinItem[]; count: number }[] {
+    const nameLower = new Map(people.map(p => [p.name.toLowerCase(), p]));
+
+    // Collect priority matches in list order
+    const priorityMatches: typeof people = [];
+    const usedNames = new Set<string>();
+    for (const pName of priorityList) {
+      const match = nameLower.get(pName.toLowerCase());
+      if (match && !usedNames.has(match.name.toLowerCase())) {
+        priorityMatches.push(match);
+        usedNames.add(match.name.toLowerCase());
+      }
+    }
+
+    // Remaining entries sorted by count (descending)
+    const remaining = people
+      .filter(p => !usedNames.has(p.name.toLowerCase()))
+      .sort((a, b) => b.count - a.count);
+
+    return [...priorityMatches, ...remaining];
   }
 
   private isGenreAllowed(genre: string, filter: { mode: string; genres: string[] }): boolean {

@@ -15,9 +15,10 @@ interface GuideProps {
   onOpenSettings: () => void;
   streamingPaused?: boolean;
   initialChannelId?: number | null;
+  keyboardDisabled?: boolean;
 }
 
-export default function Guide({ onTune, onOpenSettings, streamingPaused = false, initialChannelId }: GuideProps) {
+export default function Guide({ onTune, onOpenSettings, streamingPaused = false, initialChannelId, keyboardDisabled = false }: GuideProps) {
   const { channels, scheduleByChannel, loading, error, refresh } = useSchedule();
   const visibleChannels = getVisibleChannels();
   const [guideHours, setGuideHoursState] = useState(getGuideHours);
@@ -29,6 +30,14 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   const [scrollToChannelIdxOnce, setScrollToChannelIdxOnce] = useState<number | null>(null);
   // Store the initial channel ID so we can restore it even if channels load later
   const initialChannelIdRef = useRef(initialChannelId);
+
+  // When initialChannelId prop changes (returning from player), update ref and allow re-restoration
+  useEffect(() => {
+    if (initialChannelId != null && initialChannelId !== initialChannelIdRef.current) {
+      initialChannelIdRef.current = initialChannelId;
+      hasRestoredPosition.current = false;
+    }
+  }, [initialChannelId]);
   
   // Auto-scroll state
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(getAutoScroll);
@@ -98,7 +107,7 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
       setScrollToChannelIdxOnce(idx); // So grid scrolls this channel to top
       hasRestoredPosition.current = true;
     }
-  }, [channels, scheduleByChannel, findCurrentProgramIdx]);
+  }, [channels, scheduleByChannel, findCurrentProgramIdx, initialChannelId]);
 
   // Clear one-time scroll target after grid has snapped (so normal auto-scroll/focus scroll takes over)
   useEffect(() => {
@@ -276,7 +285,7 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
     onRight: handleRight,
     onEnter: handleEnter,
     onEscape: onOpenSettings,
-  });
+  }, !keyboardDisabled);
 
   if (loading) {
     return (

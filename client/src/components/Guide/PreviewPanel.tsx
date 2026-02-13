@@ -4,7 +4,8 @@ import Hls from 'hls.js';
 import type { ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
-import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings } from '../../services/api';
+import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings, metricsStart, metricsStop } from '../../services/api';
+import { getClientId } from '../../services/clientIdentity';
 import {
   consumePlaybackHandoff,
   requestPlaybackHandoff,
@@ -25,7 +26,7 @@ const PREVIEW_STREAM_DELAY_MS = 1000;
 const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
 const VIDEO_FIT_KEY = 'prevue_video_fit';
 const OVERLAY_VISIBLE_MS = 5000;
-const DOUBLE_TAP_WINDOW_MS = 5000;
+const DOUBLE_TAP_MS = 300;
 
 function getStoredVideoFit(): 'contain' | 'cover' {
   const stored = localStorage.getItem(VIDEO_FIT_KEY);
@@ -135,6 +136,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         updatePlaybackPosition('guide', itemId, (positionMs ?? 0) / 1000);
       } else {
         stopPlayback(itemId, undefined, positionMs).catch(() => {});
+        metricsStop(getClientId()).catch(() => {});
       }
       currentItemIdRef.current = null;
     }
@@ -157,6 +159,18 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     currentItemIdRef.current = info.program.jellyfin_item_id;
     const startPosition = startPositionOverrideSec ?? (info.seek_position_seconds || 0);
     updateActivePlaybackSession('guide', currentChannelIdRef.current ?? info.channel.id, info, startPosition);
+
+    // Report metrics for this preview playback
+    const isEpisode = info.program.content_type === 'episode';
+    metricsStart({
+      client_id: getClientId(),
+      channel_id: currentChannelIdRef.current ?? info.channel.id,
+      channel_name: info.channel.name,
+      item_id: info.program.jellyfin_item_id,
+      title: isEpisode ? (info.program.subtitle || info.program.title) : info.program.title,
+      series_name: isEpisode ? info.program.title : undefined,
+      content_type: info.program.content_type ?? undefined,
+    }).catch(() => {});
 
     // Reset playback progress tracking for the new item
     watchStartRef.current = Date.now();
@@ -423,19 +437,29 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     }
   }, []);
 
-  const handleSelectSubtitleTrack = useCallback((positionIndex: number | null) => {
+  const handleSelectSubtitleTrack = useCallback(async (positionIndex: number | null) => {
+    if (!channel) return;
     setSelectedSubtitleIndex(positionIndex);
     selectedSubtitleIndexRef.current = positionIndex;
     localStorage.setItem(SUBTITLE_INDEX_KEY, positionIndex === null ? '' : String(positionIndex));
-    updateSettings({ preferred_subtitle_index: positionIndex }).catch(() => {});
-    applySubtitleTrack(positionIndex);
-  }, [applySubtitleTrack]);
+    setShowAudioMoreMenu(false);
+    cleanup();
+    try {
+      await updateSettings({ preferred_subtitle_index: positionIndex });
+      const info = await getPlaybackInfo(channel.id, PREVIEW_QUALITY);
+      if (!info.stream_url || info.is_interstitial) return;
+      setServerSubtitleTracks(info.subtitle_tracks ?? []);
+      loadStreamWithInfo(info, { current: false });
+    } catch (err) {
+      setVideoError(formatPlaybackError(err instanceof Error ? err : 'Subtitle switch failed'));
+    }
+  }, [channel, cleanup, loadStreamWithInfo]);
 
   // When channel/program changes: show overlay, then fade out after 5s
   useEffect(() => {
     if (!channel || !program || program.type === 'interstitial') return;
     setOverlayVisible(true);
-    lastTapTimeRef.current = Date.now();
+    lastTapTimeRef.current = 0; // Reset so first tap after channel change isn't mistaken for double-tap
     if (overlayHideTimerRef.current) {
       clearTimeout(overlayHideTimerRef.current);
       overlayHideTimerRef.current = null;
@@ -456,6 +480,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   useEffect(() => {
     return () => {
       if (overlayHideTimerRef.current) clearTimeout(overlayHideTimerRef.current);
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
       cleanup();
     };
   }, [cleanup]);
@@ -493,6 +518,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     }, OVERLAY_VISIBLE_MS);
   }, []);
 
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handlePreviewTap = useCallback(
     (e: React.MouseEvent | React.KeyboardEvent) => {
       if (!channel || !program || program.type === 'interstitial') return;
@@ -501,14 +528,17 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         const target = e.target as HTMLElement;
         if (target.closest('button') || target.closest('input') || target.closest('.preview-audio-more-menu')) return;
       }
+
       const now = Date.now();
-      if (!overlayVisible) {
-        setOverlayVisible(true);
-        lastTapTimeRef.current = now;
-        scheduleOverlayHide();
-        return;
-      }
-      if (now - lastTapTimeRef.current <= DOUBLE_TAP_WINDOW_MS) {
+
+      // Double-tap: open the player
+      if (now - lastTapTimeRef.current <= DOUBLE_TAP_MS) {
+        // Cancel pending single-tap action
+        if (singleTapTimerRef.current) {
+          clearTimeout(singleTapTimerRef.current);
+          singleTapTimerRef.current = null;
+        }
+        lastTapTimeRef.current = 0;
         const itemId = currentItemIdRef.current;
         if (itemId) {
           requestPlaybackHandoff(
@@ -522,8 +552,26 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         onTune?.();
         return;
       }
+
+      // First tap: defer the single-tap action to distinguish from double-tap
       lastTapTimeRef.current = now;
-      scheduleOverlayHide();
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+      }
+      singleTapTimerRef.current = setTimeout(() => {
+        singleTapTimerRef.current = null;
+        // Single tap: toggle overlay visibility
+        if (overlayVisible) {
+          if (overlayHideTimerRef.current) {
+            clearTimeout(overlayHideTimerRef.current);
+            overlayHideTimerRef.current = null;
+          }
+          setOverlayVisible(false);
+        } else {
+          setOverlayVisible(true);
+          scheduleOverlayHide();
+        }
+      }, DOUBLE_TAP_MS);
     },
     [channel, program, overlayVisible, onTune, scheduleOverlayHide]
   );

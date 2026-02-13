@@ -81,6 +81,43 @@ function runMigrations(db: Database.Database): void {
       FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
     );
 
+    -- Metrics: watch sessions
+    CREATE TABLE IF NOT EXISTS watch_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id TEXT NOT NULL,
+      channel_id INTEGER,
+      channel_name TEXT,
+      item_id TEXT,
+      title TEXT,
+      series_name TEXT,
+      content_type TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      ended_at TEXT,
+      duration_seconds REAL DEFAULT 0,
+      user_agent TEXT
+    );
+
+    -- Metrics: watch events (granular log)
+    CREATE TABLE IF NOT EXISTS watch_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      channel_id INTEGER,
+      channel_name TEXT,
+      item_id TEXT,
+      title TEXT,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Metrics: client registry
+    CREATE TABLE IF NOT EXISTS client_registry (
+      client_id TEXT PRIMARY KEY,
+      user_agent TEXT,
+      first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_schedule_channel
       ON schedule_blocks(channel_id, block_start);
@@ -90,6 +127,21 @@ function runMigrations(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_library_server
       ON library_cache(server_id);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_sessions_client
+      ON watch_sessions(client_id);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_sessions_started
+      ON watch_sessions(started_at);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_sessions_channel
+      ON watch_sessions(channel_id);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_events_created
+      ON watch_events(created_at);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_events_client
+      ON watch_events(client_id);
   `);
 
   // Insert default settings if not present
@@ -100,6 +152,8 @@ function runMigrations(db: Database.Database): void {
   insertSetting.run('genre_filter', JSON.stringify({ mode: 'allow', genres: [] }));
   insertSetting.run('content_types', JSON.stringify({ movies: true, tv_shows: true }));
   insertSetting.run('schedule_block_hours', JSON.stringify(8));
+  insertSetting.run('share_playback_progress', JSON.stringify(false));
+  insertSetting.run('metrics_enabled', JSON.stringify(true));
 
   // Migration: Add new columns for username/password auth if they don't exist
   // This handles upgrading from the old api_key-based schema
@@ -107,6 +161,9 @@ function runMigrations(db: Database.Database): void {
 
   // Migration: Add new columns for channel presets if they don't exist
   migrateChannelsTable(db);
+
+  // Migration: Add series_name column to watch_sessions if it doesn't exist
+  migrateWatchSessionsTable(db);
 
   // Cleanup: Remove orphaned library cache entries (where server_id doesn't exist)
   cleanupOrphanedData(db);
@@ -232,6 +289,17 @@ function migrateChannelsTable(db: Database.Database): void {
     `);
 
     console.log('[Database] Channels table migration complete');
+  }
+}
+
+function migrateWatchSessionsTable(db: Database.Database): void {
+  const tableInfo = db.prepare("PRAGMA table_info('watch_sessions')").all() as { name: string }[];
+  const columnNames = tableInfo.map(col => col.name);
+  if (tableInfo.length > 0 && !columnNames.includes('series_name')) {
+    try {
+      db.exec("ALTER TABLE watch_sessions ADD COLUMN series_name TEXT");
+      console.log('[Database] Added series_name column to watch_sessions');
+    } catch { /* column may already exist */ }
   }
 }
 

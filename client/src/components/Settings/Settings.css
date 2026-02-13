@@ -2459,3 +2459,234 @@
     padding: 12px 16px max(20px, env(safe-area-inset-bottom));
   }
 }
+
+/* ── Metrics ───────────────────────────────────────────── */
+
+.metrics-disabled-banner {
+  background: rgba(255, 200, 0, 0.08);
+  border: 1px solid rgba(255, 200, 0, 0.25);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.metrics-range-options {
+  display: flex;
+  gap: 6px;
+}
+
+.metrics-range-btn {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-grid);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0.04em;
+}
+
+.metrics-range-btn:hover {
+  border-color: var(--accent-cyan);
+  color: var(--text-primary);
+}
+
+.metrics-range-btn.active {
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  color: #000;
+}
+
+/* Summary cards */
+.metrics-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.metrics-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-grid);
+  border-radius: 6px;
+  padding: 14px 12px;
+  text-align: center;
+}
+
+.metrics-card-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.metrics-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Horizontal bar charts */
+.metrics-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metrics-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.metrics-bar-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.metrics-bar-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+}
+
+.metrics-bar-stat {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.metrics-bar-track {
+  height: 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.metrics-bar-fill {
+  height: 100%;
+  background: var(--accent-cyan);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.metrics-bar-fill-alt {
+  background: var(--accent-green, #66bb6a);
+}
+
+.metrics-bar-fill-series {
+  background: var(--accent-orange, #ffa726);
+}
+
+/* Client list */
+.metrics-client-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.metrics-client-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metrics-client-browser {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.metrics-client-detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.metrics-client-lastseen {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+/* Hourly activity chart */
+.metrics-hourly-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 80px;
+  padding-bottom: 18px;
+  position: relative;
+}
+
+.metrics-hourly-bar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  position: relative;
+}
+
+.metrics-hourly-bar-fill {
+  width: 100%;
+  background: var(--accent-cyan);
+  border-radius: 2px 2px 0 0;
+  min-width: 4px;
+  transition: height 0.3s ease;
+}
+
+.metrics-hourly-label {
+  position: absolute;
+  bottom: -16px;
+  font-size: 9px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Recent sessions list */
+.metrics-sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metrics-session-item {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-grid);
+}
+
+.metrics-session-item:last-child {
+  border-bottom: none;
+}
+
+.metrics-session-title {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metrics-session-detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+@media (max-width: 480px) {
+  .metrics-summary-cards {
+    grid-template-columns: 1fr;
+  }
+}

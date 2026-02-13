@@ -10,8 +10,10 @@ interface KeyboardHandlers {
   onEnter?: () => void;
 }
 
-export function useKeyboard(view: AppView, handlers: KeyboardHandlers) {
+export function useKeyboard(view: AppView, handlers: KeyboardHandlers, enabled = true) {
   useEffect(() => {
+    if (!enabled) return;
+
     function handleKeyDown(e: KeyboardEvent) {
       // Don't capture if user is typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -52,5 +54,5 @@ export function useKeyboard(view: AppView, handlers: KeyboardHandlers) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, handlers]);
+  }, [view, handlers, enabled]);
 }

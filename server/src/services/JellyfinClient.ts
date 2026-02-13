@@ -319,11 +319,13 @@ export class JellyfinClient {
   getGenres(): Map<string, JellyfinItem[]> {
     const genres = new Map<string, JellyfinItem[]>();
     for (const item of this.getLibraryItems()) {
-      for (const genre of item.Genres || []) {
-        const existing = genres.get(genre) || [];
-        existing.push(item);
-        genres.set(genre, existing);
-      }
+      // Use only the lead (first) genre for genre-channel assignment
+      // This prevents the same item from appearing on multiple genre channels
+      const leadGenre = (item.Genres || [])[0];
+      if (!leadGenre) continue;
+      const existing = genres.get(leadGenre) || [];
+      existing.push(item);
+      genres.set(leadGenre, existing);
     }
     return genres;
   }
@@ -430,6 +432,16 @@ export class JellyfinClient {
           DeviceProfile: {
             MaxStreamingBitrate: 120000000,
             TranscodingProfiles: [
+              {
+                Container: 'mp4',
+                Type: 'Video',
+                AudioCodec: 'aac',
+                VideoCodec: 'hevc',
+                Context: 'Streaming',
+                Protocol: 'hls',
+                MaxAudioChannels: '2',
+                BreakOnNonKeyFrames: true,
+              },
               {
                 Container: 'ts',
                 Type: 'Video',
