@@ -326,16 +326,29 @@ serverRoutes.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/servers/:id - Remove server
+// DELETE /api/servers/:id - Remove server and all related data (channels, schedules, library cache)
 serverRoutes.delete('/:id', (req: Request, res: Response) => {
   try {
-    const { db } = req.app.locals;
+    const { db, jellyfinClient, wss } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
 
+    const server = queries.getServerById(db, id);
+    if (!server) {
+      res.status(404).json({ error: 'Server not found' });
+      return;
+    }
+
+    const wasActive = !!server.is_active;
     const deleted = queries.deleteServer(db, id);
     if (!deleted) {
       res.status(404).json({ error: 'Server not found' });
       return;
+    }
+
+    if (wasActive) {
+      (jellyfinClient as JellyfinClient).resetApi();
+      (jellyfinClient as JellyfinClient).clearLibrary();
+      broadcast(wss, { type: 'channels:regenerated', payload: { count: 0 } });
     }
 
     res.json({ success: true });

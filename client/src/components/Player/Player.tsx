@@ -1,15 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
-import { getPlaybackInfo, stopPlayback, updateSettings } from '../../services/api';
+import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings } from '../../services/api';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import { useSwipe } from '../../hooks/useSwipe';
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
+import {
+  consumePlaybackHandoff,
+  requestPlaybackHandoff,
+  shouldPreservePlaybackOnUnmount,
+  updateActivePlaybackSession,
+  updatePlaybackPosition,
+} from '../../services/playbackHandoff';
 import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset } from '../Settings/DisplaySettings';
 import InfoOverlay from './InfoOverlay';
 import NextUpCard from './NextUpCard';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from '../Guide/audioTrackUtils';
+import { formatPlaybackError } from '../../utils/playbackError';
 import './Player.css';
 
 interface PlayerProps {
@@ -18,6 +26,7 @@ interface PlayerProps {
   onBack: () => void;
   onChannelUp?: () => void;
   onChannelDown?: () => void;
+  enterFullscreenOnMount?: boolean;
 }
 
 const MAX_RETRIES = 2;
@@ -215,7 +224,7 @@ function getFullscreenElement(): Element | null {
   return document.fullscreenElement ?? doc.webkitFullscreenElement ?? doc.msFullscreenElement ?? null;
 }
 
-export default function Player({ channel, program, onBack, onChannelUp, onChannelDown }: PlayerProps) {
+export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, enterFullscreenOnMount }: PlayerProps) {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -238,18 +247,29 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getVideoFit);
   const { volume, muted, setVolume, toggleMute } = useVolume();
+  const mutedRef = useRef(muted);
+  const volumeRef = useRef(volume);
+  mutedRef.current = muted;
+  volumeRef.current = volume;
   const [serverAudioTracks, setServerAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [selectedAudioStreamIndex, setSelectedAudioStreamIndex] = useState<number | null>(null);
-  const overlayTimer = useRef<ReturnType<typeof setTimeout>>();
-  const checkTimer = useRef<ReturnType<typeof setInterval>>();
+  const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const errorCountRef = useRef(0);
   const streamReloadAttemptedRef = useRef(false);
   const currentItemIdRef = useRef<string | null>(null);
   const lastTapTimeRef = useRef(0);
   const selectedSubtitleIndexRef = useRef<number | null>(getStoredSubtitleIndex());
   const selectedAudioStreamIndexRef = useRef<number | null>(null);
-  const prevVideoReadyRef = useRef(false);
   const removePlayingListenersRef = useRef<(() => void) | null>(null);
+  const stopPlaybackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopPlaybackChannelIdRef = useRef<number | null>(null);
+  const autoAdvanceDisabledRef = useRef(false);
+
+  // ─── Playback progress tracking ──────────────────────
+  const watchStartRef = useRef<number>(0);           // wall-clock when this item started playing
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressActivatedRef = useRef(false);        // whether we've passed the 5-min threshold
 
   // Show overlay briefly on tune-in
   const showOverlayBriefly = useCallback(() => {
@@ -259,26 +279,38 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   }, []);
 
   // Load and start playback (optionally with a specific audio track)
-  const loadPlayback = useCallback(async (quality?: QualityPreset, audioStreamIndex?: number, isRecoveryReload?: boolean) => {
+  // cancelledRef: when set to true (e.g. in effect cleanup), skip further state updates to avoid double-load
+  const loadPlayback = useCallback(async (
+    quality?: QualityPreset,
+    audioStreamIndex?: number,
+    isRecoveryReload?: boolean,
+    cancelledRef?: { current: boolean },
+    reuseInfo?: { info: Awaited<ReturnType<typeof getPlaybackInfo>>; startPositionSec?: number }
+  ) => {
+    autoAdvanceDisabledRef.current = false; // Re-enable auto-advance when loading new program
     try {
       setLoading(true);
       setError(null);
-      setVideoReady(false);
       if (!isRecoveryReload) {
+        setVideoReady(false);
+        setLoadingFadeOut(false);
         streamReloadAttemptedRef.current = false;
       }
       // Clean up any previous playing listeners
-      if (removePlayingListenersRef.current) {
-        removePlayingListenersRef.current();
+      const removePlayingListeners = removePlayingListenersRef.current;
+      if (removePlayingListeners) {
+        removePlayingListeners();
         removePlayingListenersRef.current = null;
       }
 
       const qualityToUse = quality || currentQuality;
       const isAutoQuality = qualityToUse.id === 'auto';
-      const info = await getPlaybackInfo(channel.id, {
+      const info = reuseInfo?.info ?? await getPlaybackInfo(channel.id, {
         ...(isAutoQuality ? {} : { bitrate: qualityToUse.bitrate, maxWidth: qualityToUse.maxWidth }),
         ...(audioStreamIndex !== undefined && { audioStreamIndex }),
       });
+
+      if (cancelledRef?.current) return;
 
       setCurrentProgram(info.program);
       setNextProgram(info.next_program);
@@ -304,9 +336,14 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       }
 
       currentItemIdRef.current = info.program?.jellyfin_item_id || null;
+      updateActivePlaybackSession('player', channel.id, info, reuseInfo?.startPositionSec ?? (info.seek_position_seconds || 0));
+
+      // Reset playback progress tracking for the new item
+      watchStartRef.current = Date.now();
+      progressActivatedRef.current = false;
 
       if (info.is_interstitial || !info.stream_url) {
-        setLoading(false);
+        if (!cancelledRef?.current) setLoading(false);
         return;
       }
 
@@ -325,7 +362,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         
         // Use seek_position_seconds to start playback at the correct time
         // This is calculated server-side based on how far into the program we are
-        const startPosition = info.seek_position_seconds || 0;
+        const startPosition = reuseInfo?.startPositionSec ?? (info.seek_position_seconds || 0);
         console.log(`[Player] Starting at position: ${startPosition.toFixed(1)}s (${(startPosition / 60).toFixed(1)} min)`);
         
         const hls = new Hls({
@@ -347,9 +384,17 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
         // Set up listeners to fade in video once it starts playing
         const onFirstPlaying = () => {
+          if (cancelledRef?.current) return;
           removePlayingListeners();
+          // Restore user's volume/muted (we start muted for iOS autoplay compat)
+          video.muted = mutedRef.current;
+          video.volume = volumeRef.current;
           // Wait a brief moment for video to actually render frames before fading in
-          setTimeout(() => setVideoReady(true), 300);
+          setTimeout(() => {
+            if (cancelledRef?.current) return;
+            setVideoReady(true);
+            setLoadingFadeOut(true);
+          }, 300);
         };
         const removePlayingListeners = () => {
           video.removeEventListener('playing', onFirstPlaying);
@@ -358,9 +403,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             removePlayingListenersRef.current = null;
           }
         };
-        if (removePlayingListenersRef.current) {
-          removePlayingListenersRef.current();
-        }
+        const removePlayingListenersNow = removePlayingListenersRef.current;
+        if (removePlayingListenersNow) removePlayingListenersNow();
         removePlayingListenersRef.current = removePlayingListeners;
         video.addEventListener('playing', onFirstPlaying);
         video.addEventListener('loadeddata', onFirstPlaying);
@@ -377,7 +421,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           }
         };
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (cancelledRef?.current) return;
           errorCountRef.current = 0; // Reset on success
+          video.muted = true; // iOS: autoplay requires muted
           video.play().catch(() => {});
           setLoading(false);
           showOverlayBriefly();
@@ -443,53 +489,80 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS (Safari)
-        const startPosition = info.seek_position_seconds || 0;
+        const startPosition = reuseInfo?.startPositionSec ?? (info.seek_position_seconds || 0);
         video.src = info.stream_url;
 
         // Set up listeners to fade in video once it starts playing
         const onFirstPlaying = () => {
+          if (cancelledRef?.current) return;
           removePlayingListeners();
-          setTimeout(() => setVideoReady(true), 300);
+          // Restore user's volume/muted (we start muted for iOS autoplay compat)
+          video.muted = mutedRef.current;
+          video.volume = volumeRef.current;
+          setTimeout(() => {
+            if (cancelledRef?.current) return;
+            setVideoReady(true);
+            setLoadingFadeOut(true);
+          }, 300);
         };
         const removePlayingListeners = () => {
           video.removeEventListener('playing', onFirstPlaying);
+          video.removeEventListener('canplay', onCanPlay);
           if (removePlayingListenersRef.current === removePlayingListeners) {
             removePlayingListenersRef.current = null;
           }
         };
-        if (removePlayingListenersRef.current) {
-          removePlayingListenersRef.current();
-        }
+        const removePlayingListenersNow = removePlayingListenersRef.current;
+        if (removePlayingListenersNow) removePlayingListenersNow();
         removePlayingListenersRef.current = removePlayingListeners;
         video.addEventListener('playing', onFirstPlaying);
 
-        video.addEventListener('loadedmetadata', () => {
-          // Seek to scheduled position
-          if (startPosition > 0) {
-            video.currentTime = startPosition;
-          }
+        // Use canplay (not loadedmetadata) for native HLS - iOS needs enough data before play()
+        const onCanPlay = () => {
+          if (cancelledRef?.current) return;
+          if (startPosition > 0) video.currentTime = startPosition;
+          video.muted = true; // iOS: autoplay requires muted
           video.play().catch(() => {});
           setLoading(false);
           showOverlayBriefly();
-        });
+        };
+        video.addEventListener('canplay', onCanPlay);
       } else {
         setError('HLS playback not supported in this browser');
         setLoading(false);
       }
     } catch (err) {
-      setError((err as Error).message);
+      setError(formatPlaybackError(err instanceof Error ? err : String(err)));
       setLoading(false);
     }
   }, [channel.id, currentQuality, showOverlayBriefly]);
 
   // Load stream on mount and when channel/quality changes. Cleanup runs when channel
   // changes or on unmount: we tell Jellyfin to stop the transcode session (saves resources).
+  // Defer stopPlayback so React Strict Mode's double-mount doesn't tear down the session
+  // before the effect re-runs (which would cause video to start, stop, then start again).
   useEffect(() => {
-    loadPlayback();
+    // Cancel deferred stop only if we're re-running for the SAME channel (React Strict Mode).
+    // When changing channel, let the stop run to tear down the previous session.
+    if (stopPlaybackTimeoutRef.current && stopPlaybackChannelIdRef.current === channel.id) {
+      clearTimeout(stopPlaybackTimeoutRef.current);
+      stopPlaybackTimeoutRef.current = null;
+      stopPlaybackChannelIdRef.current = null;
+    }
+
+    const cancelled = { current: false };
+    const handoffItemId = program?.jellyfin_item_id ?? null;
+    const handoff = handoffItemId ? consumePlaybackHandoff('player', channel.id, handoffItemId) : null;
+    if (handoff) {
+      loadPlayback(undefined, undefined, undefined, cancelled, { info: handoff.info, startPositionSec: handoff.positionSec });
+    } else {
+      loadPlayback(undefined, undefined, undefined, cancelled);
+    }
 
     const handleBeforeUnload = () => {
       if (currentItemIdRef.current) {
-        const data = JSON.stringify({ itemId: currentItemIdRef.current });
+        const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
+        const data = JSON.stringify({ itemId: currentItemIdRef.current, positionMs });
         navigator.sendBeacon('/api/stream/stop', new Blob([data], { type: 'application/json' }));
       }
     };
@@ -497,9 +570,11 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
+      cancelled.current = true;
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      if (removePlayingListenersRef.current) {
-        removePlayingListenersRef.current();
+      const removePlayingListeners = removePlayingListenersRef.current;
+      if (removePlayingListeners) {
+        removePlayingListeners();
         removePlayingListenersRef.current = null;
       }
       if (hlsRef.current) {
@@ -508,12 +583,25 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       }
       if (overlayTimer.current) clearTimeout(overlayTimer.current);
       if (checkTimer.current) clearInterval(checkTimer.current);
-      // Stop Jellyfin transcode session when leaving or when user changes channel
-      if (currentItemIdRef.current) {
-        stopPlayback(currentItemIdRef.current).catch(() => {});
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      // Defer stopPlayback: if effect re-runs for SAME channel (Strict Mode), we cancel and never stop.
+      // When channel changes or unmount, the stop will run.
+      const itemId = currentItemIdRef.current;
+      if (itemId) {
+        const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
+        if (shouldPreservePlaybackOnUnmount('player', channel.id, itemId)) {
+          updatePlaybackPosition('player', itemId, (positionMs ?? 0) / 1000);
+          return;
+        }
+        stopPlaybackChannelIdRef.current = channel.id;
+        stopPlaybackTimeoutRef.current = setTimeout(() => {
+          stopPlaybackTimeoutRef.current = null;
+          stopPlaybackChannelIdRef.current = null;
+          stopPlayback(itemId, undefined, positionMs).catch(() => {});
+        }, 0);
       }
     };
-  }, [loadPlayback]);
+  }, [loadPlayback, channel.id, program?.jellyfin_item_id]);
 
   // Sync loading artwork URL when program changes
   useEffect(() => {
@@ -531,8 +619,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const prog = Math.min(100, ((now - start) / (end - start)) * 100);
         setProgress(prog);
 
-        // Auto-advance when program ends
-        if (now >= end) {
+        // Auto-advance when program ends (disabled if user restarted - they stay until manual switch)
+        if (now >= end && !autoAdvanceDisabledRef.current) {
           loadPlayback();
         }
       }
@@ -543,9 +631,47 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     };
   }, [currentProgram, loadPlayback]);
 
+  // Playback progress reporting to Jellyfin (after 5 min watch threshold)
+  useEffect(() => {
+    const WATCH_THRESHOLD_MS = 5 * 60 * 1000;  // 5 minutes
+    const REPORT_INTERVAL_MS = 30 * 1000;       // every 30 seconds
+
+    progressIntervalRef.current = setInterval(() => {
+      const video = videoRef.current;
+      const itemId = currentItemIdRef.current;
+      if (!video || !itemId || video.paused) return;
+
+      const watchedMs = Date.now() - watchStartRef.current;
+      if (watchedMs >= WATCH_THRESHOLD_MS) {
+        if (!progressActivatedRef.current) {
+          progressActivatedRef.current = true;
+          console.log(`[Player] 5-min watch threshold reached for ${itemId}, starting progress reports`);
+        }
+        const positionMs = Math.round(video.currentTime * 1000);
+        updatePlaybackPosition('player', itemId, positionMs / 1000);
+        reportPlaybackProgress(itemId, positionMs).catch(() => {});
+      }
+    }, REPORT_INTERVAL_MS);
+
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   // Keyboard controls
+  const handleBackToGuide = useCallback(() => {
+    const itemId = currentItemIdRef.current;
+    if (itemId) {
+      requestPlaybackHandoff('player', 'guide', channel.id, itemId, videoRef.current?.currentTime ?? 0);
+    }
+    onBack();
+  }, [channel.id, onBack]);
+
   useKeyboard('player', {
-    onEscape: onBack,
+    onEscape: handleBackToGuide,
     onEnter: showOverlayBriefly,
   });
 
@@ -563,6 +689,17 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
   // Click/tap handler with double-tap detection
   const handleClick = useCallback(() => {
+    // iOS fallback: if video loaded but is paused (autoplay blocked), tap-to-play
+    const video = videoRef.current;
+    if (video && !isInterstitial && video.paused && video.readyState >= 2) {
+      video.muted = true;
+      video.play().then(() => {
+        video.muted = mutedRef.current;
+        video.volume = volumeRef.current;
+      }).catch(() => {});
+      return;
+    }
+
     const now = Date.now();
     const timeSinceLastTap = now - lastTapTimeRef.current;
     
@@ -571,15 +708,37 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       toggleVideoFit();
       lastTapTimeRef.current = 0; // Reset to prevent triple tap
     } else {
-      // Single tap - close settings, or show overlay
+      // Single tap - close settings, or toggle overlay (tap to show, tap again to dismiss)
       if (showSettingsOpen) {
         setShowSettingsOpen(false);
+      } else if (showOverlay) {
+        if (overlayTimer.current) {
+          clearTimeout(overlayTimer.current);
+          overlayTimer.current = null;
+        }
+        setShowOverlay(false);
       } else {
         showOverlayBriefly();
       }
       lastTapTimeRef.current = now;
     }
-  }, [showOverlayBriefly, showSettingsOpen, toggleVideoFit]);
+  }, [showOverlayBriefly, showOverlay, showSettingsOpen, toggleVideoFit, isInterstitial]);
+
+  // Restart current program from the beginning (client-side only; progress is lost on back/reload)
+  const handleRestartProgram = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const video = videoRef.current;
+    if (video && !isInterstitial) {
+      autoAdvanceDisabledRef.current = true; // Disable auto-advance to next program
+      video.currentTime = 0;
+      video.muted = true; // iOS: autoplay requires muted
+      video.play().then(() => {
+        video.muted = mutedRef.current;
+        video.volume = volumeRef.current;
+      }).catch(() => {});
+      setShowSettingsOpen(false);
+    }
+  }, [isInterstitial]);
 
   // Toggle unified settings panel
   const toggleSettings = useCallback((e: React.MouseEvent) => {
@@ -620,6 +779,22 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     };
   }, []);
 
+  // When navigating from guide in fullscreen, enter fullscreen on the player
+  useEffect(() => {
+    if (!enterFullscreenOnMount) return;
+    const el = playerContainerRef.current;
+    if (!el) return;
+    const htmlEl = el as HTMLElement & { requestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => void; msRequestFullscreen?: () => void };
+    const req = htmlEl.requestFullscreen ?? htmlEl.webkitRequestFullscreen ?? htmlEl.msRequestFullscreen;
+    if (req) {
+      // Brief delay so the player DOM is ready after route transition
+      const id = requestAnimationFrame(() => {
+        req.call(htmlEl);
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [enterFullscreenOnMount]);
+
   // Poll nerd stats in real time when overlay is open
   useEffect(() => {
     if (!showNerdStats) return;
@@ -631,20 +806,13 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     return () => clearInterval(id);
   }, [showNerdStats]);
 
-  // When video is ready to play, fade out loading overlay over 2s then hide it (like preview)
+  // When fade-out starts, hide loading overlay after the transition duration.
   useEffect(() => {
-    const wasReady = prevVideoReadyRef.current;
-    prevVideoReadyRef.current = videoReady;
-    if (!videoReady) {
-      setLoadingFadeOut(false);
-      return;
-    }
-    if (!wasReady) {
-      setLoadingFadeOut(true);
-      const t = setTimeout(() => setLoadingFadeOut(false), 2000);
-      return () => clearTimeout(t);
-    }
-  }, [videoReady]);
+    if (!loadingFadeOut) return;
+    // Match transition duration (2s) + small buffer so overlay is fully faded before removal.
+    const t = setTimeout(() => setLoadingFadeOut(false), 2100);
+    return () => clearTimeout(t);
+  }, [loadingFadeOut]);
 
   // Helper to apply subtitle to hls.js and native text tracks
   const applySubtitleTrack = useCallback((positionIndex: number | null) => {
@@ -708,13 +876,22 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     loadPlayback(undefined, index);
   }, [loadPlayback, serverAudioTracks]);
 
-  const swipe = useSwipe({ onSwipeUp: onChannelUp, onSwipeDown: onChannelDown });
+  const swipe = useSwipe({
+    onSwipeUp: onChannelUp,
+    onSwipeDown: onChannelDown,
+    enabled: !showSettingsOpen,
+  });
+
+  const handleClickWithSwipeGuard = useCallback(() => {
+    if (swipe.didSwipeRef.current) return;
+    handleClick();
+  }, [handleClick]);
 
   return (
     <div
       ref={playerContainerRef}
       className="player"
-      onClick={handleClick}
+      onClick={handleClickWithSwipeGuard}
       onTouchStart={swipe.onTouchStart}
       onTouchEnd={swipe.onTouchEnd}
     >
@@ -724,7 +901,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           ref={videoRef}
           className={`player-video ${videoFit === 'cover' ? 'player-video-fill' : ''} ${videoReady ? 'player-video-ready' : ''}`}
           playsInline
-          autoPlay
         />
       )}
 
@@ -768,12 +944,22 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         );
       })()}
 
-      {/* Error display */}
-      {error && (
-        <div className="player-error">
-          <div className="player-error-text">{error}</div>
-        </div>
-      )}
+      {/* Error display (same overlay style as TUNING) */}
+      {error && !isInterstitial && (() => {
+        const prog = currentProgram ?? program;
+        return (
+          <div className="player-error-overlay">
+            <div className="player-loading-banner player-loading-banner-fallback" />
+            {loadingArtworkUrl && (
+              <div className="player-loading-banner player-loading-banner-blur" style={{ backgroundImage: `url(${loadingArtworkUrl})` }} />
+            )}
+            <div className="player-error-text-wrap">
+              <span className="player-error-title">ERROR</span>
+              <span className="player-error-detail">{error}</span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Info overlay */}
       {showOverlay && currentProgram && (
@@ -795,9 +981,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       {/* Back button - visible on hover or when overlay/settings is showing */}
       <button 
         className={`player-back-btn ${showOverlay || showSettingsOpen ? 'visible' : ''}`} 
-        onClick={(e) => { e.stopPropagation(); onBack(); }}
+        onClick={(e) => { e.stopPropagation(); handleBackToGuide(); }}
       >
-        ← GUIDE
+        Back To Guide
       </button>
 
       {/* Fullscreen + Settings (right side) */}
@@ -836,6 +1022,20 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                 <span className="player-settings-title">Settings</span>
                 <button type="button" className="player-settings-close" onClick={() => setShowSettingsOpen(false)} aria-label="Close settings">✕</button>
               </div>
+
+              {!isInterstitial && (
+                <div className="player-settings-section">
+                  <button
+                    type="button"
+                    className="player-settings-option player-settings-restart-btn"
+                    onClick={handleRestartProgram}
+                    title="Restart from the beginning (progress is lost when you leave)"
+                  >
+                    <span className="player-btn-icon">↺</span>
+                    Restart program
+                  </button>
+                </div>
+              )}
 
               <div className="player-settings-section">
                 <div className="player-settings-section-title">Volume</div>

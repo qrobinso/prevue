@@ -1,11 +1,13 @@
-import { useState, useCallback, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
 import Guide from './components/Guide/Guide';
 import Player from './components/Player/Player';
 import Settings from './components/Settings/Settings';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useKeyboard } from './hooks/useKeyboard';
-import { getChannels, type ChannelWithProgram } from './services/api';
+import { getChannels, getSettings, type ChannelWithProgram } from './services/api';
+import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
+import { isIOS } from './utils/platform';
 import type { Channel, ScheduleProgram } from './types';
 
 // Guide view component
@@ -17,7 +19,7 @@ function GuideView({
   guideRefreshKey,
   initialChannelId 
 }: {
-  onTune: (channel: Channel, program: ScheduleProgram) => void;
+  onTune: (channel: Channel, program: ScheduleProgram, opts?: { fromFullscreen?: boolean }) => void;
   settingsOpen: boolean;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
@@ -25,10 +27,32 @@ function GuideView({
   initialChannelId: number | null;
 }) {
   useWebSocket();
-  
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const interactedRef = useRef(false);
+
+  // On iOS, don't start preview stream until user has touched the page (required for video autoplay)
+  useEffect(() => {
+    if (!isIOS() || interactedRef.current) return;
+    const onInteraction = () => {
+      if (interactedRef.current) return;
+      interactedRef.current = true;
+      setHasUserInteracted(true);
+    };
+    window.addEventListener('touchstart', onInteraction, { once: true, passive: true });
+    window.addEventListener('click', onInteraction, { once: true });
+    window.addEventListener('keydown', onInteraction, { once: true });
+    return () => {
+      window.removeEventListener('touchstart', onInteraction);
+      window.removeEventListener('click', onInteraction);
+      window.removeEventListener('keydown', onInteraction);
+    };
+  }, []);
+
   useKeyboard('guide', {
     onEscape: settingsOpen ? onCloseSettings : undefined,
   });
+
+  const streamingPaused = settingsOpen || (isIOS() && !hasUserInteracted);
 
   return (
     <>
@@ -36,7 +60,7 @@ function GuideView({
         key={guideRefreshKey}
         onTune={onTune}
         onOpenSettings={onOpenSettings}
-        streamingPaused={settingsOpen}
+        streamingPaused={streamingPaused}
         initialChannelId={initialChannelId}
       />
       {settingsOpen && (
@@ -56,6 +80,8 @@ function PlayerView({
 }) {
   const { channelNumber } = useParams<{ channelNumber: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const enterFullscreenOnMount = (location.state as { fromFullscreen?: boolean } | null)?.fromFullscreen === true;
   
   const [currentChannel, setCurrentChannel] = useState<Channel | null>(null);
   const [currentProgram, setCurrentProgram] = useState<ScheduleProgram | null>(null);
@@ -114,6 +140,7 @@ function PlayerView({
       onBack={() => onBack(currentChannel)}
       onChannelUp={handleChannelUp}
       onChannelDown={handleChannelDown}
+      enterFullscreenOnMount={enterFullscreenOnMount}
     />
   );
 }
@@ -140,10 +167,23 @@ function AppContent() {
     fetchChannels();
   }, [guideRefreshKey]);
 
-  const handleTune = useCallback((channel: Channel, program: ScheduleProgram) => {
+  // Apply display settings from DB on load (preview background, etc.)
+  useEffect(() => {
+    applyPreviewBg('theme'); // default while fetching
+    getSettings()
+      .then((s) => {
+        const v = s.preview_bg;
+        if (v === 'theme' || v === 'black' || v === 'white') {
+          applyPreviewBg(v as PreviewBgOption);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleTune = useCallback((channel: Channel, program: ScheduleProgram, opts?: { fromFullscreen?: boolean }) => {
     setLastChannelId(channel.id);
-    // Navigate to channel URL
-    navigate(`/channel/${channel.number}`);
+    // Navigate to channel URL; preserve fullscreen state when switching from guide
+    navigate(`/channel/${channel.number}`, { state: opts?.fromFullscreen ? { fromFullscreen: true } : undefined });
   }, [navigate]);
 
   const handleBackToGuide = useCallback((channel?: Channel) => {
@@ -162,10 +202,11 @@ function AppContent() {
 
   return (
     <div className="app">
-      <Routes>
-        <Route 
-          path="/" 
-          element={
+      <div className="app-content">
+        <Routes>
+          <Route
+            path="/"
+            element={
             <GuideView
               onTune={handleTune}
               settingsOpen={settingsOpen}
@@ -174,18 +215,19 @@ function AppContent() {
               guideRefreshKey={guideRefreshKey}
               initialChannelId={lastChannelId}
             />
-          } 
-        />
-        <Route 
-          path="/channel/:channelNumber" 
-          element={
+            }
+          />
+          <Route
+            path="/channel/:channelNumber"
+            element={
             <PlayerView 
               channels={channels}
               onBack={handleBackToGuide}
             />
-          } 
-        />
-      </Routes>
+            }
+          />
+        </Routes>
+      </div>
     </div>
   );
 }

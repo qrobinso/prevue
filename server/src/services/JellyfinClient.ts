@@ -1,11 +1,11 @@
 import type Database from 'better-sqlite3';
 import { Jellyfin } from '@jellyfin/sdk';
-import { getItemsApi, getMediaInfoApi, getSystemApi, getDynamicHlsApi, getImageApi, getUserApi } from '@jellyfin/sdk/lib/utils/api/index.js';
+import { getItemsApi, getMediaInfoApi, getSystemApi, getDynamicHlsApi, getImageApi, getUserApi, getPlaystateApi } from '@jellyfin/sdk/lib/utils/api/index.js';
 import type { Api } from '@jellyfin/sdk';
 import type { BaseItemDto, PlaybackInfoResponse } from '@jellyfin/sdk/lib/generated-client/models/index.js';
 import type { JellyfinItem, JellyfinLibrary, ServerConfig } from '../types/index.js';
 import * as queries from '../db/queries.js';
-import { ticksToMs } from '../utils/time.js';
+import { ticksToMs, msToTicks } from '../utils/time.js';
 import { randomUUID } from 'crypto';
 
 export class JellyfinClient {
@@ -73,6 +73,11 @@ export class JellyfinClient {
     this.api = null;
     this.userId = null;
     this.currentToken = null;
+  }
+
+  /** Clear in-memory library cache (e.g. when active server is deleted) */
+  clearLibrary(): void {
+    this.libraryItems.clear();
   }
 
   // Authenticate with username/password and get access token
@@ -191,7 +196,7 @@ export class JellyfinClient {
   private async fetchItems(itemType: string, onProgress?: (message: string) => void): Promise<BaseItemDto[]> {
     const items: BaseItemDto[] = [];
     let startIndex = 0;
-    const limit = 500;
+    const limit = 1000;
     const api = this.getApi();
     const itemsApi = getItemsApi(api);
     const userId = this.getUserId();
@@ -547,6 +552,75 @@ export class JellyfinClient {
     } catch (err) {
       // Don't throw - this is a best-effort cleanup
       console.error(`[Jellyfin] Failed to delete transcoding job:`, err);
+    }
+  }
+
+  // ─── Playback Progress Reporting ─────────────────────────
+
+  /**
+   * Report to Jellyfin that playback has started.
+   */
+  async reportPlaybackStart(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number): Promise<void> {
+    try {
+      const api = this.getApi();
+      const playstateApi = getPlaystateApi(api);
+      await playstateApi.reportPlaybackStart({
+        playbackStartInfo: {
+          ItemId: itemId,
+          PlaySessionId: playSessionId,
+          MediaSourceId: mediaSourceId,
+          PositionTicks: msToTicks(positionMs),
+          CanSeek: true,
+          PlayMethod: 'Transcode',
+        },
+      });
+      console.log(`[Jellyfin] Reported playback start: item=${itemId}, position=${Math.round(positionMs / 1000)}s`);
+    } catch (err) {
+      console.error(`[Jellyfin] Failed to report playback start:`, err);
+    }
+  }
+
+  /**
+   * Report playback progress (position update) to Jellyfin.
+   */
+  async reportPlaybackProgress(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number, isPaused?: boolean): Promise<void> {
+    try {
+      const api = this.getApi();
+      const playstateApi = getPlaystateApi(api);
+      await playstateApi.reportPlaybackProgress({
+        playbackProgressInfo: {
+          ItemId: itemId,
+          PlaySessionId: playSessionId,
+          MediaSourceId: mediaSourceId,
+          PositionTicks: msToTicks(positionMs),
+          IsPaused: isPaused ?? false,
+          CanSeek: true,
+          PlayMethod: 'Transcode',
+        },
+      });
+    } catch (err) {
+      console.error(`[Jellyfin] Failed to report playback progress:`, err);
+    }
+  }
+
+  /**
+   * Report to Jellyfin that playback has stopped, including final position.
+   */
+  async reportPlaybackStopped(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number): Promise<void> {
+    try {
+      const api = this.getApi();
+      const playstateApi = getPlaystateApi(api);
+      await playstateApi.reportPlaybackStopped({
+        playbackStopInfo: {
+          ItemId: itemId,
+          PlaySessionId: playSessionId,
+          MediaSourceId: mediaSourceId,
+          PositionTicks: msToTicks(positionMs),
+        },
+      });
+      console.log(`[Jellyfin] Reported playback stopped: item=${itemId}, position=${Math.round(positionMs / 1000)}s`);
+    } catch (err) {
+      console.error(`[Jellyfin] Failed to report playback stopped:`, err);
     }
   }
 

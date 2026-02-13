@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { getServers, addServer, deleteServer, testServer, activateServer, discoverServers, reauthenticateServer, type ServerInfo, type DiscoveredServer } from '../../services/api';
 
-export default function ServerSettings() {
+interface ServerSettingsProps {
+  onServerAdded?: (server: ServerInfo) => void;
+}
+
+export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -60,13 +64,16 @@ export default function ServerSettings() {
     try {
       setError('');
       setConnecting(true);
-      await addServer(name, url, username, password);
+      const server = await addServer(name, url, username, password);
       setName('');
       setUrl('');
       setUsername('');
       setPassword('');
       setShowAdd(false);
       await loadServers();
+      if (server.is_active) {
+        onServerAdded?.(server);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {

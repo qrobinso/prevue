@@ -93,21 +93,27 @@ export default function GuideGrid({
   const baseFontScale = Math.min(scale, isMobile ? 1.5 : 2.5);
   const channelNumFontSize = Math.max(Math.round(12 * baseFontScale), isMobile ? 11 : 12);
   const channelNameFontSize = Math.max(Math.round(8 * baseFontScale), isMobile ? 8 : 7);
-  const programTitleFontSize = Math.max(Math.round(12 * baseFontScale), isMobile ? 11 : 12);
+  // Program metadata scales with guide zoom: 1h = largest, 4h = smallest
+  const zoomFontScale = Math.min(1.4, 4 / guideHours);
+  const programTitleFontSize = Math.max(Math.round(12 * baseFontScale * zoomFontScale), isMobile ? 11 : 12);
 
-  // Calculate time range: start at current 8-hour block, extend for full 8 hours
-  // The user can scroll through all 8 hours; guideHours just controls zoom level
+  // Time header sizing - scales with visible channels (e.g. 3 rows = Extra Large)
+  const timeHeaderHeight = Math.max(28, Math.min(48, Math.round(32 * Math.min(scale, 1.5))));
+  const timeHeaderClockFontSize = Math.max(Math.round(11 * baseFontScale), isMobile ? 9 : 10);
+  const timeSlotFontSize = Math.max(Math.round(9 * baseFontScale), isMobile ? 8 : 9);
+
+  // Calculate time range: rolling 8-hour window starting from the current 30-min slot
+  // This ensures you always see relevant content (now + 8 hours) rather than fixed blocks
   const timeRange = useMemo(() => {
     const start = new Date(currentTime);
-    // Round down to current 8-hour block boundary (0:00, 8:00, or 16:00)
-    const blockHour = Math.floor(start.getHours() / TOTAL_SCHEDULE_HOURS) * TOTAL_SCHEDULE_HOURS;
-    start.setHours(blockHour, 0, 0, 0);
+    // Round down to current 30-min slot boundary (e.g. 11:35 -> 11:30)
+    start.setMinutes(Math.floor(start.getMinutes() / 30) * 30, 0, 0);
 
     const end = new Date(start);
     end.setHours(end.getHours() + TOTAL_SCHEDULE_HOURS);
 
     return { start, end };
-  }, [Math.floor(currentTime.getTime() / 60000)]); // Recalc every minute
+  }, [Math.floor(currentTime.getTime() / (30 * 60 * 1000))]); // Recalc every 30 minutes
 
   // Generate time slots (30-min intervals)
   const timeSlots = useMemo(() => {
@@ -144,22 +150,29 @@ export default function GuideGrid({
   }, [effectiveScrollIdx, isAutoScrolling]);
   
   // Scroll focused row into view when user navigates (centered so guide moves with user)
+  // Use inline: 'nearest' to avoid resetting horizontal time-based scroll
   useEffect(() => {
     if (scrollToChannelIdx === undefined) {
-      focusedRowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      focusedRowRef.current?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
     }
   }, [focusedChannelIdx, scrollToChannelIdx]);
 
   // Drive horizontal scroll by continuous time so the schedule slides left smoothly (classic TV guide strip).
   // Uses direct DOM manipulation only — no React state updates per frame, so no re-render jank.
+  //
+  // With a rolling window that starts at the current 30-min slot, the scroll is always 0-1 slots
+  // (just the elapsed time within the current slot). The window shifts every 30 minutes.
   const SLOT_MS = 30 * 60 * 1000;
+  const totalSlotsWidth = timeSlots.length * timeSlotWidth;
+  // Max scroll is one slot (the time within the current 30-min period before window shifts)
+  const maxScroll = timeSlotWidth;
+
   useEffect(() => {
     const grid = gridRef.current;
     const timeHeader = timeHeaderRef.current;
     if (!grid || !timeHeader || availableWidth <= 0 || timeSlotWidth <= 0) return;
 
     const rangeStartMs = timeRange.start.getTime();
-    const maxScroll = Math.max(0, timeSlots.length * timeSlotWidth - availableWidth);
 
     let rafId: number;
     const tick = () => {
@@ -177,9 +190,15 @@ export default function GuideGrid({
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [timeRange, timeSlotWidth, availableWidth, timeSlots.length]);
+  }, [timeRange, timeSlotWidth, availableWidth, timeSlots.length, maxScroll]);
 
-  const currentTimeStr = currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  const showSeconds = visibleChannels !== 3;
+  const currentTimeStr = currentTime.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(showSeconds && { second: '2-digit' }),
+    hour12: true,
+  });
 
   return (
     <div
@@ -187,17 +206,17 @@ export default function GuideGrid({
       ref={containerRef}
       style={{ '--guide-channel-col-width': `${channelColWidth}px` } as React.CSSProperties}
     >
-      {/* Time header - width must match channel column exactly */}
-      <div className="guide-time-header">
+      {/* Time header - width must match channel column exactly; height/fonts scale with visible channels */}
+      <div className="guide-time-header" style={{ height: timeHeaderHeight }}>
         <div className="guide-time-header-spacer guide-time-header-clock-wrap">
-          <span className="guide-time-header-clock">{currentTimeStr}</span>
+          <span className="guide-time-header-clock" style={{ fontSize: timeHeaderClockFontSize }}>{currentTimeStr}</span>
         </div>
         <div className="guide-time-header-slots" ref={timeHeaderRef}>
           {timeSlots.map((slot, i) => (
             <div
               key={i}
               className="guide-time-slot"
-              style={{ width: timeSlotWidth }}
+              style={{ width: timeSlotWidth, fontSize: timeSlotFontSize }}
             >
               {slot.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
@@ -236,7 +255,7 @@ export default function GuideGrid({
               </div>
 
               {/* Programs */}
-              <div className="guide-programs-row" style={{ minWidth: timeSlots.length * timeSlotWidth }}>
+              <div className="guide-programs-row" style={{ minWidth: totalSlotsWidth }}>
                 {programs.map((prog, progIdx) => {
                   const progStart = new Date(prog.start_time).getTime();
                   const progEnd = new Date(prog.end_time).getTime();

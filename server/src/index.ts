@@ -68,9 +68,9 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 
-// Start server
-server.listen(PORT, () => {
-  console.log(`[Prevue] Server running on port ${PORT}`);
+// Start server on all interfaces so other devices on the network can connect
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Prevue] Server running on http://0.0.0.0:${PORT}`);
 
   // Boot sequence: sync library and generate channels/schedules
   bootSequence().catch(err => {

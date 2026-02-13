@@ -9,6 +9,10 @@ import { getBlockStart, getBlockEnd, getNextBlockStart, getBlockHours, snapForwa
 const EPISODE_RUN_LENGTH_MIN = 3;
 const EPISODE_RUN_LENGTH_MAX = 4;
 const MAX_GAP_MS = 30 * 60 * 1000; // Maximum 30-minute gap before we try to fill it
+const INTERSTITIAL_FALLBACK_MS = 5 * 60 * 1000; // Minimal interstitial when no content fits (was 30 min)
+const COOLDOWN_HOURS = 24; // Avoid reusing same program within this many hours
+const COOLDOWN_HOURS_MOVIE_CHANNEL = 8; // Shorter cooldown for movie-only channels = more back-to-back content
+const MOVIE_POOL_SIZE = 12; // Pick randomly from top N candidates (more = more variety)
 
 /** Kids/family ratings (US); everything else is treated as adult so we don't mix with kids. */
 const KIDS_RATINGS = new Set([
@@ -177,7 +181,23 @@ export class ScheduleEngine {
     // Create a local tracker if none provided
     const tracker = globalTracker || { itemSlots: new Map() };
 
+    // Items scheduled in last 24h for this channel - avoid reusing (cooldown)
+    const cooldownStart = new Date(blockStart.getTime() - COOLDOWN_HOURS * 60 * 60 * 1000);
+    const scheduledInLast24h = queries.getItemIdsScheduledInRangeForChannel(
+      this.db, channel.id, cooldownStart.toISOString(), blockEnd.toISOString()
+    );
+
     let items = this.getChannelItems(channel);
+    const standaloneItemsPreview = items.filter(i => i.Type === 'Movie');
+    const seriesMapPreview = this.groupBySeries(items);
+    const isMovieOnlyChannel = standaloneItemsPreview.length > 0 && seriesMapPreview.size === 0;
+
+    // Movie-only channels: shorter cooldown so we have more content for back-to-back scheduling
+    const cooldownHours = isMovieOnlyChannel ? COOLDOWN_HOURS_MOVIE_CHANNEL : COOLDOWN_HOURS;
+    const cooldownStartForChannel = new Date(blockStart.getTime() - cooldownHours * 60 * 60 * 1000);
+    const scheduledInCooldown = queries.getItemIdsScheduledInRangeForChannel(
+      this.db, channel.id, cooldownStartForChannel.toISOString(), blockEnd.toISOString()
+    );
 
     // When rating filter is on, exclude unrated / "Not Rated" from the schedule
     const ratingFilter = (queries.getSetting(this.db, 'rating_filter') as { mode: string; ratings: string[] } | null) ?? { ratings: [] };
@@ -204,6 +224,14 @@ export class ScheduleEngine {
     const seriesMap = this.groupBySeries(items);
     const seriesIds = Array.from(seriesMap.keys());
     const standaloneItems = items.filter(i => i.Type === 'Movie');
+
+    // Series in cooldown: at least one episode was scheduled in last 24h
+    const seriesInCooldown = new Set<string>();
+    for (const [sid, episodes] of seriesMap) {
+      if (episodes.some(ep => scheduledInLast24h.has(ep.Id))) {
+        seriesInCooldown.add(sid);
+      }
+    }
 
     // Rating buckets: don't mix kids and adult content
     const seriesBucket = new Map<string, 'kids' | 'adult'>();
@@ -241,8 +269,8 @@ export class ScheduleEngine {
       const timeBeforeIteration = currentTime.getTime();
       const startMs = currentTime.getTime();
 
-      // Decide: episode run or standalone
-      const doEpisodeRun = seriesIds.length > 0 && (standaloneItems.length === 0 || rng() < 0.6);
+      // Decide: episode run or standalone (movie-only channels: always movies, back-to-back)
+      const doEpisodeRun = seriesIds.length > 0 && (standaloneItems.length === 0 || (rng() < 0.6 && !isMovieOnlyChannel));
 
       let scheduledSomething = false;
 
@@ -252,9 +280,13 @@ export class ScheduleEngine {
           ? seriesIds
           : seriesIds.filter(s => seriesBucket.get(s) === lastScheduledBucket);
         const candidateSeriesIds = seriesIdsInBucket.length > 0 ? seriesIdsInBucket : seriesIds;
-        // Pick a series (avoid back-to-back same series)
+        // Prefer series not in 24h cooldown, avoid back-to-back same series
+        const preferred = candidateSeriesIds.filter(s =>
+          s !== lastItemId && !seriesInCooldown.has(s)
+        );
+        const fallback = candidateSeriesIds.filter(s => s !== lastItemId);
         const seriesId = this.pickRandom(
-          candidateSeriesIds.filter(s => s !== lastItemId),
+          preferred.length > 0 ? preferred : fallback,
           candidateSeriesIds,
           rng
         );
@@ -266,7 +298,7 @@ export class ScheduleEngine {
 
           // Episodes play back-to-back with no gaps
           for (let i = 0; i < runLength && currentTime.getTime() < blockEndMs; i++) {
-            // Try multiple episodes to find one that doesn't conflict
+            // Try multiple episodes to find one that doesn't conflict and isn't in 24h cooldown
             let found = false;
             for (let attempt = 0; attempt < episodes.length && !found; attempt++) {
               const episode = episodes[(episodeIdx + attempt) % episodes.length];
@@ -276,6 +308,9 @@ export class ScheduleEngine {
               const epStartMs = currentTime.getTime();
               const epEndMs = epStartMs + durationMs;
               if (epEndMs > blockEndMs) continue;
+
+              // Skip if in 24h cooldown (already scheduled recently on this channel)
+              if (scheduledInLast24h.has(episode.Id)) continue;
 
               // Check for conflict with other channels
               if (this.wouldConflict(tracker, episode.Id, epStartMs, epEndMs)) {
@@ -307,7 +342,7 @@ export class ScheduleEngine {
           ? standaloneItems
           : standaloneItems.filter(i => getRatingBucket(i.OfficialRating) === lastScheduledBucket);
         const moviePool = moviesInBucket.length > 0 ? moviesInBucket : standaloneItems;
-        // Get all movies, preferring ones not used in this block and not conflicting
+        // Get all movies, preferring ones not used in this block, not in cooldown, and not conflicting
         const movieCandidates = moviePool
           .filter(i => {
             const dur = this.jellyfin.getItemDurationMs(i);
@@ -318,19 +353,45 @@ export class ScheduleEngine {
             duration: this.jellyfin.getItemDurationMs(i),
             conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i)),
             usedBefore: usedInBlock.has(i.Id),
+            inCooldown: scheduledInCooldown.has(i.Id),
             isLastItem: i.Id === lastItemId
           }))
           .sort((a, b) => {
-            // Prefer: not conflicting > not used before > not last item > longer duration
+            // Prefer: not conflicting > not in cooldown > not used before > not last item > longer duration
             if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
+            if (a.inCooldown !== b.inCooldown) return a.inCooldown ? 1 : -1;
             if (a.usedBefore !== b.usedBefore) return a.usedBefore ? 1 : -1;
             if (a.isLastItem !== b.isLastItem) return a.isLastItem ? 1 : -1;
             return b.duration - a.duration;
           });
 
-        if (movieCandidates.length > 0) {
-          // Pick from top candidates with some randomness
-          const topCandidates = movieCandidates.slice(0, Math.min(5, movieCandidates.length));
+        // Movie-only channels: if no candidates (all in cooldown/conflict), allow cooldown reuse to avoid interstitials
+        let movieCandidatesToUse = movieCandidates;
+        if (movieCandidatesToUse.length === 0 && isMovieOnlyChannel) {
+          movieCandidatesToUse = moviePool
+            .filter(i => {
+              const dur = this.jellyfin.getItemDurationMs(i);
+              return dur > 0 && dur <= remainingMs;
+            })
+            .map(i => ({
+              item: i,
+              duration: this.jellyfin.getItemDurationMs(i),
+              conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i)),
+              usedBefore: usedInBlock.has(i.Id),
+              inCooldown: scheduledInCooldown.has(i.Id),
+              isLastItem: i.Id === lastItemId
+            }))
+            .sort((a, b) => {
+              if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
+              if (a.inCooldown !== b.inCooldown) return a.inCooldown ? 1 : -1;
+              if (a.usedBefore !== b.usedBefore) return a.usedBefore ? 1 : -1;
+              if (a.isLastItem !== b.isLastItem) return a.isLastItem ? 1 : -1;
+              return b.duration - a.duration;
+            });
+        }
+        if (movieCandidatesToUse.length > 0) {
+          // Pick from top N candidates for more variety (weighted toward fresher content)
+          const topCandidates = movieCandidatesToUse.slice(0, Math.min(MOVIE_POOL_SIZE, movieCandidatesToUse.length));
           const selected = topCandidates[Math.floor(rng() * topCandidates.length)];
           
           const endMs = startMs + selected.duration;
@@ -352,16 +413,45 @@ export class ScheduleEngine {
       // If nothing was scheduled, increment failed attempts
       if (!scheduledSomething || currentTime.getTime() === timeBeforeIteration) {
         failedAttempts++;
-        // Try to make progress by skipping a small amount of time if truly stuck
+        // Last resort: try scheduling with fully relaxed constraints (any rating, allow cooldown)
         if (failedAttempts >= MAX_FAILED_ATTEMPTS / 2) {
-          // Skip 30 minutes and try again; next content can be any rating bucket
-          const skipEnd = new Date(currentTime.getTime() + 30 * 60 * 1000);
-          if (skipEnd.getTime() < blockEndMs) {
-            programs.push(this.createInterstitial(currentTime, skipEnd, null));
-            currentTime = skipEnd;
-            lastScheduledBucket = null;
+          const allItemsForRelaxed = [...standaloneItems, ...items.filter(i => i.Type === 'Episode')];
+          const relaxedCandidates = allItemsForRelaxed
+            .map(i => ({
+              item: i,
+              duration: this.jellyfin.getItemDurationMs(i),
+              conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i))
+            }))
+            .filter(x => x.duration > 0 && x.duration <= remainingMs && !x.conflicts)
+            .sort((a, b) => b.duration - a.duration);
+          const relaxed = relaxedCandidates.length > 0
+            ? relaxedCandidates[Math.floor(rng() * Math.min(MOVIE_POOL_SIZE, relaxedCandidates.length))]
+            : null;
+          if (relaxed) {
+            const endMs = startMs + relaxed.duration;
+            const endTime = new Date(endMs);
+            programs.push(this.createProgram(relaxed.item, currentTime, endTime));
+            this.addToTracker(tracker, relaxed.item.Id, startMs, endMs);
+            usedInBlock.add(relaxed.item.Id);
+            lastItemId = relaxed.item.Id;
+            lastScheduledBucket = getRatingBucket(relaxed.item.OfficialRating);
+            currentTime = endTime;
+            failedAttempts = 0;
           } else {
-            break;
+            // No content fits: if we're in the last 30 min of the block, fill the rest with one interstitial
+            const remainingToEnd = blockEndMs - currentTime.getTime();
+            if (remainingToEnd <= 30 * 60 * 1000) {
+              programs.push(this.createInterstitial(currentTime, blockEnd, null));
+              break;
+            }
+            const skipEnd = new Date(currentTime.getTime() + INTERSTITIAL_FALLBACK_MS);
+            if (skipEnd.getTime() < blockEndMs) {
+              programs.push(this.createInterstitial(currentTime, skipEnd, null));
+              currentTime = skipEnd;
+              lastScheduledBucket = null;
+            } else {
+              break;
+            }
           }
         }
       } else {
@@ -387,29 +477,46 @@ export class ScheduleEngine {
           break;
         }
 
-        // Restrict to same rating bucket when filling gaps
+        // Prefer same rating bucket, then all items; prefer no cooldown, then allow cooldown
         const gapPool = lastScheduledBucket === null
           ? allItems
           : allItems.filter(i => getRatingBucket(i.OfficialRating) === lastScheduledBucket);
         const itemsForGap = gapPool.length > 0 ? gapPool : allItems;
-        // Find items that fit, prioritizing non-conflicting and non-recently-used
-        const candidates = itemsForGap
-          .map(i => ({
-            item: i,
-            duration: this.jellyfin.getItemDurationMs(i),
-            conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i)),
-            usedInBlock: usedInBlock.has(i.Id)
-          }))
-          .filter(x => x.duration > 0 && x.duration <= remainingGap)
-          .sort((a, b) => {
-            // Prefer non-conflicting, then not used in block, then longer
-            if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
-            if (a.usedInBlock !== b.usedInBlock) return a.usedInBlock ? 1 : -1;
-            return b.duration - a.duration;
-          });
+        const buildGapCandidates = (allowCooldown: boolean) =>
+          itemsForGap
+            .map(i => ({
+              item: i,
+              duration: this.jellyfin.getItemDurationMs(i),
+              conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i)),
+              usedInBlock: usedInBlock.has(i.Id),
+              inCooldown: scheduledInCooldown.has(i.Id)
+            }))
+            .filter(x => x.duration > 0 && x.duration <= remainingGap && (allowCooldown || !x.inCooldown))
+            .sort((a, b) => {
+              if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
+              if (a.inCooldown !== b.inCooldown) return a.inCooldown ? 1 : -1;
+              if (a.usedInBlock !== b.usedInBlock) return a.usedInBlock ? 1 : -1;
+              return b.duration - a.duration;
+            });
+        let candidates = buildGapCandidates(false);
+        if (candidates.length === 0) {
+          candidates = buildGapCandidates(true);
+        }
+        // Last resort: try all items (any rating) with cooldown allowed
+        if (candidates.length === 0 && itemsForGap.length < allItems.length) {
+          candidates = allItems
+            .map(i => ({
+              item: i,
+              duration: this.jellyfin.getItemDurationMs(i),
+              conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + this.jellyfin.getItemDurationMs(i))
+            }))
+            .filter(x => x.duration > 0 && x.duration <= remainingGap && !x.conflicts)
+            .sort((a, b) => b.duration - a.duration);
+        }
 
         if (candidates.length > 0) {
-          const { item, duration, conflicts } = candidates[0];
+          const topN = Math.min(MOVIE_POOL_SIZE, candidates.length);
+          const { item, duration, conflicts } = candidates[Math.floor(rng() * topN)];
           const endMs = startMs + duration;
           const endTime = new Date(endMs);
           programs.push(this.createProgram(item, currentTime, endTime));
@@ -420,11 +527,12 @@ export class ScheduleEngine {
           lastScheduledBucket = getRatingBucket(item.OfficialRating);
           currentTime = endTime;
         } else {
-          // No content fits - create a 30-min interstitial; next content can be any rating bucket
-          const interstitialEnd = new Date(Math.min(startMs + 30 * 60 * 1000, blockEndMs));
-          programs.push(this.createInterstitial(currentTime, interstitialEnd, null));
-          currentTime = interstitialEnd;
+          // No content fits: use ONE interstitial to fill the entire remaining gap
+          // (avoids many small "Coming Up Next" blocks)
+          programs.push(this.createInterstitial(currentTime, blockEnd, null));
+          currentTime = blockEnd;
           lastScheduledBucket = null;
+          break;
         }
       }
     }

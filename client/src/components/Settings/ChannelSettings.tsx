@@ -231,8 +231,6 @@ export default function ChannelSettings() {
     return ids;
   }, [presetData, selectedPresets, presetMultipliers]);
 
-  const totalChannelCount = expandedPresetIds.length;
-
   const handleRegenerate = async () => {
     if (selectedPresets.size === 0) {
       setError('Please select at least one channel type');
@@ -288,6 +286,17 @@ export default function ChannelSettings() {
 
       {viewMode === 'presets' && presetData && (
         <div className="settings-presets">
+          {/* Regenerate Button - first so it sticks to top when scrolling */}
+          <div className="settings-preset-actions">
+            <button
+              className="settings-btn-primary"
+              onClick={handleRegenerate}
+              disabled={generating || selectedPresets.size === 0}
+            >
+              {generating ? 'GENERATING...' : 'REGENERATE CHANNELS'}
+            </button>
+          </div>
+
           <p className="settings-field-hint">
             Select channel types to add to your lineup.
           </p>
@@ -312,17 +321,6 @@ export default function ChannelSettings() {
                 ? 'Each channel type creates separate movie and TV channels.'
                 : 'Movies and TV shows are mixed together in each channel.'}
             </p>
-          </div>
-
-          {/* Regenerate Button */}
-          <div className="settings-preset-actions">
-            <button
-              className="settings-btn-primary"
-              onClick={handleRegenerate}
-              disabled={generating || selectedPresets.size === 0}
-            >
-              {generating ? 'GENERATING...' : `REGENERATE CHANNELS (${totalChannelCount} CHANNELS)`}
-            </button>
           </div>
 
           {/* Progress indicator */}

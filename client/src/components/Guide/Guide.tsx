@@ -5,12 +5,13 @@ import GuideGrid from './GuideGrid';
 import PreviewPanel from './PreviewPanel';
 import ProgramInfoModal from './ProgramInfoModal';
 import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours } from '../Settings/DisplaySettings';
+import { isIOSPWA } from '../../utils/platform';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
 import './Guide.css';
 
 interface GuideProps {
-  onTune: (channel: Channel, program: ScheduleProgram) => void;
+  onTune: (channel: Channel, program: ScheduleProgram, opts?: { fromFullscreen?: boolean }) => void;
   onOpenSettings: () => void;
   streamingPaused?: boolean;
   initialChannelId?: number | null;
@@ -186,6 +187,13 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   const toggleFullscreen = useCallback(() => {
     const el = guideRef.current;
     if (!el) return;
+
+    // On iOS PWA, Fullscreen API shows a toolbar. Use CSS-only fullscreen instead.
+    if (isIOSPWA()) {
+      setIsFullscreen((prev) => !prev);
+      return;
+    }
+
     const doc = document as Document & { exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void; msExitFullscreen?: () => void };
     const fsEl = (document as { fullscreenElement?: Element | null; webkitFullscreenElement?: Element | null; msFullscreenElement?: Element | null }).fullscreenElement
       ?? (document as { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
@@ -203,6 +211,7 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   }, []);
 
   useEffect(() => {
+    if (isIOSPWA()) return; // CSS-only fullscreen; no Fullscreen API events
     const onFsChange = () => {
       const fsEl = (document as { fullscreenElement?: Element | null; webkitFullscreenElement?: Element | null; msFullscreenElement?: Element | null }).fullscreenElement
         ?? (document as { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
@@ -256,9 +265,9 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   const handleEnter = useCallback(() => {
     pauseAutoScroll();
     if (focusedChannel && focusedProgram) {
-      onTune(focusedChannel, focusedProgram);
+      onTune(focusedChannel, focusedProgram, { fromFullscreen: isFullscreen });
     }
-  }, [focusedChannel, focusedProgram, onTune, pauseAutoScroll]);
+  }, [focusedChannel, focusedProgram, onTune, pauseAutoScroll, isFullscreen]);
 
   useKeyboard('guide', {
     onUp: handleUp,
@@ -313,7 +322,10 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   }
 
   return (
-    <div className={`guide ${isFullscreen ? 'guide-fullscreen' : ''}`} ref={guideRef}>
+    <div
+      className={`guide ${isFullscreen ? 'guide-fullscreen' : ''} ${isIOSPWA() && isFullscreen ? 'guide-fullscreen-ios-pwa' : ''}`}
+      ref={guideRef}
+    >
       <button
         className="guide-fullscreen-btn"
         onClick={toggleFullscreen}
@@ -337,6 +349,7 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
         onTune={handleEnter}
         onSwipeUp={handleUp}
         onSwipeDown={handleDown}
+        guideHours={guideHours}
       />
       {programInfoModal && (
         <ProgramInfoModal
@@ -377,7 +390,7 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
             // Current/past program: change selection and tune
             setFocusedChannelIdx(chIdx);
             setFocusedProgramIdx(progIdx);
-            onTune(ch, prog);
+            onTune(ch, prog, { fromFullscreen: isFullscreen });
           }
         }}
       />

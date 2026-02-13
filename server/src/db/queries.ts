@@ -56,15 +56,18 @@ export function updateServer(
 }
 
 export function deleteServer(db: Database.Database, id: number): boolean {
-  // Delete all related data in a transaction
+  const server = getServerById(db, id);
+  if (!server) return false;
+
+  const wasActive = !!server.is_active;
+
   const txn = db.transaction(() => {
-    // Delete schedule blocks (will cascade from channels, but explicit is clearer)
-    db.prepare('DELETE FROM schedule_blocks').run();
-    // Delete all channels (item_ids reference items from any server)
-    db.prepare('DELETE FROM channels').run();
-    // library_cache has ON DELETE CASCADE, but we can be explicit
+    // When deleting the active server, remove all channels and schedules (they were built from that server's library)
+    if (wasActive) {
+      db.prepare('DELETE FROM schedule_blocks').run();
+      db.prepare('DELETE FROM channels').run();
+    }
     db.prepare('DELETE FROM library_cache WHERE server_id = ?').run(id);
-    // Finally delete the server
     const result = db.prepare('DELETE FROM servers WHERE id = ?').run(id);
     return result.changes > 0;
   });
@@ -260,6 +263,33 @@ export function getAllScheduleBlocksInRange(
      ORDER BY channel_id, block_start`
   ).all(rangeEnd, rangeStart) as ScheduleBlock[];
   return rows.map(parseScheduleBlock);
+}
+
+/**
+ * Get item IDs scheduled for a channel in blocks overlapping a time range.
+ * Used to avoid reusing the same programs within a 24-hour period.
+ */
+export function getItemIdsScheduledInRangeForChannel(
+  db: Database.Database,
+  channelId: number,
+  rangeStart: string,
+  rangeEnd: string
+): Set<string> {
+  const blocks = db.prepare(
+    `SELECT * FROM schedule_blocks 
+     WHERE channel_id = ? AND block_start < ? AND block_end > ?`
+  ).all(channelId, rangeEnd, rangeStart) as ScheduleBlock[];
+
+  const itemIds = new Set<string>();
+  for (const block of blocks) {
+    const parsed = parseScheduleBlock(block);
+    for (const prog of parsed.programs) {
+      if (prog.jellyfin_item_id && prog.type !== 'interstitial') {
+        itemIds.add(prog.jellyfin_item_id);
+      }
+    }
+  }
+  return itemIds;
 }
 
 // ─── Settings ─────────────────────────────────────────────

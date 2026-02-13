@@ -2,12 +2,13 @@ import type { Express } from 'express';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { JellyfinClient } from '../services/JellyfinClient.js';
+import * as queries from '../db/queries.js';
 
 export const streamRoutes = Router();
 
 // Track active play sessions so we can stop them when user leaves
-// Maps itemId -> playSessionId
-const activeSessions = new Map<string, string>();
+// Maps itemId -> { playSessionId, mediaSourceId }
+const activeSessions = new Map<string, { playSessionId: string; mediaSourceId: string }>();
 
 // Last proxy activity (segment/playlist request) per itemId — used to stop idle transcodes
 const lastActivityByItemId = new Map<string, number>();
@@ -25,12 +26,21 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
   try {
     const { jellyfinClient } = req.app.locals;
     const jf = jellyfinClient as JellyfinClient;
-    const { itemId, playSessionId } = req.body;
+    const { itemId, playSessionId, positionMs } = req.body;
     
     // Use provided playSessionId or look up from active sessions
-    const sessionId = playSessionId || activeSessions.get(itemId);
+    const session = activeSessions.get(itemId);
+    const sessionId = playSessionId || session?.playSessionId;
     
     if (sessionId) {
+      // Report playback stopped to Jellyfin if progress sharing is enabled and we have position data
+      if (positionMs != null && session) {
+        const { db } = req.app.locals;
+        const enabled = queries.getSetting(db, 'share_playback_progress');
+        if (enabled) {
+          await jf.reportPlaybackStopped(itemId, sessionId, session.mediaSourceId, positionMs).catch(() => {});
+        }
+      }
       await jf.stopPlaybackSession(sessionId);
       await jf.deleteTranscodingJob(sessionId);
       activeSessions.delete(itemId);
@@ -48,11 +58,50 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/stream/progress - Report playback progress to Jellyfin
+// Client sends this periodically after the 5-minute watch threshold
+streamRoutes.post('/stream/progress', async (req: Request, res: Response) => {
+  try {
+    const { jellyfinClient, db } = req.app.locals;
+    const jf = jellyfinClient as JellyfinClient;
+
+    // Check if progress sharing is enabled
+    const enabled = queries.getSetting(db, 'share_playback_progress');
+    if (!enabled) {
+      res.json({ success: true, reported: false, reason: 'disabled' });
+      return;
+    }
+
+    const { itemId, positionMs } = req.body;
+    if (!itemId || positionMs == null) {
+      res.status(400).json({ error: 'itemId and positionMs are required' });
+      return;
+    }
+
+    const session = activeSessions.get(itemId);
+    if (!session) {
+      res.json({ success: true, reported: false, reason: 'no_session' });
+      return;
+    }
+
+    await jf.reportPlaybackProgress(
+      itemId,
+      session.playSessionId,
+      session.mediaSourceId,
+      positionMs
+    );
+    res.json({ success: true, reported: true });
+  } catch (err) {
+    console.error(`[Stream] Error reporting progress:`, err);
+    res.json({ success: true, reported: false, error: (err as Error).message });
+  }
+});
+
 // GET /api/stream/sessions - List active sessions (debugging)
 streamRoutes.get('/stream/sessions', (_req: Request, res: Response) => {
-  const sessions = Array.from(activeSessions.entries()).map(([itemId, playSessionId]) => ({
+  const sessions = Array.from(activeSessions.entries()).map(([itemId, session]) => ({
     itemId,
-    playSessionId,
+    playSessionId: session.playSessionId,
   }));
   res.json({ count: sessions.length, sessions });
 });
@@ -65,13 +114,13 @@ streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
   const count = activeSessions.size;
   const stopped: string[] = [];
   
-  for (const [itemId, playSessionId] of activeSessions.entries()) {
+  for (const [itemId, session] of activeSessions.entries()) {
     try {
-      await jf.stopPlaybackSession(playSessionId);
-      await jf.deleteTranscodingJob(playSessionId);
-      stopped.push(playSessionId);
+      await jf.stopPlaybackSession(session.playSessionId);
+      await jf.deleteTranscodingJob(session.playSessionId);
+      stopped.push(session.playSessionId);
     } catch (err) {
-      console.error(`[Stream] Failed to stop session ${playSessionId}:`, err);
+      console.error(`[Stream] Failed to stop session ${session.playSessionId}:`, err);
     }
   }
   activeSessions.clear();
@@ -81,8 +130,13 @@ streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
 });
 
 // Helper to track a new session
-export function trackSession(itemId: string, playSessionId: string): void {
-  activeSessions.set(itemId, playSessionId);
+export function trackSession(itemId: string, playSessionId: string, mediaSourceId?: string): void {
+  activeSessions.set(itemId, { playSessionId, mediaSourceId: mediaSourceId || itemId });
+}
+
+// Helper to look up session info for an item
+export function getSessionInfo(itemId: string): { playSessionId: string; mediaSourceId: string } | undefined {
+  return activeSessions.get(itemId);
 }
 
 // Helper: rewrite M3U8 URLs to route through our proxy
@@ -297,7 +351,7 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     const hlsInfo = await jf.getHlsStreamUrl(itemId);
     const playSessionId = hlsInfo.playSessionId;
 
-    activeSessions.set(itemId, playSessionId);
+    activeSessions.set(itemId, { playSessionId, mediaSourceId: itemId });
     lastActivityByItemId.set(itemId, Date.now());
     console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} audioStreamIndex=${audioStreamIndex ?? 'default'}`);
 
@@ -418,10 +472,10 @@ export function startTranscodeIdleCleanup(app: Express): void {
     const now = Date.now();
     const toStop: { itemId: string; playSessionId: string }[] = [];
 
-    for (const [itemId, playSessionId] of activeSessions.entries()) {
+    for (const [itemId, session] of activeSessions.entries()) {
       const last = lastActivityByItemId.get(itemId) ?? 0;
       if (now - last >= IDLE_THRESHOLD_MS) {
-        toStop.push({ itemId, playSessionId });
+        toStop.push({ itemId, playSessionId: session.playSessionId });
       }
     }
 

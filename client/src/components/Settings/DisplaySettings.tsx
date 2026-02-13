@@ -1,6 +1,12 @@
-import { useState, useEffect } from 'react';
-import { factoryReset } from '../../services/api';
+import { useState, useEffect, useCallback } from 'react';
+import { factoryReset, getSettings, updateSettings } from '../../services/api';
+import { usePWAInstall } from '../../hooks/usePWAInstall';
 import './Settings.css';
+
+const APP_VERSION = '1.0.0';
+const GITHUB_URL = 'https://github.com/qrobinso/prevue';
+
+const PREVIEW_BG_KEY = 'preview_bg';
 
 const VISIBLE_CHANNELS_KEY = 'prevue_visible_channels';
 const CHANNEL_COUNT_KEY = 'prevue_channel_count';
@@ -18,6 +24,12 @@ const VIDEO_QUALITY_KEY = 'prevue_video_quality';
 const COLOR_THEME_KEY = 'prevue_color_theme';
 const AUTO_SCROLL_KEY = 'prevue_auto_scroll';
 const AUTO_SCROLL_SPEED_KEY = 'prevue_auto_scroll_speed';
+
+export type PreviewBgOption = 'theme' | 'black' | 'white';
+
+export function applyPreviewBg(value: PreviewBgOption): void {
+  document.documentElement.setAttribute('data-preview-bg', value);
+}
 
 // Auto-scroll speed presets (seconds per channel)
 export interface ScrollSpeedPreset {
@@ -221,20 +233,72 @@ export default function DisplaySettings() {
   const [guideHours, setGuideHoursState] = useState(getGuideHours);
   const [videoQuality, setVideoQualityState] = useState(getVideoQuality);
   const [colorTheme, setColorThemeState] = useState(getColorTheme);
+  const [previewBg, setPreviewBgState] = useState<PreviewBgOption>('theme');
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(getAutoScroll);
   const [autoScrollSpeed, setAutoScrollSpeedState] = useState(getAutoScrollSpeed);
+  const [sharePlaybackProgress, setSharePlaybackProgress] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAbout, setShowAbout] = useState(false);
+  const [showPWAInstructions, setShowPWAInstructions] = useState(false);
+  const closeAbout = useCallback(() => setShowAbout(false), []);
+  const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
+
+  // Close about modal on Escape
+  useEffect(() => {
+    if (!showAbout) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeAbout();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [showAbout, closeAbout]);
 
   // Ensure theme is applied on mount
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', colorTheme);
   }, [colorTheme]);
 
+  // Load settings from DB on mount
+  useEffect(() => {
+    getSettings()
+      .then((s) => {
+        const v = s[PREVIEW_BG_KEY];
+        if (v === 'theme' || v === 'black' || v === 'white') {
+          setPreviewBgState(v);
+          applyPreviewBg(v);
+        }
+        if (typeof s['share_playback_progress'] === 'boolean') {
+          setSharePlaybackProgress(s['share_playback_progress'] as boolean);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const handleThemeChange = (themeId: string) => {
     setColorThemeState(themeId);
     setColorTheme(themeId);
+  };
+
+  const handlePreviewBgChange = async (value: PreviewBgOption) => {
+    setPreviewBgState(value);
+    applyPreviewBg(value);
+    try {
+      await updateSettings({ [PREVIEW_BG_KEY]: value });
+    } catch {
+      // Keep applied locally even if save fails
+    }
+  };
+
+  const handleSharePlaybackToggle = async () => {
+    const newValue = !sharePlaybackProgress;
+    setSharePlaybackProgress(newValue);
+    try {
+      await updateSettings({ share_playback_progress: newValue });
+    } catch {
+      // Keep applied locally even if save fails
+    }
   };
 
   const handleAutoScrollToggle = () => {
@@ -285,13 +349,8 @@ export default function DisplaySettings() {
     setError(null);
     try {
       await factoryReset();
-      // Clear local storage settings as well
-      localStorage.removeItem(VISIBLE_CHANNELS_KEY);
-      localStorage.removeItem(VIDEO_QUALITY_KEY);
-      localStorage.removeItem(COLOR_THEME_KEY);
-      localStorage.removeItem(AUTO_SCROLL_KEY);
-      localStorage.removeItem(AUTO_SCROLL_SPEED_KEY);
-      localStorage.removeItem(GUIDE_HOURS_KEY);
+      // Clear all local storage (preferences, cached state, etc.)
+      localStorage.clear();
       // Reload the page to start fresh
       window.location.reload();
     } catch (err) {
@@ -304,6 +363,27 @@ export default function DisplaySettings() {
   return (
     <div className="settings-section">
       <h3>DISPLAY</h3>
+
+      <div className="settings-subsection">
+        <h4>GENERAL</h4>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={sharePlaybackProgress}
+              onChange={handleSharePlaybackToggle}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            Share playback progress with Jellyfin
+          </span>
+        </div>
+        <p className="settings-field-hint">
+          When enabled, your watch progress is synced to Jellyfin after 5 minutes of viewing.
+          This updates "Continue Watching" and watched status on your Jellyfin server.
+        </p>
+      </div>
 
       <div className="settings-subsection">
         <h4>VIDEO QUALITY</h4>
@@ -348,6 +428,34 @@ export default function DisplaySettings() {
               <span className="settings-theme-info">
                 <span className="settings-theme-name">{theme.name}</span>
                 <span className="settings-theme-desc">{theme.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-subsection">
+        <h4>PREVIEW BACKGROUND</h4>
+        <p className="settings-field-hint">
+          Color of the preview video area when no channel is selected.
+        </p>
+        <div className="settings-preview-bg-options">
+          {(['theme', 'black', 'white'] as const).map((opt) => (
+            <button
+              key={opt}
+              className={`settings-preview-bg-btn ${previewBg === opt ? 'active' : ''}`}
+              onClick={() => handlePreviewBgChange(opt)}
+              style={
+                opt === 'theme'
+                  ? undefined
+                  : opt === 'black'
+                    ? { '--preview-bg-swatch': '#000' } as React.CSSProperties
+                    : { '--preview-bg-swatch': '#fff' } as React.CSSProperties
+              }
+            >
+              <span className="settings-preview-bg-swatch" />
+              <span className="settings-preview-bg-label">
+                {opt === 'theme' ? 'Theme' : opt === 'black' ? 'Black' : 'White'}
               </span>
             </button>
           ))}
@@ -460,6 +568,56 @@ export default function DisplaySettings() {
         </div>
       </div>
 
+      <div className="settings-subsection">
+        <h4>INSTALL APP</h4>
+        <p className="settings-field-hint">
+          Install Prevue as a progressive web app for quick access from your home screen or app drawer.
+          Works offline once installed.
+        </p>
+        {isInstalled ? (
+          <div className="settings-pwa-installed">
+            <span className="settings-pwa-check">✓</span> Prevue is installed
+          </div>
+        ) : canInstall && prompt ? (
+          <button
+            className="settings-btn-sm settings-btn-pwa"
+            onClick={prompt}
+          >
+            Install Prevue
+          </button>
+        ) : isIOS ? (
+          <>
+            <button
+              className="settings-btn-sm settings-btn-pwa"
+              onClick={() => setShowPWAInstructions(true)}
+            >
+              Add to Home Screen
+            </button>
+            {showPWAInstructions && (
+              <div className="settings-pwa-instructions">
+                <p>On iOS:</p>
+                <ol>
+                  <li>Tap the Share button (square with arrow up) in Safari</li>
+                  <li>Scroll down and tap &quot;Add to Home Screen&quot;</li>
+                  <li>Tap &quot;Add&quot; to confirm</li>
+                </ol>
+                <button
+                  className="settings-btn-sm"
+                  onClick={() => setShowPWAInstructions(false)}
+                >
+                  Got it
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="settings-field-hint settings-pwa-hint">
+            Use your browser&apos;s menu to install (e.g. Chrome: ⋮ → Install app).
+            Or visit this page on a supported device.
+          </p>
+        )}
+      </div>
+
       <div className="settings-subsection settings-danger-zone">
         <h4>DANGER ZONE</h4>
         <p className="settings-field-hint">
@@ -484,6 +642,97 @@ export default function DisplaySettings() {
           </button>
         )}
       </div>
+
+      <div className="settings-subsection">
+        <h4>ABOUT</h4>
+        <p className="settings-field-hint">
+          Learn more about Prevue, its creator, and open-source credits.
+        </p>
+        <button
+          className="settings-btn-sm"
+          onClick={() => setShowAbout(true)}
+        >
+          ABOUT PREVUE
+        </button>
+      </div>
+
+      {showAbout && (
+        <div
+          className="about-backdrop"
+          onClick={(e) => { if (e.target === e.currentTarget) closeAbout(); }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="about-title"
+        >
+          <div className="about-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="about-header">
+              <h2 id="about-title" className="about-title">PREVUE</h2>
+              <button
+                type="button"
+                className="about-close"
+                onClick={closeAbout}
+                title="Close"
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="about-body">
+              <div className="about-app-section">
+                <p className="about-tagline">
+                  A retro cable TV guide experience for your Jellyfin media library.
+                </p>
+                <p className="about-description">
+                  Prevue turns your Jellyfin collection into a classic channel-surfing experience
+                  with auto-generated channels, a live program guide, and that unmistakable
+                  scrolling TV Guide aesthetic. Just like flipping through channels in the 90s
+                  &mdash; but with your own content.
+                </p>
+                <span className="about-version">v{APP_VERSION}</span>
+              </div>
+
+              <div className="about-divider" />
+
+              <div className="about-section">
+                <h3 className="about-section-title">CREATED BY</h3>
+                <p className="about-text">
+                  Designed and built by <strong>Quentin Robinson</strong>.
+                </p>
+              </div>
+
+              <div className="about-divider" />
+
+              <div className="about-section">
+                <h3 className="about-section-title">OPEN SOURCE</h3>
+                <a
+                  className="about-link"
+                  href={GITHUB_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  github.com/qrobinso/prevue
+                </a>
+              </div>
+
+              <div className="about-divider" />
+
+              <div className="about-section">
+                <h3 className="about-section-title">ACKNOWLEDGEMENTS</h3>
+                <ul className="about-credits">
+                  <li><strong>Jellyfin</strong> &mdash; The free software media system that makes this possible</li>
+                  <li><strong>React</strong> &mdash; UI framework</li>
+                  <li><strong>Vite</strong> &mdash; Build tooling</li>
+                  <li><strong>HLS.js</strong> &mdash; HTTP Live Streaming for the browser</li>
+                  <li><strong>Express</strong> &mdash; Server framework</li>
+                  <li><strong>better-sqlite3</strong> &mdash; Local database engine</li>
+                  <li><strong>Jellyfin SDK</strong> &mdash; TypeScript SDK for the Jellyfin API</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

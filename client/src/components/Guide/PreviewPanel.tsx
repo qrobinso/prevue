@@ -4,9 +4,17 @@ import Hls from 'hls.js';
 import type { ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
-import { getPlaybackInfo, stopPlayback, updateSettings } from '../../services/api';
+import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings } from '../../services/api';
+import {
+  consumePlaybackHandoff,
+  requestPlaybackHandoff,
+  shouldPreservePlaybackOnUnmount,
+  updateActivePlaybackSession,
+  updatePlaybackPosition,
+} from '../../services/playbackHandoff';
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from './audioTrackUtils';
+import { formatPlaybackError } from '../../utils/playbackError';
 import './Guide.css';
 
 // Lightweight preset for fast preview start (lower bitrate/size = faster first frame)
@@ -39,28 +47,61 @@ interface PreviewPanelProps {
   onTune?: () => void;
   onSwipeUp?: () => void;
   onSwipeDown?: () => void;
+  guideHours?: number;
 }
 
-export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown }: PreviewPanelProps) {
+const PREVIEW_BASE_SIZES = {
+  channelNum: 14,
+  channelName: 11,
+  title: 16,
+  subtitle: 13,
+  year: 10,
+  rating: 9,
+  time: 10,
+} as const;
+
+export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4 }: PreviewPanelProps) {
+  const zoomFontScale = Math.min(1.4, 4 / guideHours);
+  const previewFontSizes = {
+    channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
+    channelName: Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale),
+    title: Math.round(PREVIEW_BASE_SIZES.title * zoomFontScale),
+    subtitle: Math.round(PREVIEW_BASE_SIZES.subtitle * zoomFontScale),
+    year: Math.round(PREVIEW_BASE_SIZES.year * zoomFontScale),
+    rating: Math.round(PREVIEW_BASE_SIZES.rating * zoomFontScale),
+    time: Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale),
+  };
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const currentItemIdRef = useRef<string | null>(null);
+  const currentChannelIdRef = useRef<number | null>(null);
   const selectedSubtitleIndexRef = useRef<number | null>(getStoredSubtitleIndex());
   const overlayHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapTimeRef = useRef<number>(0);
   const removePlayingListenersRef = useRef<(() => void) | null>(null);
   /** Tracks item we're loading so we don't start a duplicate load (e.g. React Strict Mode or rapid re-runs) */
   const loadingItemIdRef = useRef<string | null>(null);
+  // ─── Playback progress tracking ──────────────────────
+  const watchStartRef = useRef<number>(0);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressActivatedRef = useRef(false);
+
   const [videoReady, setVideoReady] = useState(false);
-  const [videoError, setVideoError] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [overlayVisible, setOverlayVisible] = useState(true);
   const { volume, muted, setVolume, toggleMute } = useVolume();
+  const mutedRef = useRef(muted);
+  const volumeRef = useRef(volume);
+  mutedRef.current = muted;
+  volumeRef.current = volume;
   const [showAudioMoreMenu, setShowAudioMoreMenu] = useState(false);
   const [serverAudioTracks, setServerAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [selectedAudioStreamIndex, setSelectedAudioStreamIndex] = useState<number | null>(null);
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getStoredVideoFit);
+  currentChannelIdRef.current = channel?.id ?? null;
 
   const toggleVideoFit = useCallback(() => {
     setVideoFit(prev => {
@@ -82,27 +123,53 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
     if (currentItemIdRef.current) {
-      stopPlayback(currentItemIdRef.current).catch(() => {});
+      const itemId = currentItemIdRef.current;
+      const channelId = currentChannelIdRef.current;
+      const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
+      if (channelId != null && shouldPreservePlaybackOnUnmount('guide', channelId, itemId)) {
+        updatePlaybackPosition('guide', itemId, (positionMs ?? 0) / 1000);
+      } else {
+        stopPlayback(itemId, undefined, positionMs).catch(() => {});
+      }
       currentItemIdRef.current = null;
     }
     loadingItemIdRef.current = null;
+    progressActivatedRef.current = false;
     setVideoReady(false);
-    setVideoError(false);
+    setVideoError(null);
   }, []);
 
   // Load HLS from playback info (shared by initial load and audio track switch).
   // We set videoReady only when the video fires 'playing', so the static placeholder stays until a real frame is shown.
-  const loadStreamWithInfo = useCallback((info: Awaited<ReturnType<typeof getPlaybackInfo>>, cancelled: { current: boolean }) => {
+  const loadStreamWithInfo = useCallback((
+    info: Awaited<ReturnType<typeof getPlaybackInfo>>,
+    cancelled: { current: boolean },
+    startPositionOverrideSec?: number
+  ) => {
     const video = videoRef.current;
     if (!video || !info.stream_url || info.is_interstitial) return;
 
     currentItemIdRef.current = info.program.jellyfin_item_id;
-    const startPosition = info.seek_position_seconds || 0;
+    const startPosition = startPositionOverrideSec ?? (info.seek_position_seconds || 0);
+    updateActivePlaybackSession('guide', currentChannelIdRef.current ?? info.channel.id, info, startPosition);
 
+    // Reset playback progress tracking for the new item
+    watchStartRef.current = Date.now();
+    progressActivatedRef.current = false;
+
+    let canplayHandler: (() => void) | null = null;
     const removePlayingListeners = () => {
       video.removeEventListener('playing', onFirstPlaying);
       video.removeEventListener('loadeddata', onFirstPlaying);
+      if (canplayHandler) {
+        video.removeEventListener('canplay', canplayHandler);
+        canplayHandler = null;
+      }
       if (removePlayingListenersRef.current === removePlayingListeners) {
         removePlayingListenersRef.current = null;
       }
@@ -111,6 +178,9 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     const onFirstPlaying = () => {
       if (cancelled.current) return;
       removePlayingListeners();
+      // Restore user's volume/muted (we start muted for iOS autoplay compat)
+      video.muted = mutedRef.current;
+      video.volume = volumeRef.current;
       // Wait 0.5s of actual video playback before revealing (so video plays behind the static briefly)
       setTimeout(() => {
         if (!cancelled.current) {
@@ -153,6 +223,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       };
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (!cancelled.current) {
+          video.muted = true; // iOS: autoplay requires muted
           video.play().catch(() => {});
           const idx = selectedSubtitleIndexRef.current;
           if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
@@ -174,16 +245,24 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal && !cancelled.current) {
           removePlayingListeners();
-          setVideoError(true);
+          setVideoError(formatPlaybackError(data));
           hls.destroy();
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.addEventListener('playing', onFirstPlaying);
-      video.addEventListener('loadeddata', onFirstPlaying);
+      canplayHandler = () => {
+        if (cancelled.current) return;
+        if (canplayHandler) {
+          video.removeEventListener('canplay', canplayHandler);
+          canplayHandler = null;
+        }
+        if (startPosition > 0) video.currentTime = startPosition;
+        video.muted = true; // iOS: autoplay requires muted
+        video.play().catch(() => {});
+      };
       video.src = info.stream_url;
-      video.currentTime = startPosition;
-      video.play().catch(() => {});
+      video.addEventListener('canplay', canplayHandler);
     }
   }, []);
 
@@ -216,6 +295,25 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       if (cancelled.current) return;
       loadingItemIdRef.current = itemId;
       try {
+        const handoff = consumePlaybackHandoff('guide', channel.id, itemId);
+        if (handoff) {
+          setServerAudioTracks(handoff.info.audio_tracks ?? []);
+          setSelectedAudioStreamIndex(handoff.info.audio_stream_index ?? null);
+          setServerSubtitleTracks(handoff.info.subtitle_tracks ?? []);
+          const subtitleTracks = handoff.info.subtitle_tracks ?? [];
+          const preferredSub =
+            handoff.info.subtitle_index !== undefined ? handoff.info.subtitle_index : getStoredSubtitleIndex();
+          const initialSub =
+            preferredSub !== null && preferredSub >= 0 && preferredSub < subtitleTracks.length
+              ? preferredSub
+              : null;
+          setSelectedSubtitleIndex(initialSub);
+          selectedSubtitleIndexRef.current = initialSub;
+          loadStreamWithInfo(handoff.info, cancelled, handoff.positionSec);
+          loadingItemIdRef.current = null;
+          return;
+        }
+
         const info = await getPlaybackInfo(channel.id, PREVIEW_QUALITY);
         if (cancelled.current || !info.stream_url || info.is_interstitial) {
           if (!cancelled.current) loadingItemIdRef.current = null;
@@ -241,7 +339,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         loadingItemIdRef.current = null;
       } catch (err) {
         if (!cancelled.current) {
-          setVideoError(true);
+          setVideoError(formatPlaybackError(err instanceof Error ? err : String(err)));
           loadingItemIdRef.current = null;
         }
       }
@@ -254,6 +352,36 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       clearTimeout(timer);
     };
   }, [channel?.id, program?.jellyfin_item_id, cleanup, streamingPaused, loadStreamWithInfo]);
+
+  // Playback progress reporting to Jellyfin (after 5 min watch threshold)
+  useEffect(() => {
+    const WATCH_THRESHOLD_MS = 5 * 60 * 1000;  // 5 minutes
+    const REPORT_INTERVAL_MS = 30 * 1000;       // every 30 seconds
+
+    progressIntervalRef.current = setInterval(() => {
+      const video = videoRef.current;
+      const itemId = currentItemIdRef.current;
+      if (!video || !itemId || video.paused) return;
+
+      const watchedMs = Date.now() - watchStartRef.current;
+      if (watchedMs >= WATCH_THRESHOLD_MS) {
+        if (!progressActivatedRef.current) {
+          progressActivatedRef.current = true;
+          console.log(`[Preview] 5-min watch threshold reached for ${itemId}, starting progress reports`);
+        }
+        const positionMs = Math.round(video.currentTime * 1000);
+        updatePlaybackPosition('guide', itemId, positionMs / 1000);
+        reportPlaybackProgress(itemId, positionMs).catch(() => {});
+      }
+    }, REPORT_INTERVAL_MS);
+
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   // Switch audio track: save as preferred language, refetch with audioStreamIndex, reload stream
   const handleSelectServerAudioTrack = useCallback(async (index: number) => {
@@ -271,8 +399,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       const video = videoRef.current;
       if (!video) return;
       loadStreamWithInfo(info, { current: false });
-    } catch {
-      setVideoError(true);
+    } catch (err) {
+      setVideoError(formatPlaybackError(err instanceof Error ? err : 'Audio track switch failed'));
     }
   }, [channel, serverAudioTracks, cleanup, loadStreamWithInfo]);
 
@@ -381,6 +509,16 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         return;
       }
       if (now - lastTapTimeRef.current <= DOUBLE_TAP_WINDOW_MS) {
+        const itemId = currentItemIdRef.current;
+        if (itemId) {
+          requestPlaybackHandoff(
+            'guide',
+            'player',
+            channel.id,
+            itemId,
+            videoRef.current?.currentTime ?? 0
+          );
+        }
         onTune?.();
         return;
       }
@@ -434,23 +572,27 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             <div className="preview-loading-text">TUNING...</div>
           </div>
         )}
-        {/* Error fallback: static thumbnail when stream fails */}
-        {videoError && program && (program.banner_url || program.thumbnail_url) && (
-          <img
-            className="preview-thumbnail-img preview-placeholder-img"
-            src={(program.thumbnail_url || program.banner_url) ?? ''}
-            alt=""
-            onError={(e) => {
-              const el = e.target as HTMLImageElement;
-              const triedThumb = el.src.includes('/Primary');
-              const fallback = triedThumb ? program?.banner_url : program?.thumbnail_url;
-              if (fallback && el.src !== fallback) {
-                el.src = fallback;
-              } else {
-                el.style.display = 'none';
-              }
-            }}
-          />
+        {/* Error overlay (same style as TUNING) */}
+        {videoError && program && (
+          <div className="preview-loading preview-error-overlay">
+            {program.banner_url || program.thumbnail_url ? (
+              <img
+                className="preview-loading-banner"
+                src={(program.thumbnail_url || program.banner_url) ?? ''}
+                alt=""
+                onError={(e) => {
+                  const el = e.target as HTMLImageElement;
+                  el.style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="preview-loading-banner preview-loading-banner-fallback" />
+            )}
+            <div className="preview-error-text-wrap">
+              <span className="preview-error-title">ERROR</span>
+              <span className="preview-error-detail">{videoError}</span>
+            </div>
+          </div>
         )}
       </div>
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}
@@ -460,20 +602,20 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       >
         <div className="preview-info">
           <div className="preview-channel-badge">
-            <span className="preview-channel-num">CH {channel.number}</span>
-            <span className="preview-channel-name">{channel.name}</span>
+            <span className="preview-channel-num" style={{ fontSize: previewFontSizes.channelNum }}>CH {channel.number}</span>
+            <span className="preview-channel-name" style={{ fontSize: previewFontSizes.channelName }}>{channel.name}</span>
           </div>
           {program && (
             <>
-              <div className="preview-title">{program.title}</div>
+              <div className="preview-title" style={{ fontSize: previewFontSizes.title }}>{program.title}</div>
               {program.subtitle && (
-                <div className="preview-subtitle">{program.subtitle}</div>
+                <div className="preview-subtitle" style={{ fontSize: previewFontSizes.subtitle }}>{program.subtitle}</div>
               )}
               <div className="preview-meta">
-                {program.year && <span className="preview-year">{program.year}</span>}
-                {program.rating && <span className="preview-rating">{program.rating}</span>}
+                {program.year && <span className="preview-year" style={{ fontSize: previewFontSizes.year }}>{program.year}</span>}
+                {program.rating && <span className="preview-rating" style={{ fontSize: previewFontSizes.rating }}>{program.rating}</span>}
               </div>
-              <div className="preview-time">
+              <div className="preview-time" style={{ fontSize: previewFontSizes.time }}>
                 {formatTime(program.start_time)} - {formatTime(program.end_time)}
               </div>
               {program.type === 'program' && (

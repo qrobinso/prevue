@@ -198,10 +198,17 @@ export async function getPlaybackInfo(
   return request(`/playback/${channelId}${queryString ? `?${queryString}` : ''}`);
 }
 
-export async function stopPlayback(itemId?: string, playSessionId?: string): Promise<{ success: boolean }> {
+export async function stopPlayback(itemId?: string, playSessionId?: string, positionMs?: number): Promise<{ success: boolean }> {
   return request('/stream/stop', {
     method: 'POST',
-    body: JSON.stringify({ itemId, playSessionId }),
+    body: JSON.stringify({ itemId, playSessionId, positionMs }),
+  });
+}
+
+export async function reportPlaybackProgress(itemId: string, positionMs: number): Promise<{ success: boolean; reported: boolean }> {
+  return request('/stream/progress', {
+    method: 'POST',
+    body: JSON.stringify({ itemId, positionMs }),
   });
 }
 

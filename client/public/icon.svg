@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#0a0e2a"/>
+  <rect x="48" y="48" width="416" height="280" rx="8" fill="#0d1235" stroke="#00e5ff" stroke-width="4"/>
+  <rect x="64" y="64" width="384" height="248" fill="#080b20"/>
+  <text x="256" y="195" font-family="system-ui, sans-serif" font-size="72" font-weight="bold" fill="#00e5ff" text-anchor="middle">PV</text>
+  <rect x="48" y="348" width="416" height="116" rx="8" fill="#0d1235" stroke="#00e5ff" stroke-width="2"/>
+  <rect x="64" y="364" width="80" height="24" rx="4" fill="#00e5ff" opacity="0.3"/>
+  <rect x="152" y="364" width="120" height="24" rx="4" fill="#00e5ff" opacity="0.2"/>
+  <rect x="280" y="364" width="96" height="24" rx="4" fill="#00e5ff" opacity="0.2"/>
+  <rect x="384" y="364" width="80" height="24" rx="4" fill="#00e5ff" opacity="0.2"/>
+</svg>

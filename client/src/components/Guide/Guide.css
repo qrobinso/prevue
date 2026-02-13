@@ -2,6 +2,8 @@
 .guide {
   width: 100%;
   height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -83,6 +85,17 @@
   border-bottom: 2px solid var(--accent-cyan);
   position: relative;
   overflow: hidden;
+}
+
+/* Preview background overrides from Display Settings */
+html[data-preview-bg="black"] .preview-panel,
+html[data-preview-bg="black"] .preview-video-container {
+  background: #000;
+}
+
+html[data-preview-bg="white"] .preview-panel,
+html[data-preview-bg="white"] .preview-video-container {
+  background: #fff;
 }
 
 .preview-panel-clickable {
@@ -179,8 +192,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1;
+  z-index: 15; /* Above overlay (z-index: 10) so TUNING text stays visible */
   overflow: hidden;
+  animation: preview-artwork-fade-in 0.5s ease-out forwards;
 }
 
 .preview-loading-banner {
@@ -191,19 +205,9 @@
   object-fit: cover;
 }
 
-.preview-loading-banner:not(.preview-loading-banner-fallback) {
-  animation: preview-box-art-zoom 1.2s ease-out forwards;
-}
-
-@keyframes preview-box-art-zoom {
-  0% {
-    transform: scale(0.94);
-    opacity: 0.9;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
+@keyframes preview-artwork-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .preview-loading-banner-fallback {
@@ -212,7 +216,7 @@
 
 .preview-loading-text {
   position: relative;
-  z-index: 2;
+  z-index: 2; /* Above banner within preview-loading */
   font-family: var(--font-retro);
   font-size: 16px;
   color: var(--text-gold);
@@ -221,6 +225,40 @@
   background: rgba(0, 0, 0, 0.5);
   border-radius: 4px;
   animation: blink 1s step-end infinite;
+}
+
+/* ── Preview error overlay (same style as TUNING) ─────── */
+.preview-error-overlay {
+  z-index: 15;
+}
+
+.preview-error-text-wrap {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 68, 68, 0.5);
+}
+
+.preview-error-title {
+  font-family: var(--font-retro);
+  font-size: 12px;
+  color: var(--accent-red);
+  text-shadow: 0 0 8px rgba(255, 68, 68, 0.5);
+}
+
+.preview-error-detail {
+  font-family: var(--font-retro);
+  font-size: 8px;
+  color: var(--text-gold);
+  text-align: center;
+  max-width: 280px;
+  line-height: 1.5;
 }
 
 /* ── Preview overlay (info on top of video) ───────────── */
@@ -356,7 +394,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 12px;
+  gap: 8px;
   pointer-events: auto;
 }
 
@@ -365,9 +403,15 @@
   position: relative;
 }
 
-.preview-audio-more-btn {
+.preview-audio-more-btn,
+.preview-fit-btn {
   width: 40px;
   height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.preview-audio-more-btn {
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
@@ -392,8 +436,6 @@
 
 /* Letterbox / Fill toggle (to the right of audio) */
 .preview-fit-btn {
-  width: 40px;
-  height: 40px;
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
@@ -565,13 +607,19 @@
   background: var(--bg-grid);
 }
 
+.guide-fullscreen-btn,
+.guide-settings-btn {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+}
+
 .guide-fullscreen-btn {
   position: absolute;
   top: 16px;
-  right: 76px;
+  right: 72px; /* settings (16) + 48 + 8px gap */
   z-index: 20;
-  width: 48px;
-  height: 48px;
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid var(--border-grid);
   color: var(--text-secondary);
@@ -594,8 +642,6 @@
   top: 16px;
   right: 16px;
   z-index: 20;
-  width: 48px;
-  height: 48px;
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid var(--border-grid);
   color: var(--text-secondary);
@@ -616,6 +662,16 @@
 /* Guide in browser fullscreen mode */
 .guide-fullscreen {
   background: var(--bg-primary);
+}
+
+/* iOS PWA: CSS-only fullscreen (avoids Fullscreen API toolbar). Overlay the viewport. */
+.guide-fullscreen-ios-pwa {
+  position: fixed !important;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  z-index: 9999;
 }
 
 /* ── Auto-Scroll Indicator ───────────────────────── */
@@ -698,6 +754,8 @@
   overflow-y: hidden;
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge */
+  /* iOS: lock to horizontal so vertical swipes on header don't cause scroll confusion */
+  touch-action: pan-x;
 }
 
 .guide-time-header-slots::-webkit-scrollbar {
@@ -720,6 +778,8 @@
   flex: 1;
   overflow: auto;
   position: relative;
+  /* iOS: lock to vertical scroll so vertical swipes don't trigger horizontal scroll */
+  touch-action: pan-y;
 }
 
 /* ── Channel Rows ────────────────────────────────── */
@@ -925,21 +985,22 @@
     max-width: 100%;
   }
 
-  .guide-fullscreen-btn {
-    width: 52px;
-    height: 52px;
+  .guide-fullscreen-btn,
+  .guide-settings-btn {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
     font-size: 20px;
     top: 12px;
-    right: 72px;
   }
 
-  /* Settings button - touch-friendly size */
+  .guide-fullscreen-btn {
+    right: 72px; /* 16 + 48 + 8 */
+  }
+
   .guide-settings-btn {
-    width: 52px;
-    height: 52px;
-    font-size: 22px;
-    top: 12px;
-    right: 12px;
+    right: 16px;
   }
 
   /* Auto-scroll indicator - touch-friendly */
@@ -1078,9 +1139,11 @@
   .preview-overlay {
     padding: 12px 16px;
     flex-direction: column;
-    align-items: flex-end;
-    justify-content: flex-end;
+    align-items: flex-start;
+    justify-content: flex-start;
     gap: 6px;
+    /* Gradient dark at top so black fade is behind metadata text */
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 40%, transparent 100%);
   }
 
   .preview-info {
@@ -1133,7 +1196,7 @@
     right: 16px;
     top: auto;
     flex-direction: row;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
   }
 
@@ -1141,16 +1204,13 @@
     font-size: 14px;
   }
 
-  .preview-audio-more-btn {
-    width: 36px;
-    height: 36px;
-    font-size: 16px;
-  }
-
+  .preview-audio-more-btn,
   .preview-fit-btn {
-    width: 36px;
-    height: 36px;
-    font-size: 16px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 18px;
   }
 
   .preview-audio-more-menu {
@@ -1167,20 +1227,21 @@
     overflow-y: auto;
   }
 
-  .guide-fullscreen-btn {
-    width: 48px;
-    height: 48px;
-    font-size: 18px;
-    top: 8px;
-    right: 64px;
-  }
-
-  /* Settings button - touch-friendly (min 44px) */
+  .guide-fullscreen-btn,
   .guide-settings-btn {
     width: 48px;
     height: 48px;
+    min-width: 48px;
+    min-height: 48px;
     font-size: 20px;
     top: 8px;
+  }
+
+  .guide-fullscreen-btn {
+    right: 64px; /* 8 + 48 + 8 */
+  }
+
+  .guide-settings-btn {
     right: 8px;
   }
 
@@ -1268,9 +1329,10 @@
 
   .preview-overlay {
     padding: 8px 10px;
-    align-items: flex-end;
-    justify-content: flex-end;
+    align-items: flex-start;
+    justify-content: flex-start;
     gap: 4px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 40%, transparent 100%);
   }
 
   .preview-channel-num {
@@ -1318,16 +1380,13 @@
     font-size: 11px;
   }
 
-  .preview-audio-more-btn {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
-  }
-
+  .preview-audio-more-btn,
   .preview-fit-btn {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 18px;
   }
 
   .preview-audio-more-menu {
@@ -1352,21 +1411,22 @@
     min-width: 80px;
   }
 
-  .guide-fullscreen-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 16px;
-    top: 6px;
-    right: 56px;
-  }
-
-  /* Keep settings button touch-friendly even on small screens */
+  .guide-fullscreen-btn,
   .guide-settings-btn {
     width: 44px;
     height: 44px;
+    min-width: 44px;
+    min-height: 44px;
     font-size: 18px;
     top: 6px;
-    right: 6px;
+  }
+
+  .guide-fullscreen-btn {
+    right: 60px; /* 8 + 44 + 8 */
+  }
+
+  .guide-settings-btn {
+    right: 8px;
   }
 
   .guide-time-header {
@@ -1428,25 +1488,19 @@
     min-height: 52px;
   }
 
-  .guide-settings-btn {
-    min-width: 48px;
-    min-height: 48px;
-  }
 
   .guide-auto-scroll-indicator {
     min-width: 44px;
     min-height: 44px;
   }
 
-  /* Audio more menu touch-friendly */
-  .preview-audio-more-btn {
-    min-width: 44px;
-    min-height: 44px;
-  }
-
+  .preview-audio-more-btn,
   .preview-fit-btn {
+    width: 44px;
+    height: 44px;
     min-width: 44px;
     min-height: 44px;
+    font-size: 20px;
   }
 
   .preview-audio-more-option {
@@ -1521,6 +1575,9 @@
   .preview-overlay {
     padding: 8px 16px;
     gap: 4px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 40%, transparent 100%);
   }
 
   .preview-info {
@@ -1580,16 +1637,13 @@
     font-size: 12px;
   }
 
-  .preview-audio-more-btn {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
-  }
-
+  .preview-audio-more-btn,
   .preview-fit-btn {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 18px;
   }
 
   .preview-audio-more-menu {
@@ -1610,21 +1664,22 @@
     min-width: 70px;
   }
 
-  .guide-fullscreen-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 16px;
-    top: 4px;
-    right: 52px;
-  }
-
-  /* Settings button - compact but touch-friendly */
+  .guide-fullscreen-btn,
   .guide-settings-btn {
     width: 44px;
     height: 44px;
+    min-width: 44px;
+    min-height: 44px;
     font-size: 18px;
     top: 4px;
-    right: 4px;
+  }
+
+  .guide-fullscreen-btn {
+    right: 60px; /* 8 + 44 + 8 */
+  }
+
+  .guide-settings-btn {
+    right: 8px;
   }
 
   /* Time header - minimal */
@@ -1760,19 +1815,21 @@
     max-width: 100%;
   }
 
-  /* Settings button easy to reach */
-  .guide-fullscreen-btn {
-    width: 48px;
-    height: 48px;
-    font-size: 18px;
-    top: 8px;
-    right: 64px;
-  }
-
+  .guide-fullscreen-btn,
   .guide-settings-btn {
     width: 48px;
     height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    font-size: 20px;
     top: 8px;
+  }
+
+  .guide-fullscreen-btn {
+    right: 72px; /* 8 + 48 + 8 */
+  }
+
+  .guide-settings-btn {
     right: 8px;
   }
 }
@@ -1819,20 +1876,21 @@
     font-size: 22px;
   }
 
-  .guide-fullscreen-btn {
-    width: 56px;
-    height: 56px;
-    font-size: 24px;
+  .guide-fullscreen-btn,
+  .guide-settings-btn {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    font-size: 22px;
     top: 16px;
-    right: 80px;
   }
 
-  /* Settings button prominent */
+  .guide-fullscreen-btn {
+    right: 72px; /* 16 + 48 + 8 */
+  }
+
   .guide-settings-btn {
-    width: 56px;
-    height: 56px;
-    font-size: 26px;
-    top: 16px;
     right: 16px;
   }
 
@@ -1913,24 +1971,28 @@
     padding-right: max(16px, env(safe-area-inset-right));
   }
 
+  .guide-fullscreen-btn {
+    right: max(72px, calc(env(safe-area-inset-right) + 64px));
+  }
+
   .guide-settings-btn {
     right: max(16px, calc(env(safe-area-inset-right) + 8px));
   }
 
-  /* Landscape safe areas for notch */
+  /* Landscape: extend guide edge-to-edge (body padding is 0), no side padding */
   @media (orientation: landscape) {
     .guide {
-      padding-left: env(safe-area-inset-left);
-      padding-right: env(safe-area-inset-right);
+      padding-left: 0;
+      padding-right: 0;
     }
 
     .preview-overlay {
-      padding-left: max(12px, env(safe-area-inset-left));
+      padding-left: 12px;
       padding-right: max(12px, env(safe-area-inset-right));
     }
 
     .guide-channel-col {
-      padding-left: max(4px, env(safe-area-inset-left));
+      padding-left: 4px;
     }
   }
 }

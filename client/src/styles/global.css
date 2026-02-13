@@ -163,6 +163,16 @@ html {
   height: 100%;
 }
 
+/* iOS Safari: fix blank space at bottom (100vh includes browser chrome) */
+@supports (-webkit-touch-callout: none) {
+  html {
+    min-height: -webkit-fill-available;
+  }
+  body {
+    min-height: -webkit-fill-available;
+  }
+}
+
 body {
   /* Prevent overscroll/bounce on iOS */
   overscroll-behavior: none;
@@ -174,10 +184,26 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/* iOS landscape: extend content edge-to-edge to eliminate side bars */
+@media (orientation: landscape) {
+  body {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
 #root {
   /* Use dynamic viewport height */
   min-height: 100dvh;
   min-height: 100%;
+}
+
+/* iOS Safari: fill available viewport to eliminate bottom gap */
+@supports (-webkit-touch-callout: none) {
+  #root,
+  .app {
+    min-height: -webkit-fill-available;
+  }
 }
 
 .app {
@@ -189,6 +215,21 @@ body {
   flex-direction: column;
   /* Ensure app fills available space including safe areas */
   position: relative;
+}
+
+.app-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Route content fills; pass flex to Guide/Player */
+.app-content > * {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Scrollbar styling */

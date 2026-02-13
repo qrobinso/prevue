@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ServerSettings from './ServerSettings';
 import FilterSettings from './FilterSettings';
 import ChannelSettings from './ChannelSettings';
 import DisplaySettings from './DisplaySettings';
+import { wsClient } from '../../services/websocket';
 import './Settings.css';
 
 interface SettingsProps {
@@ -11,11 +12,74 @@ interface SettingsProps {
 
 type SettingsTab = 'servers' | 'filters' | 'channels' | 'display';
 
+interface SyncProgress {
+  step: string;
+  message: string;
+  current?: number;
+  total?: number;
+}
+
 export default function Settings({ onClose }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('servers');
+  const [syncInterstitialVisible, setSyncInterstitialVisible] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleServerAdded = (server: { is_active: boolean }) => {
+    if (server.is_active) {
+      setSyncProgress({ step: 'syncing', message: 'Syncing library from Jellyfin...' });
+      setSyncInterstitialVisible(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!syncInterstitialVisible) return;
+    wsClient.connect();
+    const unsubscribe = wsClient.subscribe((event) => {
+      if (event.type === 'generation:progress') {
+        setSyncProgress(event.payload as SyncProgress);
+      }
+    });
+    return unsubscribe;
+  }, [syncInterstitialVisible]);
+
+  useEffect(() => {
+    if (!syncProgress || !syncInterstitialVisible) return;
+    if (syncProgress.step === 'complete' || syncProgress.step === 'error') {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = setTimeout(() => {
+        setSyncInterstitialVisible(false);
+        setSyncProgress(null);
+        hideTimerRef.current = null;
+      }, syncProgress.step === 'error' ? 3000 : 1500);
+    }
+    return () => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+      }
+    };
+  }, [syncProgress?.step, syncInterstitialVisible]);
 
   return (
     <div className="settings-overlay">
+      {syncInterstitialVisible && syncProgress && (
+        <div className="settings-sync-interstitial">
+          <div className="settings-sync-interstitial-card">
+            <div className={`settings-sync-interstitial-spinner ${syncProgress.step === 'complete' ? 'settings-sync-interstitial-spinner-done' : ''} ${syncProgress.step === 'error' ? 'settings-sync-interstitial-spinner-error' : ''}`}>
+              {syncProgress.step === 'complete' ? '✓' : syncProgress.step === 'error' ? '✗' : ''}
+            </div>
+            <div className="settings-sync-interstitial-message">{syncProgress.message}</div>
+            {syncProgress.current != null && syncProgress.total != null && syncProgress.step === 'syncing' && (
+              <div className="settings-sync-interstitial-bar">
+                <div
+                  className="settings-sync-interstitial-bar-fill"
+                  style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <div className="settings-panel">
         <div className="settings-header">
           <h2 className="settings-title">SETTINGS</h2>
@@ -50,7 +114,7 @@ export default function Settings({ onClose }: SettingsProps) {
         </div>
 
         <div className="settings-content">
-          {activeTab === 'servers' && <ServerSettings />}
+          {activeTab === 'servers' && <ServerSettings onServerAdded={handleServerAdded} />}
           {activeTab === 'filters' && <FilterSettings />}
           {activeTab === 'channels' && <ChannelSettings />}
           {activeTab === 'display' && <DisplaySettings />}

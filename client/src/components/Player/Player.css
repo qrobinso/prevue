@@ -6,6 +6,7 @@
   position: relative;
   cursor: none;
   overflow: hidden;
+  touch-action: none; /* Allow swipe gestures to work (prevents browser scroll/zoom) */
 }
 
 .player:hover {
@@ -53,6 +54,7 @@
   z-index: 10;
   overflow: hidden;
   transition: opacity 2s ease-out;
+  animation: player-artwork-fade-in 0.5s ease-out forwards;
 }
 
 .player-loading-fade-out {
@@ -85,6 +87,15 @@
   z-index: 1;
 }
 
+@keyframes player-artwork-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .player-loading-banner-img {
   max-width: 100%;
   max-height: 100%;
@@ -114,21 +125,56 @@
   animation: blink 1s step-end infinite;
 }
 
-/* ── Error ───────────────────────────────────────── */
-.player-error {
+/* ── Error (same overlay style as TUNING) ─────────── */
+.player-error-overlay {
   position: absolute;
-  bottom: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 16px;
-  background: rgba(255, 68, 68, 0.8);
-  border-radius: 4px;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   z-index: 10;
+  overflow: hidden;
 }
 
-.player-error-text {
-  font-size: 12px;
-  color: white;
+.player-error-overlay .player-loading-banner-fallback {
+  position: absolute;
+  inset: 0;
+}
+
+.player-error-overlay .player-loading-banner-blur {
+  position: absolute;
+  inset: 0;
+}
+
+.player-error-text-wrap {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 68, 68, 0.5);
+}
+
+.player-error-title {
+  font-family: var(--font-retro);
+  font-size: 14px;
+  color: var(--accent-red);
+  text-shadow: 0 0 8px rgba(255, 68, 68, 0.5);
+}
+
+.player-error-detail {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-gold);
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.5;
 }
 
 /* ── Progress Bar (bottom of screen) ─────────────── */
@@ -165,7 +211,6 @@
   transition: opacity 0.3s;
 }
 
-.player:hover .player-back-btn,
 .player-back-btn.visible {
   opacity: 1;
 }
@@ -365,8 +410,8 @@
 /* ── Controls Container (right side) ────────────────── */
 .player-controls-right {
   position: absolute;
-  bottom: 24px;
-  right: 24px;
+  bottom: 100px; /* Above the info overlay */
+  right: 54px; /* 24 + 50 - 20 offset */
   display: flex;
   flex-direction: row;
   gap: 8px;
@@ -375,7 +420,6 @@
   transition: opacity 0.3s;
 }
 
-.player:hover .player-controls-right,
 .player-controls-right.visible {
   opacity: 1;
 }
@@ -960,10 +1004,11 @@
 
 .player-settings-option {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   width: 100%;
   padding: 14px 16px;
+  text-align: center;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid transparent;
   border-radius: 8px;
@@ -1017,6 +1062,18 @@
 .player-settings-nerd-btn {
   background: transparent;
   border: 1px dashed var(--border-grid);
+}
+
+.player-settings-restart-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.player-settings-restart-btn .player-btn-icon {
+  font-size: 18px;
 }
 
 /* ── Nerd stats overlay ───────────────────────────────── */
@@ -1243,8 +1300,8 @@
   }
 
   .player-controls-right {
-    bottom: 12px;
-    right: 12px;
+    bottom: 95px;
+    right: 42px;
     gap: 8px;
   }
 
@@ -1355,8 +1412,8 @@
   }
 
   .player-controls-right {
-    bottom: 8px;
-    right: 8px;
+    bottom: 85px;
+    right: 38px;
     gap: 6px;
   }
 
@@ -1398,12 +1455,6 @@
 
 /* ── Touch Device Optimizations ──────────────────── */
 @media (hover: none) and (pointer: coarse) {
-  /* Always show controls on touch devices */
-  .player-back-btn,
-  .player-controls-right {
-    opacity: 1;
-  }
-
   /* Larger touch targets */
   .player-back-btn,
   .player-control-btn,
@@ -1526,8 +1577,8 @@
 
   /* Controls container compact in landscape */
   .player-controls-right {
-    bottom: 8px;
-    right: 8px;
+    bottom: 85px;
+    right: 38px;
     gap: 6px;
   }
 
@@ -1855,8 +1906,8 @@
   }
 
   .player-controls-right {
-    right: max(24px, calc(env(safe-area-inset-right) + 8px));
-    bottom: max(24px, calc(env(safe-area-inset-bottom) + 8px));
+    right: max(54px, calc(env(safe-area-inset-right) + 38px));
+    bottom: max(100px, calc(env(safe-area-inset-bottom) + 88px));
   }
 
   .player-settings-backdrop {
@@ -1886,7 +1937,7 @@
     }
 
     .player-controls-right {
-      right: max(8px, calc(env(safe-area-inset-right) + 4px));
+      right: max(38px, calc(env(safe-area-inset-right) + 34px));
     }
   }
 }
