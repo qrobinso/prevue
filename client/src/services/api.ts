@@ -4,21 +4,85 @@ const API_BASE = '/api';
 const REQUEST_TIMEOUT_MS = 20000; // 20s - default timeout
 const LONG_REQUEST_TIMEOUT_MS = 120000; // 120s - for long operations like channel generation
 
+// ─── API Key auth ─────────────────────────────────────
+
+let apiKey: string | null = sessionStorage.getItem('prevue_api_key');
+let onAuthRequired: (() => void) | null = null;
+
+export function setApiKey(key: string): void {
+  apiKey = key;
+  sessionStorage.setItem('prevue_api_key', key);
+}
+
+export function getStoredApiKey(): string | null {
+  return apiKey;
+}
+
+export function clearApiKey(): void {
+  apiKey = null;
+  sessionStorage.removeItem('prevue_api_key');
+}
+
+/** Register a callback invoked when the server returns 401. */
+export function onUnauthorized(handler: () => void): void {
+  onAuthRequired = handler;
+}
+
+/** Check whether the server requires API key auth. */
+export async function getAuthStatus(): Promise<{ required: boolean }> {
+  const res = await fetch(`${API_BASE}/auth/status`);
+  return res.json();
+}
+
+// ─── Generic request helper ───────────────────────────
+
+/** Map raw server errors to safe user-facing messages. */
+function safeErrorMessage(raw: string): string {
+  // Let well-known messages through
+  const passthrough = [
+    'Request timed out',
+    'Channel not found',
+    'Server not found',
+    'Setting not found',
+    'No program currently airing',
+    'Unauthorized',
+  ];
+  if (passthrough.some(p => raw.includes(p))) return raw;
+  // Generic fallback for unexpected server details
+  if (raw.length > 200 || /stack|at\s+\w|SQLITE|ECONNREFUSED/i.test(raw)) {
+    return 'Something went wrong. Please try again.';
+  }
+  return raw;
+}
+
 async function request<T>(url: string, options?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options?.headers as Record<string, string>),
+    };
+    if (apiKey) {
+      headers['X-API-Key'] = apiKey;
+    }
+
     const response = await fetch(`${API_BASE}${url}`, {
       ...options,
-      headers: { 'Content-Type': 'application/json', ...options?.headers },
+      headers,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
 
+    if (response.status === 401) {
+      onAuthRequired?.();
+      throw new Error('Unauthorized');
+    }
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || response.statusText);
+      throw new Error(safeErrorMessage(error.error || response.statusText));
     }
 
     return response.json();
@@ -301,6 +365,10 @@ export async function testServer(id: number): Promise<{ connected: boolean; auth
 
 export async function activateServer(id: number): Promise<void> {
   return request(`/servers/${id}/activate`, { method: 'POST' });
+}
+
+export async function resyncServer(id: number): Promise<{ success: boolean; item_count: number }> {
+  return request(`/servers/${id}/resync`, { method: 'POST' }, LONG_REQUEST_TIMEOUT_MS);
 }
 
 export async function reauthenticateServer(id: number, password: string): Promise<{ success: boolean; authenticated: boolean }> {

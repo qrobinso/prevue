@@ -618,6 +618,8 @@ export function factoryReset(db: Database.Database): void {
     insertSetting.run('genre_filter', JSON.stringify({ mode: 'allow', genres: [] }));
     insertSetting.run('content_types', JSON.stringify({ movies: true, tv_shows: true }));
     insertSetting.run('schedule_block_hours', JSON.stringify(8));
+    insertSetting.run('schedule_auto_update_enabled', JSON.stringify(true));
+    insertSetting.run('schedule_auto_update_hours', JSON.stringify(4));
     insertSetting.run('share_playback_progress', JSON.stringify(false));
     insertSetting.run('metrics_enabled', JSON.stringify(true));
   });

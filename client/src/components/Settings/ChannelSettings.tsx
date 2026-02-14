@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   getChannels, 
   deleteChannel, 
+  updateChannel,
   createChannel, 
   createAIChannel, 
   getAIStatus, 
@@ -67,6 +68,8 @@ export default function ChannelSettings() {
   const [viewMode, setViewMode] = useState<ViewMode>('presets');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [separateContentTypes, setSeparateContentTypes] = useState(true);
+  const [scheduleAutoUpdateEnabled, setScheduleAutoUpdateEnabled] = useState(true);
+  const [scheduleAutoUpdateHours, setScheduleAutoUpdateHours] = useState(4);
   const separateLoadedRef = useRef(false);
 
   // Subscribe to WebSocket for progress updates
@@ -96,7 +99,14 @@ export default function ChannelSettings() {
       setAiAvailable(aiStatus.available);
       setPresetData(presetsData);
       if (!separateLoadedRef.current) {
-        setSeparateContentTypes(settingsData.separate_content_types !== false);
+        const settings = settingsData as Record<string, unknown>;
+        setSeparateContentTypes(settings['separate_content_types'] !== false);
+        const hoursSetting = settings['schedule_auto_update_hours'];
+        const parsedHours = typeof hoursSetting === 'number' && Number.isFinite(hoursSetting)
+          ? Math.floor(hoursSetting)
+          : 4;
+        setScheduleAutoUpdateEnabled(settings['schedule_auto_update_enabled'] !== false);
+        setScheduleAutoUpdateHours(Math.max(1, Math.min(168, parsedHours)));
         separateLoadedRef.current = true;
       }
       const savedSet = new Set(savedPresets);
@@ -130,6 +140,32 @@ export default function ChannelSettings() {
       await loadData();
     } catch (err) {
       setError((err as Error).message);
+    }
+  };
+
+  const handleMoveChannel = async (id: number, direction: 'up' | 'down') => {
+    const currentIdx = channels.findIndex(ch => ch.id === id);
+    if (currentIdx < 0) return;
+
+    const targetIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+    if (targetIdx < 0 || targetIdx >= channels.length) return;
+
+    // Optimistic local reorder for snappy UX on mobile/touch
+    const reordered = [...channels];
+    [reordered[currentIdx], reordered[targetIdx]] = [reordered[targetIdx], reordered[currentIdx]];
+    setChannels(reordered);
+    setError('');
+
+    try {
+      await Promise.all(
+        reordered.map((ch, idx) =>
+          updateChannel(ch.id, { sort_order: idx + 1 })
+        )
+      );
+      await loadData();
+    } catch (err) {
+      setError((err as Error).message);
+      await loadData();
     }
   };
 
@@ -201,6 +237,27 @@ export default function ChannelSettings() {
     } catch {
       // Revert on failure
       setSeparateContentTypes(!newValue);
+    }
+  };
+
+  const handleScheduleAutoUpdateToggle = async () => {
+    const newValue = !scheduleAutoUpdateEnabled;
+    setScheduleAutoUpdateEnabled(newValue);
+    try {
+      await updateSettings({ schedule_auto_update_enabled: newValue });
+    } catch {
+      setScheduleAutoUpdateEnabled(!newValue);
+    }
+  };
+
+  const persistScheduleAutoUpdateHours = async (rawValue: number) => {
+    const normalized = Math.max(1, Math.min(168, Math.floor(rawValue || 1)));
+    const previous = scheduleAutoUpdateHours;
+    setScheduleAutoUpdateHours(normalized);
+    try {
+      await updateSettings({ schedule_auto_update_hours: normalized });
+    } catch {
+      setScheduleAutoUpdateHours(previous);
     }
   };
 
@@ -320,6 +377,51 @@ export default function ChannelSettings() {
               {separateContentTypes
                 ? 'Each channel type creates separate movie and TV channels.'
                 : 'Movies and TV shows are mixed together in each channel.'}
+            </p>
+          </div>
+
+          {/* Schedule auto-update controls */}
+          <div className="settings-separate-toggle">
+            <div className="settings-toggle-row">
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={scheduleAutoUpdateEnabled}
+                  onChange={handleScheduleAutoUpdateToggle}
+                />
+                <span className="settings-toggle-slider" />
+              </label>
+              <span className="settings-toggle-label">
+                {scheduleAutoUpdateEnabled ? 'AUTO-UPDATE SCHEDULE ENABLED' : 'AUTO-UPDATE SCHEDULE DISABLED'}
+              </span>
+            </div>
+            <div className="settings-field" style={{ marginTop: 8 }}>
+              <label>Update every X hours</label>
+              <input
+                type="number"
+                min={1}
+                max={168}
+                step={1}
+                value={scheduleAutoUpdateHours}
+                disabled={!scheduleAutoUpdateEnabled}
+                onChange={(e) => {
+                  const n = Number.parseInt(e.target.value, 10);
+                  if (Number.isNaN(n)) return;
+                  setScheduleAutoUpdateHours(n);
+                }}
+                onBlur={() => {
+                  void persistScheduleAutoUpdateHours(scheduleAutoUpdateHours);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void persistScheduleAutoUpdateHours(scheduleAutoUpdateHours);
+                  }
+                }}
+              />
+            </div>
+            <p className="settings-field-hint" style={{ marginTop: 4 }}>
+              Regenerates future schedule blocks automatically at this interval.
             </p>
           </div>
 
@@ -500,6 +602,22 @@ export default function ChannelSettings() {
                   </span>
                 </div>
                 <div className="settings-list-actions">
+                  <button
+                    className="settings-btn-sm settings-btn-reorder"
+                    onClick={() => handleMoveChannel(ch.id, 'up')}
+                    disabled={channels[0]?.id === ch.id}
+                    title="Move channel up"
+                  >
+                    UP
+                  </button>
+                  <button
+                    className="settings-btn-sm settings-btn-reorder"
+                    onClick={() => handleMoveChannel(ch.id, 'down')}
+                    disabled={channels[channels.length - 1]?.id === ch.id}
+                    title="Move channel down"
+                  >
+                    DOWN
+                  </button>
                   <button className="settings-btn-sm settings-btn-danger" onClick={() => handleDelete(ch.id)}>
                     DELETE
                   </button>

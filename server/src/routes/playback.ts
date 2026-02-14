@@ -48,6 +48,7 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     const { db, scheduleEngine, jellyfinClient } = req.app.locals;
     const jf = jellyfinClient as JellyfinClient;
     const channelId = parseInt(req.params.channelId as string, 10);
+    if (Number.isNaN(channelId) || channelId < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
     const se = scheduleEngine as ScheduleEngine;
 
     const channel = queries.getChannelById(db, channelId);

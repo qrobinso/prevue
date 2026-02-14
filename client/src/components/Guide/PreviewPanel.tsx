@@ -90,6 +90,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
 
   const [videoReady, setVideoReady] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [bufferingMessage, setBufferingMessage] = useState('BUFFERING...');
   const [overlayVisible, setOverlayVisible] = useState(true);
   const { volume, muted, setVolume, toggleMute } = useVolume();
   const mutedRef = useRef(muted);
@@ -144,6 +146,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     progressActivatedRef.current = false;
     setVideoReady(false);
     setVideoError(null);
+    setIsBuffering(false);
+    setBufferingMessage('BUFFERING...');
   }, []);
 
   // Load HLS from playback info (shared by initial load and audio track switch).
@@ -180,6 +184,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     const removePlayingListeners = () => {
       video.removeEventListener('playing', onFirstPlaying);
       video.removeEventListener('loadeddata', onFirstPlaying);
+      video.removeEventListener('waiting', onWaiting);
+      video.removeEventListener('stalled', onWaiting);
       if (canplayHandler) {
         video.removeEventListener('canplay', canplayHandler);
         canplayHandler = null;
@@ -192,6 +198,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     const onFirstPlaying = () => {
       if (cancelled.current) return;
       removePlayingListeners();
+      setIsBuffering(false);
       // Restore user's volume/muted (we start muted for iOS autoplay compat)
       video.muted = mutedRef.current;
       video.volume = volumeRef.current;
@@ -208,6 +215,10 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       removePlayingListenersRef.current = null;
     }
     removePlayingListenersRef.current = removePlayingListeners;
+    const onWaiting = () => {
+      setBufferingMessage('Connection interrupted. Buffering...');
+      setIsBuffering(true);
+    };
 
     if (Hls.isSupported()) {
       const hls = new Hls({
@@ -224,6 +235,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       hls.attachMedia(video);
       video.addEventListener('playing', onFirstPlaying);
       video.addEventListener('loadeddata', onFirstPlaying);
+      video.addEventListener('waiting', onWaiting);
+      video.addEventListener('stalled', onWaiting);
       // Helper to set native text track mode
       const setNativeSubtitleMode = (posIdx: number | null) => {
         if (video.textTracks) {
@@ -239,6 +252,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         if (!cancelled.current) {
           video.muted = true; // iOS: autoplay requires muted
           video.play().catch(() => {});
+          setIsBuffering(false);
           const idx = selectedSubtitleIndexRef.current;
           if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
             hls.subtitleDisplay = idx !== null && idx >= 0;
@@ -259,12 +273,15 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal && !cancelled.current) {
           removePlayingListeners();
+          setIsBuffering(false);
           setVideoError(formatPlaybackError(data));
           hls.destroy();
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.addEventListener('playing', onFirstPlaying);
+      video.addEventListener('waiting', onWaiting);
+      video.addEventListener('stalled', onWaiting);
       canplayHandler = () => {
         if (cancelled.current) return;
         if (canplayHandler) {
@@ -273,6 +290,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         }
         if (startPosition > 0) video.currentTime = startPosition;
         video.muted = true; // iOS: autoplay requires muted
+        setIsBuffering(false);
         video.play().catch(() => {});
       };
       video.src = info.stream_url;
@@ -618,6 +636,28 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
               <div className="preview-loading-banner preview-loading-banner-fallback" />
             )}
             <div className="preview-loading-text">TUNING...</div>
+          </div>
+        )}
+        {/* Buffering overlay for transient connection interruptions */}
+        {videoReady && isBuffering && !videoError && program && (
+          <div className="preview-loading preview-error-overlay">
+            {program.banner_url || program.thumbnail_url ? (
+              <img
+                className="preview-loading-banner"
+                src={(program.thumbnail_url || program.banner_url) ?? ''}
+                alt=""
+                onError={(e) => {
+                  const el = e.target as HTMLImageElement;
+                  el.style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="preview-loading-banner preview-loading-banner-fallback" />
+            )}
+            <div className="preview-error-text-wrap">
+              <span className="preview-error-title preview-buffering-title">BUFFERING</span>
+              <span className="preview-error-detail">{bufferingMessage}</span>
+            </div>
           </div>
         )}
         {/* Error overlay (same style as TUNING) */}

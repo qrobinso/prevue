@@ -252,6 +252,11 @@ html[data-preview-bg="white"] .preview-video-container {
   text-shadow: 0 0 8px rgba(255, 68, 68, 0.5);
 }
 
+.preview-buffering-title {
+  color: var(--accent-cyan);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+}
+
 .preview-error-detail {
   font-family: var(--font-retro);
   font-size: 8px;

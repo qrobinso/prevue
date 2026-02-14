@@ -7,13 +7,14 @@ A retro cable TV guide for Jellyfin. Transforms your media library into a classi
 ```bash
 # Clone and configure
 cp .env.example .env
-# Edit .env with your Jellyfin URL and API key
+# Edit .env with security/runtime settings (API key, encryption key, etc.)
 
 # Run with Docker Compose
 docker compose up -d
 ```
 
 Open `http://localhost:3080` in your browser.
+Then go to **Settings > Servers** to add your Jellyfin server.
 
 ## Quick Start (Development)
 
@@ -35,12 +36,24 @@ npm run dev
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `JELLYFIN_URL` | Yes | - | Your Jellyfin server URL |
-| `JELLYFIN_API_KEY` | Yes | - | Jellyfin API key (Admin > API Keys) |
+| `PREVUE_API_KEY` | No | - | Protects all `/api/*` and `/ws` with an API key |
+| `DATA_ENCRYPTION_KEY` | Recommended | auto | 32+ char key for encrypting stored Jellyfin tokens |
+| `ALLOWED_ORIGINS` | No | allow all | Comma-separated CORS allowlist |
+| `TRUST_PROXY` | No | false | Set true when behind reverse proxy (nginx/Caddy/Traefik) |
+| `PREVUE_ALLOW_PRIVATE_URLS` | No | 1 | Allow local/private Jellyfin URLs (LAN mode) |
 | `PORT` | No | 3080 | Server port |
 | `OPENROUTER_API_KEY` | No | - | Enables AI-powered channel creation |
-| `DATA_ENCRYPTION_KEY` | No | auto | 32+ char key for encrypting stored API keys |
 | `SCHEDULE_BLOCK_HOURS` | No | 8 | Schedule block duration |
+
+Jellyfin server credentials are configured from the app UI in **Settings > Servers**.
+
+## Deployment Hardening Checklist
+
+- Set `PREVUE_API_KEY` in production.
+- Set a strong `DATA_ENCRYPTION_KEY` (32+ chars).
+- Set `ALLOWED_ORIGINS` to your app domain(s) only.
+- Set `TRUST_PROXY=true` when using a reverse proxy.
+- Use HTTPS at the proxy layer and firewall app port access.
 
 ## Features
 
@@ -69,6 +82,7 @@ All endpoints prefixed with `/api`:
 - `GET /api/settings` - App settings
 - `GET /api/servers` - Configured Jellyfin servers
 - `GET /api/health` - Health check
+- `GET /api/auth/status` - Whether API key auth is required
 
 ## License
 

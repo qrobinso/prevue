@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getServers, addServer, deleteServer, testServer, activateServer, discoverServers, reauthenticateServer, type ServerInfo, type DiscoveredServer } from '../../services/api';
+import { getServers, addServer, deleteServer, testServer, activateServer, resyncServer, discoverServers, reauthenticateServer, type ServerInfo, type DiscoveredServer } from '../../services/api';
 
 interface ServerSettingsProps {
   onServerAdded?: (server: ServerInfo) => void;
@@ -20,6 +20,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [reauthId, setReauthId] = useState<number | null>(null);
   const [reauthPassword, setReauthPassword] = useState('');
   const [connecting, setConnecting] = useState(false);
+  const [resyncingId, setResyncingId] = useState<number | null>(null);
 
   const loadServers = async () => {
     try {
@@ -118,6 +119,19 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
       await loadServers();
     } catch (err) {
       setError((err as Error).message);
+    }
+  };
+
+  const handleResync = async (id: number) => {
+    try {
+      setError('');
+      setResyncingId(id);
+      await resyncServer(id);
+      await loadServers();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setResyncingId(null);
     }
   };
 
@@ -255,6 +269,15 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
               {!server.is_active && server.is_authenticated && (
                 <button className="settings-btn-sm settings-btn-accent" onClick={() => handleActivate(server.id)}>
                   ACTIVATE
+                </button>
+              )}
+              {server.is_active && server.is_authenticated && (
+                <button
+                  className="settings-btn-sm settings-btn-accent"
+                  onClick={() => handleResync(server.id)}
+                  disabled={resyncingId === server.id}
+                >
+                  {resyncingId === server.id ? 'RESYNCING...' : 'RESYNC'}
                 </button>
               )}
               <button className="settings-btn-sm settings-btn-danger" onClick={() => handleDelete(server.id)}>

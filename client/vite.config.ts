@@ -58,7 +58,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false, // Disabled in production for security; enable only for private error monitoring
   },
   // Ensure SPA routing works in preview mode
   preview: {

@@ -60,7 +60,7 @@ export class JellyfinClient {
 
     // Always recreate API if token changed (handles token refresh scenarios)
     if (!this.api || this.currentToken !== server.access_token) {
-      console.log(`[Jellyfin] Creating API with token: ${server.access_token.slice(0, 8)}...`);
+      console.log(`[Jellyfin] Creating API connection`);
       this.api = this.jellyfin.createApi(server.url, server.access_token);
       this.userId = server.user_id;
       this.currentToken = server.access_token;

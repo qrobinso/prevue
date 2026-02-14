@@ -87,6 +87,7 @@ channelRoutes.put('/:id', (req: Request, res: Response) => {
   try {
     const { db, scheduleEngine } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
     const { name, item_ids, sort_order } = req.body;
 
     const channel = queries.updateChannel(db, id, { name, item_ids, sort_order });
@@ -111,6 +112,7 @@ channelRoutes.delete('/:id', (req: Request, res: Response) => {
   try {
     const { db, wss } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
 
     const channel = queries.getChannelById(db, id);
     if (!channel) {

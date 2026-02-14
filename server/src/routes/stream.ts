@@ -210,6 +210,12 @@ function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: string, d
   );
 }
 
+// Allowed proxy path patterns — only Jellyfin video/subtitle paths
+const ALLOWED_PROXY_PATTERNS = [
+  /^\/Videos\//,
+  /^\/video\//i,
+];
+
 // GET /api/stream/proxy/* - Proxy HLS sub-requests (child playlists & segments)
 // All HLS requests go through this proxy so we can add auth headers.
 // Must be registered before /stream/:itemId to avoid :itemId matching "proxy".
@@ -222,7 +228,13 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
     const deviceId = jf.getDeviceId();
 
     const jellyfinPath = '/' + req.params[0];
-    const isSegment = jellyfinPath.endsWith('.ts');
+
+    // Security: only allow known Jellyfin media paths through the proxy
+    if (!ALLOWED_PROXY_PATTERNS.some(re => re.test(jellyfinPath))) {
+      res.status(403).json({ error: 'Proxy path not allowed' });
+      return;
+    }
+    const isSegment = jellyfinPath.endsWith('.ts') || jellyfinPath.endsWith('.mp4');
     const isPlaylist = jellyfinPath.includes('.m3u8');
 
     // Reconstruct query string from the raw URL
@@ -247,12 +259,11 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
     
     const existingRequest = pendingRequests.get(jellyfinUrl);
     if (existingRequest) {
-      console.log(`[Stream Proxy] Deduping request: ${jellyfinPath.substring(0, 50)}...`);
       responseData = await existingRequest;
     } else {
       // Create new request and track it
       const requestPromise = (async () => {
-        console.log(`[Stream Proxy] ${isSegment ? 'Segment' : 'Playlist'}: ${jellyfinUrl.substring(0, 150)}...`);
+        console.log(`[Stream Proxy] ${isSegment ? 'Segment' : 'Playlist'}: ${jellyfinPath.substring(0, 80)}`);
         const response = await fetch(jellyfinUrl, { headers: authHeaders });
         
         let buffer: ArrayBuffer | null = null;
@@ -261,10 +272,6 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
         if (response.ok) {
           if (isPlaylist) {
             text = await response.text();
-            // Log the child playlist content to debug segment timing
-            if (jellyfinPath.includes('main.m3u8')) {
-              console.log(`[Stream Proxy] main.m3u8 content:\n${text?.substring(0, 1000) || 'empty'}`);
-            }
           } else {
             buffer = await response.arrayBuffer();
           }
@@ -426,7 +433,7 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     }
 
     const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
-    console.log(`[Stream Master] Fetching: ${jellyfinUrl}`);
+    console.log(`[Stream Master] Fetching master playlist for item=${itemId}`);
 
     const response = await fetch(jellyfinUrl, { headers });
 
@@ -449,7 +456,6 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
 
     // Rewrite internal URLs to route through our proxy with session info
     const body = await response.text();
-    console.log(`[Stream Master] M3U8 content:\n${body.substring(0, 500)}`);
     const baseDir = `/Videos/${itemId}/`;
     res.send(rewriteM3u8Urls(body, baseDir, playSessionId, deviceId));
   } catch (err) {

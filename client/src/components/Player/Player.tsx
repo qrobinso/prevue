@@ -18,7 +18,16 @@ import NextUpCard from './NextUpCard';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from '../Guide/audioTrackUtils';
+import { safeBgImage, sanitizeImageUrl } from '../../utils/sanitize';
 import { formatPlaybackError } from '../../utils/playbackError';
+import { isIOSPWA } from '../../utils/platform';
+import {
+  getFullscreenElement,
+  isFullscreenElement,
+  enterFullscreen,
+  exitFullscreen,
+  type FullscreenMode,
+} from '../../utils/fullscreen';
 import './Player.css';
 
 interface PlayerProps {
@@ -214,17 +223,6 @@ function collectNerdStats(video: HTMLVideoElement | null, hls: Hls | null): Nerd
   };
 }
 
-function isFullscreenElement(el: Element | null): boolean {
-  if (!el) return false;
-  const doc = document as Document & { webkitFullscreenElement?: Element; msFullscreenElement?: Element };
-  return document.fullscreenElement === el || doc.webkitFullscreenElement === el || doc.msFullscreenElement === el;
-}
-
-function getFullscreenElement(): Element | null {
-  const doc = document as Document & { webkitFullscreenElement?: Element; msFullscreenElement?: Element };
-  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? doc.msFullscreenElement ?? null;
-}
-
 export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, enterFullscreenOnMount }: PlayerProps) {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -236,6 +234,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [isInterstitial, setIsInterstitial] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [bufferingMessage, setBufferingMessage] = useState('BUFFERING...');
   const [progress, setProgress] = useState(0);
   const [showSettingsOpen, setShowSettingsOpen] = useState(false);
   const [showNerdStats, setShowNerdStats] = useState(false);
@@ -255,6 +255,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   volumeRef.current = volume;
   const [serverAudioTracks, setServerAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [selectedAudioStreamIndex, setSelectedAudioStreamIndex] = useState<number | null>(null);
+  const fullscreenModeRef = useRef<FullscreenMode | null>(null);
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const errorCountRef = useRef(0);
@@ -313,6 +314,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     try {
       setLoading(true);
       setError(null);
+      setIsBuffering(false);
+      setBufferingMessage('BUFFERING...');
       if (!isRecoveryReload) {
         setVideoReady(false);
         setLoadingFadeOut(false);
@@ -420,6 +423,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const onFirstPlaying = () => {
           if (cancelledRef?.current) return;
           removePlayingListeners();
+          setIsBuffering(false);
           // Playback has started; release autoplay mute lock and restore user audio prefs.
           setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
@@ -434,15 +438,28 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const removePlayingListeners = () => {
           video.removeEventListener('playing', onFirstPlaying);
           video.removeEventListener('loadeddata', onFirstPlaying);
+          video.removeEventListener('waiting', onWaiting);
+          video.removeEventListener('stalled', onWaiting);
+          video.removeEventListener('canplay', onCanPlayBuffering);
           if (removePlayingListenersRef.current === removePlayingListeners) {
             removePlayingListenersRef.current = null;
           }
+        };
+        const onWaiting = () => {
+          setBufferingMessage('Connection interrupted. Buffering...');
+          setIsBuffering(true);
+        };
+        const onCanPlayBuffering = () => {
+          setIsBuffering(false);
         };
         const removePlayingListenersNow = removePlayingListenersRef.current;
         if (removePlayingListenersNow) removePlayingListenersNow();
         removePlayingListenersRef.current = removePlayingListeners;
         video.addEventListener('playing', onFirstPlaying);
         video.addEventListener('loadeddata', onFirstPlaying);
+        video.addEventListener('waiting', onWaiting);
+        video.addEventListener('stalled', onWaiting);
+        video.addEventListener('canplay', onCanPlayBuffering);
 
         // Helper to set native text track mode
         const setNativeSubtitleMode = (posIdx: number | null) => {
@@ -491,7 +508,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
               // First NETWORK_ERROR: retry with same source (e.g. transient 500)
               if (errorCountRef.current === 1) {
-                setError(`Playback error. Retry ${errorCountRef.current}/${MAX_RETRIES}...`);
+                setBufferingMessage('Connection interrupted. Buffering...');
+                setIsBuffering(true);
                 setTimeout(() => hls.startLoad(), 2000);
                 return;
               }
@@ -499,7 +517,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
               // get a new stream session instead of retrying the same broken one
               if (errorCountRef.current >= 2 && !streamReloadAttemptedRef.current) {
                 streamReloadAttemptedRef.current = true;
-                setError('Reconnecting with new stream...');
+                setBufferingMessage('Reconnecting stream...');
+                setIsBuffering(true);
                 hls.destroy();
                 hlsRef.current = null;
                 loadPlayback(currentQuality, selectedAudioStreamIndexRef.current ?? undefined, true);
@@ -508,6 +527,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             }
 
             if (errorCountRef.current >= MAX_RETRIES) {
+              setIsBuffering(false);
               setError('Playback failed. The server may be busy - please try again later.');
               setLoading(false);
               hls.destroy();
@@ -515,10 +535,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
               return;
             }
 
-            setError(`Playback error. Retry ${errorCountRef.current}/${MAX_RETRIES}...`);
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
               hls.recoverMediaError();
             } else {
+              setIsBuffering(false);
               setError('Playback failed. Please try again later.');
               setLoading(false);
               hls.destroy();
@@ -535,6 +555,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const onFirstPlaying = () => {
           if (cancelledRef?.current) return;
           removePlayingListeners();
+          setIsBuffering(false);
           // Playback has started; release autoplay mute lock and restore user audio prefs.
           setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
@@ -548,29 +569,40 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const removePlayingListeners = () => {
           video.removeEventListener('playing', onFirstPlaying);
           video.removeEventListener('canplay', onCanPlay);
+          video.removeEventListener('waiting', onWaiting);
+          video.removeEventListener('stalled', onWaiting);
           if (removePlayingListenersRef.current === removePlayingListeners) {
             removePlayingListenersRef.current = null;
           }
+        };
+        const onWaiting = () => {
+          setBufferingMessage('Connection interrupted. Buffering...');
+          setIsBuffering(true);
         };
         const removePlayingListenersNow = removePlayingListenersRef.current;
         if (removePlayingListenersNow) removePlayingListenersNow();
         removePlayingListenersRef.current = removePlayingListeners;
         video.addEventListener('playing', onFirstPlaying);
+        video.addEventListener('waiting', onWaiting);
+        video.addEventListener('stalled', onWaiting);
 
         // Use canplay (not loadedmetadata) for native HLS - iOS needs enough data before play()
         const onCanPlay = () => {
           if (cancelledRef?.current) return;
           if (startPosition > 0) video.currentTime = startPosition;
           tryAutoplayMuted(video);
+          setIsBuffering(false);
           setLoading(false);
           showOverlayBriefly();
         };
         video.addEventListener('canplay', onCanPlay);
       } else {
+        setIsBuffering(false);
         setError('HLS playback not supported in this browser');
         setLoading(false);
       }
     } catch (err) {
+      setIsBuffering(false);
       setError(formatPlaybackError(err instanceof Error ? err : String(err)));
       setLoading(false);
     }
@@ -799,22 +831,38 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     e.stopPropagation();
     const el = playerContainerRef.current;
     if (!el) return;
-    if (isFullscreenElement(el)) {
-      const doc = document as Document & { exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void; msExitFullscreen?: () => void };
-      if (doc.exitFullscreen) doc.exitFullscreen();
-      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
-      else if (doc.msExitFullscreen) doc.msExitFullscreen();
-    } else {
-      const htmlEl = el as HTMLElement & { requestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => void; msRequestFullscreen?: () => void };
-      if (htmlEl.requestFullscreen) htmlEl.requestFullscreen();
-      else if (htmlEl.webkitRequestFullscreen) htmlEl.webkitRequestFullscreen();
-      else if (htmlEl.msRequestFullscreen) htmlEl.msRequestFullscreen();
+
+    // Keep parity with Guide behavior in iOS standalone/PWA mode.
+    if (isIOSPWA()) {
+      setIsFullscreen(prev => !prev);
+      return;
     }
+
+    const isNativeFs = isFullscreenElement(el);
+    const mode = fullscreenModeRef.current;
+    if (isNativeFs || mode === 'video' || mode === 'fake') {
+      exitFullscreen(mode || 'native', { video: videoRef.current });
+      fullscreenModeRef.current = null;
+      setIsFullscreen(false);
+      return;
+    }
+
+    void (async () => {
+      const enteredMode = await enterFullscreen(el, { video: videoRef.current });
+      fullscreenModeRef.current = enteredMode;
+      setIsFullscreen(true);
+    })();
   }, []);
 
   useEffect(() => {
     const onFullscreenChange = () => {
-      setIsFullscreen(getFullscreenElement() === playerContainerRef.current);
+      const isNowFullscreen = getFullscreenElement() === playerContainerRef.current;
+      if (isNowFullscreen) {
+        fullscreenModeRef.current = 'native';
+      } else if (fullscreenModeRef.current === 'native') {
+        fullscreenModeRef.current = null;
+      }
+      setIsFullscreen(isNowFullscreen);
     };
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
@@ -831,15 +879,22 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     if (!enterFullscreenOnMount) return;
     const el = playerContainerRef.current;
     if (!el) return;
-    const htmlEl = el as HTMLElement & { requestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => void; msRequestFullscreen?: () => void };
-    const req = htmlEl.requestFullscreen ?? htmlEl.webkitRequestFullscreen ?? htmlEl.msRequestFullscreen;
-    if (req) {
-      // Brief delay so the player DOM is ready after route transition
-      const id = requestAnimationFrame(() => {
-        req.call(htmlEl);
-      });
-      return () => cancelAnimationFrame(id);
+
+    // Keep parity with Guide: iOS standalone/PWA uses CSS-only fullscreen.
+    if (isIOSPWA()) {
+      setIsFullscreen(true);
+      return;
     }
+
+    // Brief delay so the player DOM is ready after route transition
+    const id = requestAnimationFrame(() => {
+      void (async () => {
+        const enteredMode = await enterFullscreen(el, { video: videoRef.current });
+        fullscreenModeRef.current = enteredMode;
+        setIsFullscreen(true);
+      })();
+    });
+    return () => cancelAnimationFrame(id);
   }, [enterFullscreenOnMount]);
 
   // Poll nerd stats in real time when overlay is open
@@ -976,11 +1031,11 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             <div className="player-loading-banner player-loading-banner-fallback" />
             {loadingArtworkUrl && (
               <>
-                <div className="player-loading-banner player-loading-banner-blur" style={{ backgroundImage: `url(${loadingArtworkUrl})` }} />
+                <div className="player-loading-banner player-loading-banner-blur" style={{ backgroundImage: safeBgImage(loadingArtworkUrl) }} />
                 <div className="player-loading-artwork-wrap">
                   <img
                     className="player-loading-banner-img"
-                    src={loadingArtworkUrl}
+                    src={sanitizeImageUrl(loadingArtworkUrl) || ''}
                     alt=""
                     onError={() => {
                       const triedThumb = loadingArtworkUrl.includes('/Primary');
@@ -1007,7 +1062,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           <div className="player-error-overlay">
             <div className="player-loading-banner player-loading-banner-fallback" />
             {loadingArtworkUrl && (
-              <div className="player-loading-banner player-loading-banner-blur" style={{ backgroundImage: `url(${loadingArtworkUrl})` }} />
+              <div className="player-loading-banner player-loading-banner-blur" style={{ backgroundImage: safeBgImage(loadingArtworkUrl) }} />
             )}
             <div className="player-error-text-wrap">
               <span className="player-error-title">ERROR</span>
@@ -1016,6 +1071,20 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           </div>
         );
       })()}
+
+      {/* Buffering overlay for transient network interruptions */}
+      {isBuffering && !error && !isInterstitial && videoReady && (
+        <div className="player-error-overlay">
+          <div className="player-loading-banner player-loading-banner-fallback" />
+          {loadingArtworkUrl && (
+            <div className="player-loading-banner player-loading-banner-blur" style={{ backgroundImage: safeBgImage(loadingArtworkUrl) }} />
+          )}
+          <div className="player-error-text-wrap">
+            <span className="player-error-title player-buffering-title">BUFFERING</span>
+            <span className="player-error-detail">{bufferingMessage}</span>
+          </div>
+        </div>
+      )}
 
       {/* Info overlay */}
       {showOverlay && currentProgram && (

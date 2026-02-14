@@ -3,15 +3,48 @@ import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
 import Guide from './components/Guide/Guide';
 import Player from './components/Player/Player';
 import Settings from './components/Settings/Settings';
+import AuthGate from './components/AuthGate';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useKeyboard } from './hooks/useKeyboard';
-import { getChannels, getSettings, metricsChannelSwitch, type ChannelWithProgram } from './services/api';
+import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, type ChannelWithProgram } from './services/api';
 import { getClientId } from './services/clientIdentity';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
 import { isIOS } from './utils/platform';
 import type { Channel, ScheduleProgram } from './types';
 
 export type AppView = 'guide' | 'player';
+
+// Auth wrapper: checks if API key auth is required and gates the app
+function AuthWrapper({ children }: { children: React.ReactNode }) {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+
+  useEffect(() => {
+    getAuthStatus()
+      .then(({ required }) => {
+        setAuthRequired(required);
+        if (!required) setAuthenticated(true);
+        else if (sessionStorage.getItem('prevue_api_key')) setAuthenticated(true);
+        setAuthChecked(true);
+      })
+      .catch(() => {
+        // Server unreachable; proceed without auth gate
+        setAuthChecked(true);
+        setAuthenticated(true);
+      });
+
+    onUnauthorized(() => {
+      setAuthenticated(false);
+    });
+  }, []);
+
+  if (!authChecked) return null;
+  if (authRequired && !authenticated) {
+    return <AuthGate onAuthenticated={() => setAuthenticated(true)} />;
+  }
+  return <>{children}</>;
+}
 
 // Single app shell: Guide is always mounted, Player appears as overlay
 function AppContent() {
@@ -58,8 +91,8 @@ function AppContent() {
       try {
         const data = await getChannels();
         setChannels(data);
-      } catch (err) {
-        console.error('Failed to fetch channels:', err);
+      } catch {
+        // Channel fetch failed — will retry on next refresh
       }
     };
     fetchChannels();
@@ -216,7 +249,9 @@ function AppContent() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppContent />
+      <AuthWrapper>
+        <AppContent />
+      </AuthWrapper>
     </BrowserRouter>
   );
 }

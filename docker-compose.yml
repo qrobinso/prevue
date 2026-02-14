@@ -7,8 +7,10 @@ services:
     volumes:
       - prevue-data:/app/data
     environment:
-      - JELLYFIN_URL=${JELLYFIN_URL:-http://localhost:8096}
-      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - PREVUE_API_KEY=${PREVUE_API_KEY:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - TRUST_PROXY=${TRUST_PROXY:-}
+      - PREVUE_ALLOW_PRIVATE_URLS=${PREVUE_ALLOW_PRIVATE_URLS:-1}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:-}
       - PORT=3080

@@ -120,6 +120,24 @@ export const THEME_PRESETS: ThemePreset[] = [
     description: '90s gray & blue',
     colors: { primary: '#1a1a1e', accent: '#3399ff' },
   },
+  {
+    id: 'sunset',
+    name: 'Sunset',
+    description: 'Warm orange & pink',
+    colors: { primary: '#1b0f12', accent: '#ff7a59' },
+  },
+  {
+    id: 'arctic',
+    name: 'Arctic',
+    description: 'Ice blue & white',
+    colors: { primary: '#0a1a24', accent: '#66d9ff' },
+  },
+  {
+    id: 'neon',
+    name: 'Golden Hour',
+    description: 'Dark amber & yellow',
+    colors: { primary: '#161006', accent: '#ffd24d' },
+  },
 ];
 
 const DEFAULT_THEME = 'classic';

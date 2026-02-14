@@ -1,4 +1,5 @@
 import type { WSEvent } from '../types';
+import { getStoredApiKey } from './api';
 
 type WSEventHandler = (event: WSEvent) => void;
 
@@ -16,28 +17,31 @@ class WebSocketClient {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.host}/ws`;
+    const key = getStoredApiKey();
+    const qs = key ? `?api_key=${encodeURIComponent(key)}` : '';
+    const url = `${protocol}//${window.location.host}/ws${qs}`;
 
     try {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
-        console.log('[WS] Connected');
         this.connected = true;
         this.reconnectDelay = 1000; // Reset backoff
       };
 
       this.ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data) as WSEvent;
-          this.handlers.forEach(handler => handler(data));
+          const data = JSON.parse(event.data);
+          // Validate expected shape before dispatching
+          if (data && typeof data === 'object' && typeof data.type === 'string') {
+            this.handlers.forEach(handler => handler(data as WSEvent));
+          }
         } catch {
           // Ignore parse errors (heartbeats etc.)
         }
       };
 
       this.ws.onclose = () => {
-        console.log('[WS] Disconnected');
         this.connected = false;
         this.scheduleReconnect();
       };

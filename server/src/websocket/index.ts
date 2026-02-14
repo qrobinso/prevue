@@ -1,6 +1,8 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
+import type { IncomingMessage } from 'http';
 import type { WSMessage } from '../types/index.js';
+import { isAuthEnabled, getApiKey } from '../middleware/auth.js';
 
 let wssInstance: WebSocketServer | null = null;
 
@@ -8,11 +10,24 @@ export function initWebSocket(server: Server): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/ws' });
   wssInstance = wss;
 
-  wss.on('connection', (ws) => {
-    console.log('[WS] Client connected');
+  wss.on('connection', (ws, req: IncomingMessage) => {
+    // Enforce API key on WebSocket connections when auth is enabled
+    if (isAuthEnabled()) {
+      try {
+        const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+        const key = url.searchParams.get('api_key');
+        if (key !== getApiKey()) {
+          ws.close(4001, 'Unauthorized');
+          return;
+        }
+      } catch {
+        ws.close(4001, 'Unauthorized');
+        return;
+      }
+    }
 
     ws.on('close', () => {
-      console.log('[WS] Client disconnected');
+      // client disconnected
     });
 
     ws.on('error', (err) => {

@@ -7,6 +7,7 @@ import type { JellyfinClient } from '../services/JellyfinClient.js';
 import type { ChannelManager } from '../services/ChannelManager.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import { broadcast } from '../websocket/index.js';
+import { validateExternalUrl } from '../utils/urlValidation.js';
 
 export const serverRoutes = Router();
 
@@ -192,6 +193,13 @@ serverRoutes.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    // SSRF protection: validate the user-provided URL
+    const urlCheck = validateExternalUrl(url);
+    if (!urlCheck.valid) {
+      res.status(400).json({ error: urlCheck.error });
+      return;
+    }
+
     const jf = jellyfinClient as JellyfinClient;
 
     // Test connection first (public endpoint, no auth needed)
@@ -271,12 +279,22 @@ serverRoutes.put('/:id', async (req: Request, res: Response) => {
   try {
     const { db, jellyfinClient } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid server id' }); return; }
     const { name, url, username, password } = req.body;
 
     const existing = queries.getServerById(db, id);
     if (!existing) {
       res.status(404).json({ error: 'Server not found' });
       return;
+    }
+
+    // SSRF protection: validate URL if being updated
+    if (url !== undefined) {
+      const urlCheck = validateExternalUrl(url);
+      if (!urlCheck.valid) {
+        res.status(400).json({ error: urlCheck.error });
+        return;
+      }
     }
 
     const jf = jellyfinClient as JellyfinClient;
@@ -331,6 +349,7 @@ serverRoutes.delete('/:id', (req: Request, res: Response) => {
   try {
     const { db, jellyfinClient, wss } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid server id' }); return; }
 
     const server = queries.getServerById(db, id);
     if (!server) {
@@ -362,6 +381,7 @@ serverRoutes.post('/:id/test', async (req: Request, res: Response) => {
   try {
     const { db, jellyfinClient } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid server id' }); return; }
 
     const server = queries.getServerById(db, id);
     if (!server) {
@@ -387,6 +407,7 @@ serverRoutes.post('/:id/reauthenticate', async (req: Request, res: Response) => 
   try {
     const { db, jellyfinClient } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid server id' }); return; }
     const { password } = req.body;
 
     if (password === undefined) {
@@ -428,6 +449,7 @@ serverRoutes.post('/:id/activate', async (req: Request, res: Response) => {
   try {
     const { db, jellyfinClient, channelManager, scheduleEngine, wss } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid server id' }); return; }
 
     const server = queries.getServerById(db, id);
     if (!server) {
@@ -452,6 +474,63 @@ serverRoutes.post('/:id/activate', async (req: Request, res: Response) => {
 
     res.json({ success: true });
   } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/servers/:id/resync - Re-sync active server library and refresh schedules
+serverRoutes.post('/:id/resync', async (req: Request, res: Response) => {
+  try {
+    const { db, jellyfinClient, scheduleEngine, wss } = req.app.locals;
+    const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid server id' }); return; }
+
+    const server = queries.getServerById(db, id);
+    if (!server) {
+      res.status(404).json({ error: 'Server not found' });
+      return;
+    }
+
+    if (!server.is_active) {
+      res.status(400).json({ error: 'Only the active server can be re-synced. Activate this server first.' });
+      return;
+    }
+
+    if (!server.access_token) {
+      res.status(400).json({ error: 'Server needs re-authentication before re-sync' });
+      return;
+    }
+
+    const jf = jellyfinClient as JellyfinClient;
+    jf.resetApi();
+
+    broadcast(wss, {
+      type: 'generation:progress',
+      payload: { step: 'syncing', message: 'Re-syncing library from Jellyfin...' },
+    });
+
+    await jf.syncLibrary((message) => {
+      broadcast(wss, { type: 'generation:progress', payload: { step: 'syncing', message } });
+    });
+
+    broadcast(wss, {
+      type: 'generation:progress',
+      payload: { step: 'scheduling', message: 'Refreshing schedules...' },
+    });
+    await (scheduleEngine as ScheduleEngine).generateAllSchedules();
+
+    broadcast(wss, {
+      type: 'generation:progress',
+      payload: { step: 'complete', message: 'Re-sync complete!' },
+    });
+    broadcast(wss, { type: 'library:synced', payload: { item_count: jf.getLibraryItems().length } });
+
+    res.json({ success: true, item_count: jf.getLibraryItems().length });
+  } catch (err) {
+    broadcast(req.app.locals.wss, {
+      type: 'generation:progress',
+      payload: { step: 'error', message: (err as Error).message },
+    });
     res.status(500).json({ error: (err as Error).message });
   }
 });

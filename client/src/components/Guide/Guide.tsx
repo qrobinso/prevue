@@ -6,6 +6,13 @@ import PreviewPanel from './PreviewPanel';
 import ProgramInfoModal from './ProgramInfoModal';
 import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours } from '../Settings/DisplaySettings';
 import { isIOSPWA } from '../../utils/platform';
+import {
+  getFullscreenElement,
+  isFullscreenElement,
+  enterFullscreen,
+  exitFullscreen,
+  type FullscreenMode,
+} from '../../utils/fullscreen';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
 import './Guide.css';
@@ -192,6 +199,7 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   // Fullscreen support
   const guideRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const fullscreenModeRef = useRef<FullscreenMode | null>(null);
 
   const toggleFullscreen = useCallback(() => {
     const el = guideRef.current;
@@ -203,29 +211,34 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
       return;
     }
 
-    const doc = document as Document & { exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void; msExitFullscreen?: () => void };
-    const fsEl = (document as { fullscreenElement?: Element | null; webkitFullscreenElement?: Element | null; msFullscreenElement?: Element | null }).fullscreenElement
-      ?? (document as { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
-      ?? (document as { msFullscreenElement?: Element | null }).msFullscreenElement;
-    if (fsEl === el) {
-      if (doc.exitFullscreen) doc.exitFullscreen();
-      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
-      else if (doc.msExitFullscreen) doc.msExitFullscreen();
-    } else {
-      const htmlEl = el as HTMLElement & { requestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => void; msRequestFullscreen?: () => void };
-      if (htmlEl.requestFullscreen) htmlEl.requestFullscreen();
-      else if (htmlEl.webkitRequestFullscreen) htmlEl.webkitRequestFullscreen();
-      else if (htmlEl.msRequestFullscreen) htmlEl.msRequestFullscreen();
+    const isNativeFs = isFullscreenElement(el);
+    const mode = fullscreenModeRef.current;
+    if (isNativeFs || mode === 'video' || mode === 'fake') {
+      exitFullscreen(mode || 'native');
+      fullscreenModeRef.current = null;
+      setIsFullscreen(false);
+      return;
     }
+
+    void (async () => {
+      const enteredMode = await enterFullscreen(el);
+      fullscreenModeRef.current = enteredMode;
+      if (enteredMode === 'native') {
+        setIsFullscreen(true);
+      }
+    })();
   }, []);
 
   useEffect(() => {
     if (isIOSPWA()) return; // CSS-only fullscreen; no Fullscreen API events
     const onFsChange = () => {
-      const fsEl = (document as { fullscreenElement?: Element | null; webkitFullscreenElement?: Element | null; msFullscreenElement?: Element | null }).fullscreenElement
-        ?? (document as { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
-        ?? (document as { msFullscreenElement?: Element | null }).msFullscreenElement;
-      setIsFullscreen(fsEl === guideRef.current);
+      const isNowFullscreen = getFullscreenElement() === guideRef.current;
+      if (isNowFullscreen) {
+        fullscreenModeRef.current = 'native';
+      } else if (fullscreenModeRef.current === 'native') {
+        fullscreenModeRef.current = null;
+      }
+      setIsFullscreen(isNowFullscreen);
     };
     document.addEventListener('fullscreenchange', onFsChange);
     document.addEventListener('webkitfullscreenchange', onFsChange);

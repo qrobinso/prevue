@@ -317,6 +317,21 @@
   color: var(--text-primary);
 }
 
+.settings-btn-sm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings-btn-reorder {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.settings-btn-reorder:hover:not(:disabled) {
+  background: var(--accent-cyan) !important;
+  color: var(--bg-primary) !important;
+}
+
 .settings-btn-danger {
   border-color: var(--accent-red);
   color: var(--accent-red);
@@ -1913,6 +1928,9 @@
   .settings-list-actions {
     width: 100%;
     justify-content: flex-end;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   /* Buttons - all touch-friendly (min 44px) */

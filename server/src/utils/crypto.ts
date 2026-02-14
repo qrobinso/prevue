@@ -1,18 +1,32 @@
 import crypto from 'crypto';
+import os from 'os';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
+
+let keyWarningShown = false;
 
 function getEncryptionKey(): Buffer {
   const key = process.env.DATA_ENCRYPTION_KEY;
   if (key && key.length >= 32) {
     return Buffer.from(key.slice(0, 32), 'utf-8');
   }
-  // Fallback: derive a key from a stable machine identifier
-  // This is less secure but allows the app to work without explicit config
-  const fallback = 'prevue-default-key-change-me-pls!';
-  return Buffer.from(fallback, 'utf-8');
+
+  // No explicit key configured — derive one from machine identity so that
+  // stored tokens are at least unique per host. Log a clear warning on first
+  // use so operators know to set a proper key for production.
+  if (!keyWarningShown) {
+    keyWarningShown = true;
+    console.warn(
+      '[Security] DATA_ENCRYPTION_KEY is not set or too short (need >=32 chars). ' +
+      'Using a machine-derived fallback. Set a strong DATA_ENCRYPTION_KEY in your .env for production.'
+    );
+  }
+
+  // Derive from hostname + platform — not truly secret but unique per machine
+  const seed = `prevue:${os.hostname()}:${os.platform()}:${os.arch()}`;
+  return crypto.createHash('sha256').update(seed).digest();
 }
 
 export function encrypt(text: string): string {

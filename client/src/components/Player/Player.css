@@ -176,6 +176,11 @@
   text-shadow: 0 0 8px rgba(255, 68, 68, 0.5);
 }
 
+.player-buffering-title {
+  color: var(--accent-cyan);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+}
+
 .player-error-detail {
   font-family: var(--font-retro);
   font-size: 10px;
@@ -1977,6 +1982,11 @@
 }
 
 .player:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+}
+
+.player:-ms-fullscreen {
   width: 100vw;
   height: 100vh;
 }

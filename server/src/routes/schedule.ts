@@ -49,6 +49,7 @@ scheduleRoutes.get('/:channelId', (req: Request, res: Response) => {
   try {
     const { db } = req.app.locals;
     const channelId = parseInt(req.params.channelId as string, 10);
+    if (Number.isNaN(channelId) || channelId < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
     const now = new Date().toISOString();
 
     const blocks = queries.getCurrentAndNextBlocks(db, channelId, now);
@@ -63,6 +64,7 @@ scheduleRoutes.get('/:channelId/now', (req: Request, res: Response) => {
   try {
     const { scheduleEngine } = req.app.locals;
     const channelId = parseInt(req.params.channelId as string, 10);
+    if (Number.isNaN(channelId) || channelId < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
 
     const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(channelId);
     if (!current) {
