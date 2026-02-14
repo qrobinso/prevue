@@ -18,8 +18,6 @@ import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } fro
 import { formatPlaybackError } from '../../utils/playbackError';
 import './Guide.css';
 
-// Lightweight preset for fast preview start (lower bitrate/size = faster first frame)
-const PREVIEW_QUALITY = { bitrate: 1200000, maxWidth: 640 };
 /** Delay before starting preview stream (user may be browsing) */
 const PREVIEW_STREAM_DELAY_MS = 1000;
 
@@ -346,7 +344,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           return;
         }
 
-        const info = await getPlaybackInfo(channel.id, PREVIEW_QUALITY);
+        const info = await getPlaybackInfo(channel.id);
         if (cancelled.current || !info.stream_url || info.is_interstitial) {
           if (!cancelled.current) loadingItemIdRef.current = null;
           return;
@@ -426,7 +424,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     setShowAudioMoreMenu(false);
     cleanup();
     try {
-      const info = await getPlaybackInfo(channel.id, { ...PREVIEW_QUALITY, audioStreamIndex: index });
+      const info = await getPlaybackInfo(channel.id, { audioStreamIndex: index });
       if (!info.stream_url || info.is_interstitial) return;
       const video = videoRef.current;
       if (!video) return;
@@ -464,7 +462,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     cleanup();
     try {
       await updateSettings({ preferred_subtitle_index: positionIndex });
-      const info = await getPlaybackInfo(channel.id, PREVIEW_QUALITY);
+      const info = await getPlaybackInfo(channel.id);
       if (!info.stream_url || info.is_interstitial) return;
       setServerSubtitleTracks(info.subtitle_tracks ?? []);
       loadStreamWithInfo(info, { current: false });
@@ -522,6 +520,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   }
 
   const showVideo = program && program.type !== 'interstitial';
+  const artworkSources = program ? getPreviewArtworkSources(program) : [];
 
   const swipe = useSwipe({ onSwipeUp, onSwipeDown });
 
@@ -616,20 +615,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         {/* Loading overlay (same as full-screen player): banner in background + TUNING text */}
         {!videoReady && !videoError && program && program.type !== 'interstitial' && (
           <div className="preview-loading" key={program.jellyfin_item_id}>
-            {program.banner_url || program.thumbnail_url ? (
+            {artworkSources.length > 0 ? (
               <img
                 className="preview-loading-banner"
-                src={(program.thumbnail_url || program.banner_url) ?? ''}
+                src={artworkSources[0] ?? ''}
+                data-fallback-index="0"
                 alt=""
                 onError={(e) => {
-                  const el = e.target as HTMLImageElement;
-                  const triedThumb = el.src.includes('/Primary');
-                  const fallback = triedThumb ? program?.banner_url : program?.thumbnail_url;
-                  if (fallback && el.src !== fallback) {
-                    el.src = fallback;
-                  } else {
-                    el.style.display = 'none';
-                  }
+                  applyArtworkFallback(e.currentTarget, artworkSources);
                 }}
               />
             ) : (
@@ -641,14 +634,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         {/* Buffering overlay for transient connection interruptions */}
         {videoReady && isBuffering && !videoError && program && (
           <div className="preview-loading preview-error-overlay">
-            {program.banner_url || program.thumbnail_url ? (
+            {artworkSources.length > 0 ? (
               <img
                 className="preview-loading-banner"
-                src={(program.thumbnail_url || program.banner_url) ?? ''}
+                src={artworkSources[0] ?? ''}
+                data-fallback-index="0"
                 alt=""
                 onError={(e) => {
-                  const el = e.target as HTMLImageElement;
-                  el.style.display = 'none';
+                  applyArtworkFallback(e.currentTarget, artworkSources);
                 }}
               />
             ) : (
@@ -663,14 +656,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         {/* Error overlay (same style as TUNING) */}
         {videoError && program && (
           <div className="preview-loading preview-error-overlay">
-            {program.banner_url || program.thumbnail_url ? (
+            {artworkSources.length > 0 ? (
               <img
                 className="preview-loading-banner"
-                src={(program.thumbnail_url || program.banner_url) ?? ''}
+                src={artworkSources[0] ?? ''}
+                data-fallback-index="0"
                 alt=""
                 onError={(e) => {
-                  const el = e.target as HTMLImageElement;
-                  el.style.display = 'none';
+                  applyArtworkFallback(e.currentTarget, artworkSources);
                 }}
               />
             ) : (
@@ -838,4 +831,24 @@ function getProgress(program: ScheduleProgram, now: Date): number {
   if (current <= start) return 0;
   if (current >= end) return 100;
   return ((current - start) / (end - start)) * 100;
+}
+
+function getPreviewArtworkSources(program: ScheduleProgram): string[] {
+  const candidates = [
+    program.guide_url || (program.jellyfin_item_id ? `/api/images/${program.jellyfin_item_id}/Guide` : null),
+    program.thumbnail_url,
+    program.banner_url,
+  ];
+  return candidates.filter((value): value is string => Boolean(value));
+}
+
+function applyArtworkFallback(img: HTMLImageElement, sources: string[]): void {
+  const currentIndex = Number.parseInt(img.dataset.fallbackIndex ?? '0', 10);
+  const nextIndex = Number.isFinite(currentIndex) ? currentIndex + 1 : 1;
+  if (nextIndex < sources.length) {
+    img.dataset.fallbackIndex = String(nextIndex);
+    img.src = sources[nextIndex] ?? '';
+    return;
+  }
+  img.style.display = 'none';
 }

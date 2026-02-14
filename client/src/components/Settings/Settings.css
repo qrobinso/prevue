@@ -332,6 +332,17 @@
   color: var(--bg-primary) !important;
 }
 
+.settings-btn-drag-handle {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+
+.settings-btn-drag-handle:active {
+  cursor: grabbing;
+}
+
 .settings-btn-danger {
   border-color: var(--accent-red);
   color: var(--accent-red);
@@ -416,6 +427,20 @@
 
 .settings-list-item:hover {
   border-color: var(--border-cell);
+}
+
+.settings-list-item-draggable {
+  transition: border-color 0.2s, transform 0.15s, opacity 0.15s;
+}
+
+.settings-list-item-draggable.dragging {
+  opacity: 0.65;
+  transform: scale(0.99);
+}
+
+.settings-list-item-draggable.drag-over {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.35) inset;
 }
 
 .settings-list-item-active {
@@ -1931,6 +1956,10 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
+  }
+
+  .settings-list-actions-channel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   /* Buttons - all touch-friendly (min 44px) */

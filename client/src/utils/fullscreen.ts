@@ -2,10 +2,11 @@
  * Fullscreen utility with iOS Safari support (iPad, iPhone).
  * - Tries standard + webkit-prefixed Fullscreen API
  * - On Player: when container fails, tries video.webkitEnterFullscreen() for native iOS video fullscreen
+ * - In iOS standalone/PWA mode, always use CSS ("fake") fullscreen to avoid Safari UI chrome
  * - Falls back to CSS-based "fake" fullscreen when APIs fail
  */
 
-import { isIOS } from './platform';
+import { isIOS, isIOSPWA } from './platform';
 
 type DocWithFullscreen = Document & {
   exitFullscreen?: () => Promise<void>;
@@ -54,6 +55,12 @@ export async function enterFullscreen(
   el: HTMLElement,
   options?: { video?: HTMLVideoElement | null }
 ): Promise<FullscreenMode> {
+  // In installed iOS PWAs, native fullscreen can surface Safari UI.
+  // Stay in app-chrome-less CSS fullscreen mode instead.
+  if (isIOSPWA()) {
+    return 'fake';
+  }
+
   // 1. Try container fullscreen (standard + webkit for iPad Safari 16.4+)
   const req =
     (el as ElWithFullscreen).requestFullscreen ??

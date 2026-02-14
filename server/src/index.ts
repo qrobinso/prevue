@@ -50,19 +50,24 @@ app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 // Body size limit
 app.use(express.json({ limit: '1mb' }));
 
-// Global rate limiter: 200 requests per 15 minutes per IP
+function isRateLimitExemptPath(pathname: string): boolean {
+  return pathname.startsWith('/stream') || pathname.startsWith('/images');
+}
+
+// Global rate limiter: 600 requests per 15 minutes per IP
 app.use('/api', rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 600,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
+  skip: (req) => isRateLimitExemptPath(req.path),
 }));
 
 // Stricter rate limit on sensitive/admin endpoints
 const strictLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: 90,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },

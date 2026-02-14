@@ -168,7 +168,7 @@ export interface ChannelPreset {
   category: string;
   icon?: string;
   isDynamic?: boolean;
-  dynamicType?: 'genres' | 'eras';
+  dynamicType?: 'genres' | 'eras' | 'directors' | 'actors' | 'composers' | 'collections' | 'playlists' | 'studios';
 }
 
 export interface PresetCategory {

@@ -96,6 +96,28 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   // Auto-scroll display offset (separate from focused channel for selection)
   const [autoScrollOffset, setAutoScrollOffset] = useState(0);
 
+  // Keep auto-scroll state consistent when toggling on/off in settings.
+  // This prevents stale "paused" state from making auto-scroll appear broken.
+  useEffect(() => {
+    if (autoScrollPauseTimeoutRef.current) {
+      clearTimeout(autoScrollPauseTimeoutRef.current);
+      autoScrollPauseTimeoutRef.current = null;
+    }
+
+    if (autoScrollEnabled) {
+      setAutoScrollPaused(false);
+      setAutoScrollOffset(prev => {
+        if (channels.length === 0) return 0;
+        const safePrev = Math.max(0, Math.min(channels.length - 1, prev));
+        return safePrev;
+      });
+      return;
+    }
+
+    // Reset paused state when auto-scroll is disabled so re-enabling resumes immediately.
+    setAutoScrollPaused(false);
+  }, [autoScrollEnabled, channels.length]);
+
   // Restore channel position when returning from player
   useEffect(() => {
     // Use the ref to ensure we have the initial value even across re-renders
@@ -250,6 +272,35 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
     };
   }, []);
 
+  // When player opens (guide streaming paused), force-guide fullscreen off.
+  // Without this, iOS PWA CSS fullscreen can keep the guide as a fixed top layer
+  // and visually hide the player overlay.
+  useEffect(() => {
+    if (!streamingPaused) return;
+
+    const mode = fullscreenModeRef.current;
+
+    if (isIOSPWA()) {
+      if (isFullscreen) {
+        setIsFullscreen(false);
+      }
+      fullscreenModeRef.current = null;
+      return;
+    }
+
+    const guideEl = guideRef.current;
+    if (mode === 'native' && guideEl && isFullscreenElement(guideEl)) {
+      exitFullscreen('native');
+    } else if (mode === 'video' || mode === 'fake') {
+      exitFullscreen(mode);
+    }
+
+    fullscreenModeRef.current = null;
+    if (isFullscreen) {
+      setIsFullscreen(false);
+    }
+  }, [streamingPaused, isFullscreen]);
+
   const handleUp = useCallback(() => {
     pauseAutoScroll();
     setFocusedChannelIdx(prev => {
@@ -389,6 +440,7 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
         visibleChannels={visibleChannels}
         guideHours={guideHours}
         scrollToChannelIdx={scrollToChannelIdxOnce ?? (autoScrollEnabled && !autoScrollPaused ? autoScrollOffset : undefined)}
+        smoothScroll={scrollToChannelIdxOnce === undefined && autoScrollEnabled && !autoScrollPaused}
         onChannelClick={(chIdx) => {
           pauseAutoScroll();
           setFocusedChannelIdx(chIdx);

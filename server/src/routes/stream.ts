@@ -386,23 +386,25 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     // Get playback info and session
     const hlsInfo = await jf.getHlsStreamUrl(itemId);
     const playSessionId = hlsInfo.playSessionId;
+    const isHdrSource = hlsInfo.isHdrSource;
+    const mediaSourceId = hlsInfo.mediaSourceId;
 
-    activeSessions.set(itemId, { playSessionId, mediaSourceId: itemId });
+    activeSessions.set(itemId, { playSessionId, mediaSourceId });
     lastActivityByItemId.set(itemId, Date.now());
-    console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} hevc=${clientSupportsHevc} audioStreamIndex=${audioStreamIndex ?? 'default'} subtitleStreamIndex=${subtitleStreamIndex ?? 'off'}`);
+    console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} hevc=${clientSupportsHevc} hdr=${isHdrSource} audioStreamIndex=${audioStreamIndex ?? 'default'} subtitleStreamIndex=${subtitleStreamIndex ?? 'off'}`);
 
     // Build Jellyfin HLS URL for browser playback via HLS.js.
-    // When the client supports HEVC (e.g. Safari, Edge on Windows with HEVC extension),
-    // we request hevc,h264 so Jellyfin can stream-copy HEVC/HDR content without transcoding.
-    // HEVC in HLS requires fMP4 segments (not MPEG-TS), so we switch SegmentContainer accordingly.
+    // Match Jellyfin Web behavior on capable clients: prefer direct-stream HEVC (including HDR).
+    // If the browser can't do HEVC, fall back to h264 transcoding.
     // AllowStreamCopy tells FFmpeg to copy streams when input codec matches output.
     // VideoBitrate explicitly sets the encoding bitrate (Jellyfin bug: resolution is calculated
     // from bitrate, so setting a high VideoBitrate ensures high resolution output).
-    const videoCodec = clientSupportsHevc ? 'hevc,h264' : 'h264';
-    const segmentContainer = clientSupportsHevc ? 'mp4' : 'ts';
+    const allowHevcStreamCopy = clientSupportsHevc;
+    const videoCodec = allowHevcStreamCopy ? 'hevc,h264' : 'h264';
+    const segmentContainer = allowHevcStreamCopy ? 'mp4' : 'ts';
     const params = new URLSearchParams({
       DeviceId: deviceId,
-      MediaSourceId: itemId,
+      MediaSourceId: mediaSourceId,
       PlaySessionId: playSessionId,
       VideoCodec: videoCodec,
       AudioCodec: 'aac',
@@ -413,9 +415,9 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
       MinSegments: '2',
       BreakOnNonKeyFrames: 'true',
     });
+
     if (!hasExplicitQuality) {
-      // Auto: allow stream copy - if source codec matches requested output, no transcoding occurs.
-      // With HEVC support, HEVC/HDR content is stream-copied preserving HDR metadata.
+      // Auto: allow stream copy where possible (same as Jellyfin web direct-stream preference).
       // MaxWidth/MaxHeight 3840x2160 tells Jellyfin to allow up to 4K resolution.
       params.set('AllowVideoStreamCopy', 'true');
       params.set('AllowAudioStreamCopy', 'true');

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   getChannels, 
   deleteChannel, 
@@ -65,12 +65,16 @@ export default function ChannelSettings() {
   const [generating, setGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [error, setError] = useState('');
+  const [savingOrder, setSavingOrder] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('presets');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [separateContentTypes, setSeparateContentTypes] = useState(true);
   const [scheduleAutoUpdateEnabled, setScheduleAutoUpdateEnabled] = useState(true);
   const [scheduleAutoUpdateHours, setScheduleAutoUpdateHours] = useState(4);
   const separateLoadedRef = useRef(false);
+  const [draggingChannelId, setDraggingChannelId] = useState<number | null>(null);
+  const [dragOverChannelId, setDragOverChannelId] = useState<number | null>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
 
   // Subscribe to WebSocket for progress updates
   useEffect(() => {
@@ -143,19 +147,20 @@ export default function ChannelSettings() {
     }
   };
 
-  const handleMoveChannel = async (id: number, direction: 'up' | 'down') => {
-    const currentIdx = channels.findIndex(ch => ch.id === id);
-    if (currentIdx < 0) return;
+  const reorderChannelsById = useCallback((list: ChannelWithProgram[], sourceId: number, targetId: number) => {
+    if (sourceId === targetId) return list;
+    const fromIdx = list.findIndex(ch => ch.id === sourceId);
+    const toIdx = list.findIndex(ch => ch.id === targetId);
+    if (fromIdx < 0 || toIdx < 0) return list;
+    const reordered = [...list];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    return reordered;
+  }, []);
 
-    const targetIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
-    if (targetIdx < 0 || targetIdx >= channels.length) return;
-
-    // Optimistic local reorder for snappy UX on mobile/touch
-    const reordered = [...channels];
-    [reordered[currentIdx], reordered[targetIdx]] = [reordered[targetIdx], reordered[currentIdx]];
-    setChannels(reordered);
+  const persistChannelOrder = useCallback(async (reordered: ChannelWithProgram[]) => {
+    setSavingOrder(true);
     setError('');
-
     try {
       await Promise.all(
         reordered.map((ch, idx) =>
@@ -166,8 +171,48 @@ export default function ChannelSettings() {
     } catch (err) {
       setError((err as Error).message);
       await loadData();
+    } finally {
+      setSavingOrder(false);
     }
-  };
+  }, []);
+
+  const handleDragStart = useCallback((channelId: number, e: React.PointerEvent<HTMLButtonElement>) => {
+    if (savingOrder) return;
+    dragPointerIdRef.current = e.pointerId;
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    setDraggingChannelId(channelId);
+    setDragOverChannelId(channelId);
+  }, [savingOrder]);
+
+  const handleDragMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    if (draggingChannelId === null) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const row = el instanceof HTMLElement ? el.closest<HTMLElement>('[data-channel-id]') : null;
+    if (!row) return;
+    const idAttr = row.getAttribute('data-channel-id');
+    if (!idAttr) return;
+    const overId = Number.parseInt(idAttr, 10);
+    if (Number.isNaN(overId)) return;
+    setDragOverChannelId(overId);
+  }, [draggingChannelId]);
+
+  const handleDragEnd = useCallback(async (e?: React.PointerEvent<HTMLButtonElement>) => {
+    if (e && dragPointerIdRef.current !== null && e.currentTarget.hasPointerCapture(dragPointerIdRef.current)) {
+      e.currentTarget.releasePointerCapture(dragPointerIdRef.current);
+    }
+    dragPointerIdRef.current = null;
+    if (draggingChannelId === null) return;
+    const sourceId = draggingChannelId;
+    const targetId = dragOverChannelId;
+    setDraggingChannelId(null);
+    setDragOverChannelId(null);
+    if (targetId == null || sourceId === targetId) return;
+    const reordered = reorderChannelsById(channels, sourceId, targetId);
+    setChannels(reordered);
+    await persistChannelOrder(reordered);
+  }, [channels, draggingChannelId, dragOverChannelId, persistChannelOrder, reorderChannelsById]);
 
   const handleCreateAI = async () => {
     if (!aiPrompt.trim()) return;
@@ -586,8 +631,15 @@ export default function ChannelSettings() {
           )}
 
           <div className="settings-list">
+            <p className="settings-field-hint" style={{ marginBottom: 4 }}>
+              Drag the handle to reorder channels.
+            </p>
             {channels.map(ch => (
-              <div key={ch.id} className="settings-list-item">
+              <div
+                key={ch.id}
+                data-channel-id={ch.id}
+                className={`settings-list-item settings-list-item-draggable ${draggingChannelId === ch.id ? 'dragging' : ''} ${dragOverChannelId === ch.id && draggingChannelId !== null && draggingChannelId !== ch.id ? 'drag-over' : ''}`}
+              >
                 <div className="settings-list-info">
                   <span className="settings-list-name">
                     <span className="settings-channel-number">CH {ch.number}</span>
@@ -601,24 +653,23 @@ export default function ChannelSettings() {
                     {ch.current_program && ` · Now: ${ch.current_program.title}`}
                   </span>
                 </div>
-                <div className="settings-list-actions">
+                <div className="settings-list-actions settings-list-actions-channel">
                   <button
-                    className="settings-btn-sm settings-btn-reorder"
-                    onClick={() => handleMoveChannel(ch.id, 'up')}
-                    disabled={channels[0]?.id === ch.id}
-                    title="Move channel up"
+                    className="settings-btn-sm settings-btn-reorder settings-btn-drag-handle"
+                    onPointerDown={(e) => handleDragStart(ch.id, e)}
+                    onPointerMove={handleDragMove}
+                    onPointerUp={(e) => { void handleDragEnd(e); }}
+                    onPointerCancel={(e) => { void handleDragEnd(e); }}
+                    disabled={savingOrder}
+                    title="Drag to reorder channel"
                   >
-                    UP
+                    DRAG
                   </button>
                   <button
-                    className="settings-btn-sm settings-btn-reorder"
-                    onClick={() => handleMoveChannel(ch.id, 'down')}
-                    disabled={channels[channels.length - 1]?.id === ch.id}
-                    title="Move channel down"
+                    className="settings-btn-sm settings-btn-danger"
+                    onClick={() => handleDelete(ch.id)}
+                    disabled={savingOrder || draggingChannelId !== null}
                   >
-                    DOWN
-                  </button>
-                  <button className="settings-btn-sm settings-btn-danger" onClick={() => handleDelete(ch.id)}>
                     DELETE
                   </button>
                 </div>

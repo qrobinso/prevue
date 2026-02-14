@@ -310,7 +310,7 @@ channelRoutes.post('/generate', async (req: Request, res: Response) => {
 channelRoutes.get('/settings', (req: Request, res: Response) => {
   try {
     const { db } = req.app.locals;
-    const maxChannels = queries.getSetting(db, 'max_channels') ?? 100;
+    const maxChannels = queries.getSetting(db, 'max_channels') ?? 200;
     const selectedPresets = queries.getSetting(db, 'selected_presets') ?? [];
     res.json({ max_channels: maxChannels, selected_presets: selectedPresets });
   } catch (err) {

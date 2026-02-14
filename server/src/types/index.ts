@@ -34,7 +34,7 @@ export interface ChannelPreset {
   filter: ChannelFilter;
   // For dynamic presets that generate multiple channels based on library content
   isDynamic?: boolean;
-  dynamicType?: 'genres' | 'eras' | 'directors' | 'actors' | 'composers' | 'collections' | 'studios';
+  dynamicType?: 'genres' | 'eras' | 'directors' | 'actors' | 'composers' | 'collections' | 'playlists' | 'studios';
 }
 
 // Filter criteria for channel content
@@ -79,6 +79,7 @@ export interface ChannelFilter {
   
   // Collection filter
   collectionId?: string;  // Jellyfin collection/BoxSet ID
+  playlistId?: string;    // Jellyfin playlist ID
   
   // Special modes
   shuffleMode?: boolean;
@@ -114,6 +115,7 @@ export interface ScheduleProgram {
   duration_ms: number;
   type: 'program' | 'interstitial';
   content_type: 'movie' | 'episode' | null;
+  guide_url?: string | null;
   thumbnail_url: string | null;
   banner_url: string | null;
   year: number | null;

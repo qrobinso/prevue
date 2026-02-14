@@ -29,6 +29,7 @@ export interface ScheduleProgram {
   duration_ms: number;
   type: 'program' | 'interstitial';
   content_type: 'movie' | 'episode' | null;
+  guide_url?: string | null;
   thumbnail_url: string | null;
   banner_url: string | null;
   year: number | null;

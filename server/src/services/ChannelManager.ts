@@ -7,7 +7,7 @@ import * as queries from '../db/queries.js';
 
 const MIN_CHANNEL_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours minimum content
 const MIN_CAST_CHANNEL_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours minimum for cast/crew channels (directors, actors, etc.)
-const DEFAULT_MAX_CHANNELS = 100;
+const DEFAULT_MAX_CHANNELS = 200;
 
 // ─── Curated popularity priority lists ────────────────────
 // People in these lists are ranked first (by list order) when generating
@@ -135,7 +135,7 @@ export class ChannelManager {
         // Apply content type separation if enabled (only when both types are allowed)
         const shouldSeparate = settings.separateContentTypes && settings.contentTypes.movies && settings.contentTypes.tv_shows;
         const presetAllowsBoth = preset.filter.includeMovies !== false && preset.filter.includeEpisodes !== false;
-        if (shouldSeparate && presetAllowsBoth) {
+        if (shouldSeparate && presetAllowsBoth && preset.dynamicType !== 'playlists') {
           const isCastCrew = ['directors', 'actors', 'composers'].includes(preset.dynamicType || '');
           const minDuration = isCastCrew ? MIN_CAST_CHANNEL_DURATION_MS : MIN_CHANNEL_DURATION_MS;
           configs = this.splitConfigsByContentType(configs, usedNames, minDuration);
@@ -397,6 +397,31 @@ export class ChannelManager {
           type: 'preset',
           preset_id: `${preset.id}:${collection.id}`,
           filter: { ...preset.filter, collectionId: collection.id },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+      }
+    } else if (preset.dynamicType === 'playlists') {
+      const playlists = await this.jellyfin.getPlaylists();
+      for (const playlist of playlists) {
+        if (configs.length >= maxCount) break;
+        const filteredItems = playlist.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (filteredItems.length === 0) continue;
+        const name = this.getUniqueChannelName(playlist.name, usedNames);
+        configs.push({
+          name,
+          type: 'preset',
+          preset_id: `${preset.id}:${playlist.id}`,
+          filter: { ...preset.filter, playlistId: playlist.id },
           item_ids: filteredItems.map(i => i.Id),
         });
       }
@@ -707,6 +732,53 @@ export class ChannelManager {
 
         created.push(channel);
         console.log(`[ChannelManager] Created collection channel: ${channelName} (${filteredItems.length} items)`);
+      }
+    } else if (preset.dynamicType === 'playlists') {
+      // Generate playlist-based channels
+      this.reportProgress('generating', 'Fetching playlists from Jellyfin...');
+      const playlists = await this.jellyfin.getPlaylists();
+      const settings = this.getFilterSettings();
+
+      console.log(`[ChannelManager] Processing ${playlists.length} playlists for channel generation`);
+      this.reportProgress('generating', `Found ${playlists.length} playlists, processing...`);
+
+      for (const playlist of playlists) {
+        if (created.length >= maxCount) break;
+
+        const filteredItems = playlist.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+
+        const totalDuration = filteredItems.reduce(
+          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          0
+        );
+
+        console.log(`[ChannelManager] Playlist "${playlist.name}": ${filteredItems.length} items, ${Math.round(totalDuration / 3600000)}h duration`);
+
+        if (filteredItems.length === 0) {
+          console.log(`[ChannelManager] Skipping playlist "${playlist.name}": no eligible items after filtering`);
+          continue;
+        }
+
+        const channelName = this.getUniqueChannelName(playlist.name, usedNames);
+        const channel = queries.createChannel(this.db, {
+          name: channelName,
+          type: 'preset',
+          preset_id: `${preset.id}:${playlist.id}`,
+          filter: { ...preset.filter, playlistId: playlist.id },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+
+        created.push(channel);
+        console.log(`[ChannelManager] Created playlist channel: ${channelName} (${filteredItems.length} items)`);
       }
     } else if (preset.dynamicType === 'studios') {
       // Generate studio-based channels
@@ -1485,6 +1557,28 @@ export class ChannelManager {
           totalItems += filteredItems.length;
           totalDuration += duration;
         }
+      }
+    } else if (preset.dynamicType === 'playlists') {
+      const playlists = await this.jellyfin.getPlaylists();
+      const settings = this.getFilterSettings();
+
+      for (const playlist of playlists) {
+        const filteredItems = playlist.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+
+        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (filteredItems.length === 0) continue;
+        dynamicChannels.push({ name: playlist.name, count: filteredItems.length });
+        totalItems += filteredItems.length;
+        totalDuration += duration;
       }
     } else if (preset.dynamicType === 'studios') {
       const studios = this.getStudiosFromLibrary(libraryItems);

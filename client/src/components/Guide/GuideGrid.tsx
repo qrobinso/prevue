@@ -12,6 +12,7 @@ interface GuideGridProps {
   visibleChannels: number;
   guideHours: number;
   scrollToChannelIdx?: number; // For auto-scroll: which channel to scroll to (separate from focus)
+  smoothScroll?: boolean; // When true, animate scrolling (for auto-scroll); instant otherwise
   onChannelClick: (channelIdx: number) => void;
   onProgramClick: (channelIdx: number, programIdx: number) => void;
 }
@@ -31,6 +32,7 @@ export default function GuideGrid({
   visibleChannels,
   guideHours,
   scrollToChannelIdx,
+  smoothScroll = false,
   onChannelClick,
   onProgramClick,
 }: GuideGridProps) {
@@ -38,6 +40,7 @@ export default function GuideGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   const timeHeaderRef = useRef<HTMLDivElement>(null);
   const focusedRowRef = useRef<HTMLDivElement>(null);
+  const verticalScrollAnimRef = useRef<number | null>(null);
   const [gridHeight, setGridHeight] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
   const scrollLeftRef = useRef(0); // Track horizontal scroll for sticky titles (ref to avoid per-frame re-renders)
@@ -133,21 +136,68 @@ export default function GuideGrid({
   const effectiveScrollIdx = scrollToChannelIdx ?? focusedChannelIdx;
   const isAutoScrolling = scrollToChannelIdx !== undefined;
 
-  // Snap target row to top of view (return from player or auto-scroll)
-  const scrollRowToTop = (element: HTMLElement) => {
+  // Scroll target row to top of view (return from player or auto-scroll)
+  const scrollRowToTop = (element: HTMLElement, smooth: boolean) => {
     const container = gridRef.current;
     if (!container) return;
+
+    if (verticalScrollAnimRef.current !== null) {
+      cancelAnimationFrame(verticalScrollAnimRef.current);
+      verticalScrollAnimRef.current = null;
+    }
+
     const elementRect = element.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
-    container.scrollTop = container.scrollTop + (elementRect.top - containerRect.top);
+    const newScrollTop = container.scrollTop + (elementRect.top - containerRect.top);
+    if (smooth) {
+      const startTop = container.scrollTop;
+      const distance = newScrollTop - startTop;
+
+      // Avoid tiny animations that can look like jitter.
+      if (Math.abs(distance) < 1) {
+        container.scrollTop = newScrollTop;
+        return;
+      }
+
+      const durationMs = 420;
+      const startAt = performance.now();
+      const easeInOutCubic = (t: number) =>
+        t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+      const animate = (now: number) => {
+        const elapsed = now - startAt;
+        const progress = Math.min(elapsed / durationMs, 1);
+        const eased = easeInOutCubic(progress);
+        container.scrollTop = startTop + distance * eased;
+
+        if (progress < 1) {
+          verticalScrollAnimRef.current = requestAnimationFrame(animate);
+        } else {
+          verticalScrollAnimRef.current = null;
+        }
+      };
+
+      verticalScrollAnimRef.current = requestAnimationFrame(animate);
+    } else {
+      container.scrollTop = newScrollTop;
+    }
   };
 
-  // When scroll target is set, snap that row to the top
+  // When scroll target is set, scroll that row to the top
   useEffect(() => {
     if (scrollTargetRef.current && isAutoScrolling) {
-      scrollRowToTop(scrollTargetRef.current);
+      scrollRowToTop(scrollTargetRef.current, smoothScroll);
     }
-  }, [effectiveScrollIdx, isAutoScrolling]);
+  }, [effectiveScrollIdx, isAutoScrolling, smoothScroll]);
+
+  useEffect(() => {
+    return () => {
+      if (verticalScrollAnimRef.current !== null) {
+        cancelAnimationFrame(verticalScrollAnimRef.current);
+        verticalScrollAnimRef.current = null;
+      }
+    };
+  }, []);
   
   // Scroll focused row into view when user navigates (centered so guide moves with user)
   // Use inline: 'nearest' to avoid resetting horizontal time-based scroll

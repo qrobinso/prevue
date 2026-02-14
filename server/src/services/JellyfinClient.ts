@@ -205,6 +205,53 @@ export class JellyfinClient {
 
     console.log(`[Jellyfin] Starting to fetch ${itemType}s...`);
 
+    // Try a single full fetch first. If the server still paginates, fall back to batched requests.
+    try {
+      console.log(`[Jellyfin] Attempting single-request fetch for ${itemType}s...`);
+      const firstResponse = await itemsApi.getItems({
+        userId,
+        includeItemTypes: [itemType as 'Movie' | 'Episode'],
+        recursive: true,
+        fields: [
+          'Genres',
+          'Overview',
+          'Studios',
+          'DateCreated',
+          'Tags',
+          'People',
+        ],
+        enableUserData: true,
+        enableImages: true,
+        sortBy: ['SortName'],
+        sortOrder: ['Ascending'],
+      });
+
+      const firstData = firstResponse.data;
+      if (firstData.Items) {
+        items.push(...firstData.Items);
+      }
+      totalCount = firstData.TotalRecordCount || items.length;
+
+      console.log(`[Jellyfin] Single-request fetch returned ${items.length}/${totalCount} ${itemType}s`);
+      if (totalCount > 0) {
+        onProgress?.(`Fetching ${itemType.toLowerCase()}s: ${items.length}/${totalCount}`);
+      }
+
+      if (!firstData.TotalRecordCount || items.length >= firstData.TotalRecordCount) {
+        console.log(`[Jellyfin] Finished fetching ${itemType}s in single request: ${items.length} total`);
+        return items;
+      }
+
+      // Continue batched fetching from where single-request left off.
+      startIndex = items.length;
+      console.log(`[Jellyfin] Falling back to batched fetch for remaining ${itemType}s (starting at ${startIndex})...`);
+    } catch (err) {
+      console.warn(`[Jellyfin] Single-request fetch failed for ${itemType}s, falling back to batches:`, err);
+      items.length = 0;
+      startIndex = 0;
+      totalCount = 0;
+    }
+
     while (true) {
       try {
         pageCount++;
@@ -408,6 +455,74 @@ export class JellyfinClient {
     }
   }
 
+  /**
+   * Fetch all playlists from the library with their items
+   */
+  async getPlaylists(): Promise<{ id: string; name: string; items: JellyfinItem[] }[]> {
+    const api = this.getApi();
+    const itemsApi = getItemsApi(api);
+    const userId = this.getUserId();
+
+    try {
+      const response = await itemsApi.getItems({
+        userId,
+        includeItemTypes: ['Playlist'],
+        recursive: true,
+        fields: ['Overview'],
+        enableUserData: true,
+        sortBy: ['SortName'],
+        sortOrder: ['Ascending'],
+      });
+
+      const playlists = response.data.Items || [];
+      console.log(`[Jellyfin] Found ${playlists.length} playlists`);
+      if (playlists.length === 0) return [];
+
+      const playlistPromises = playlists
+        .filter(playlist => playlist.Id && playlist.Name)
+        .map(async (playlist) => {
+          try {
+            const itemsResponse = await itemsApi.getItems({
+              userId,
+              parentId: playlist.Id!,
+              recursive: true,
+              includeItemTypes: ['Movie', 'Episode'],
+              fields: ['Genres', 'Overview', 'Studios', 'DateCreated', 'Tags', 'People'],
+              enableUserData: true,
+              sortBy: ['SortName'],
+              sortOrder: ['Ascending'],
+            });
+
+            const items = (itemsResponse.data.Items || [])
+              .filter(item => item.Id && item.RunTimeTicks)
+              .map(item => item as JellyfinItem);
+
+            console.log(`[Jellyfin] Playlist "${playlist.Name}": ${items.length} items`);
+
+            if (items.length > 0) {
+              return {
+                id: playlist.Id!,
+                name: playlist.Name!,
+                items,
+              };
+            }
+            return null;
+          } catch (err) {
+            console.error(`[Jellyfin] Failed to fetch items for playlist ${playlist.Name}:`, err);
+            return null;
+          }
+        });
+
+      const results = await Promise.all(playlistPromises);
+      const resolvedPlaylists = results.filter((p): p is NonNullable<typeof p> => p !== null);
+      console.log(`[Jellyfin] Found ${resolvedPlaylists.length} playlists with content`);
+      return resolvedPlaylists;
+    } catch (err) {
+      console.error('[Jellyfin] Failed to fetch playlists:', err);
+      return [];
+    }
+  }
+
   // ─── Playback Session ──────────────────────────────────
 
   /**
@@ -481,11 +596,12 @@ export class JellyfinClient {
   /**
    * Get HLS master playlist URL with proper session ID
    */
-  async getHlsStreamUrl(itemId: string, startPositionTicks?: number): Promise<{ url: string; playSessionId: string }> {
+  async getHlsStreamUrl(itemId: string, startPositionTicks?: number): Promise<{ url: string; playSessionId: string; isHdrSource: boolean; mediaSourceId: string }> {
     const playbackInfo = await this.getPlaybackInfo(itemId);
     const playSessionId = playbackInfo.PlaySessionId || randomUUID();
     const mediaSource = playbackInfo.MediaSources?.[0];
     const mediaSourceId = mediaSource?.Id || itemId;
+    const isHdrSource = this.isHdrMediaSource(mediaSource);
 
     const baseUrl = this.getServerUrl();
     const accessToken = this.getAccessToken();
@@ -509,7 +625,81 @@ export class JellyfinClient {
     }
 
     const url = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
-    return { url, playSessionId };
+    return { url, playSessionId, isHdrSource, mediaSourceId };
+  }
+
+  private isHdrMediaSource(mediaSource: unknown): boolean {
+    const source = mediaSource as { MediaStreams?: unknown[] } | Record<string, unknown> | undefined;
+    const streams = Array.isArray(source?.MediaStreams) ? source.MediaStreams : [];
+
+    // MediaSource-level indicators (some libraries expose HDR metadata only here).
+    const sourceCombined = [
+      (source as Record<string, unknown> | undefined)?.VideoRange,
+      (source as Record<string, unknown> | undefined)?.VideoRangeType,
+      (source as Record<string, unknown> | undefined)?.ColorTransfer,
+      (source as Record<string, unknown> | undefined)?.ColorPrimaries,
+      (source as Record<string, unknown> | undefined)?.VideoDynamicRange,
+      (source as Record<string, unknown> | undefined)?.VideoDynamicRangeType,
+      (source as Record<string, unknown> | undefined)?.HdrType,
+      (source as Record<string, unknown> | undefined)?.VideoProfile,
+      (source as Record<string, unknown> | undefined)?.CodecTag,
+      (source as Record<string, unknown> | undefined)?.DisplayTitle,
+      (source as Record<string, unknown> | undefined)?.Name,
+    ]
+      .map(v => String(v ?? '').toLowerCase())
+      .join(' ');
+
+    if (
+      sourceCombined.includes('hdr') ||
+      sourceCombined.includes('hlg') ||
+      sourceCombined.includes('pq') ||
+      sourceCombined.includes('smpte2084') ||
+      sourceCombined.includes('bt2020') ||
+      sourceCombined.includes('dovi') ||
+      sourceCombined.includes('dolby vision') ||
+      sourceCombined.includes('hdr10') ||
+      sourceCombined.includes('hdr10+')
+    ) {
+      return true;
+    }
+
+    for (const stream of streams) {
+      const s = stream as Record<string, unknown>;
+      const type = String(s.Type ?? '').toLowerCase();
+      if (type !== 'video') continue;
+
+      if (s.IsHdr === true || s.IsDolbyVision === true) return true;
+      const bitDepth = Number(s.BitDepth ?? 0);
+      const transfer = String(s.ColorTransfer ?? '').toLowerCase();
+      const primaries = String(s.ColorPrimaries ?? '').toLowerCase();
+      if (bitDepth > 8 && (transfer.includes('smpte2084') || primaries.includes('bt2020'))) {
+        return true;
+      }
+
+      const combined = [
+        s.VideoRange,
+        s.VideoRangeType,
+        s.ColorTransfer,
+        s.ColorPrimaries,
+        s.DisplayTitle,
+      ]
+        .map(v => String(v ?? '').toLowerCase())
+        .join(' ');
+
+      if (
+        combined.includes('hdr') ||
+        combined.includes('hlg') ||
+        combined.includes('pq') ||
+        combined.includes('smpte2084') ||
+        combined.includes('bt2020') ||
+        combined.includes('dovi') ||
+        combined.includes('dolby vision')
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // ─── Playback Session Management ─────────────────────────
