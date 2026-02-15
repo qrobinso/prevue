@@ -115,6 +115,7 @@ export interface ScheduleProgram {
   duration_ms: number;
   type: 'program' | 'interstitial';
   content_type: 'movie' | 'episode' | null;
+  backdrop_url?: string | null;
   guide_url?: string | null;
   thumbnail_url: string | null;
   banner_url: string | null;
@@ -147,6 +148,9 @@ export interface JellyfinItem {
   RunTimeTicks?: number;
   Genres?: string[];
   ImageTags?: Record<string, string>;
+  BackdropImageTags?: string[] | null;
+  ParentBackdropImageTags?: string[] | null;
+  ParentBackdropItemId?: string | null;
   Overview?: string;
   ProductionYear?: number;
   SeriesId?: string;

@@ -749,6 +749,14 @@ export class ScheduleEngine {
       ? `S${String(item.ParentIndexNumber || 1).padStart(2, '0')}E${String(item.IndexNumber || 1).padStart(2, '0')} - ${item.Name}`
       : null;
 
+    const hasBackdrop = Array.isArray(item.BackdropImageTags) && item.BackdropImageTags.length > 0;
+    const hasParentBackdrop = Array.isArray(item.ParentBackdropImageTags) && item.ParentBackdropImageTags.length > 0 && Boolean(item.ParentBackdropItemId);
+    const backdropUrl = hasBackdrop
+      ? `/api/images/${item.Id}/Backdrop`
+      : hasParentBackdrop
+        ? `/api/images/${item.ParentBackdropItemId}/Backdrop`
+        : null;
+
     return {
       jellyfin_item_id: item.Id,
       title,
@@ -758,6 +766,7 @@ export class ScheduleEngine {
       duration_ms: end.getTime() - start.getTime(),
       type: 'program',
       content_type: isEpisode ? 'episode' : 'movie',
+      backdrop_url: backdropUrl,
       guide_url: `/api/images/${item.Id}/Guide`,
       thumbnail_url: `/api/images/${item.Id}/Primary`,
       banner_url: `/api/images/${item.Id}/Banner`,
@@ -767,6 +776,18 @@ export class ScheduleEngine {
   }
 
   private createInterstitial(start: Date, end: Date, nextItem: JellyfinItem | null): ScheduleProgram {
+    const hasBackdrop = nextItem && Array.isArray(nextItem.BackdropImageTags) && nextItem.BackdropImageTags.length > 0;
+    const hasParentBackdrop =
+      nextItem &&
+      Array.isArray(nextItem.ParentBackdropImageTags) &&
+      nextItem.ParentBackdropImageTags.length > 0 &&
+      Boolean(nextItem.ParentBackdropItemId);
+    const nextBackdropUrl = hasBackdrop
+      ? `/api/images/${nextItem!.Id}/Backdrop`
+      : hasParentBackdrop
+        ? `/api/images/${nextItem!.ParentBackdropItemId}/Backdrop`
+        : null;
+
     return {
       jellyfin_item_id: '',
       title: nextItem ? `Next Up: ${nextItem.SeriesName || nextItem.Name}` : 'Coming Up Next',
@@ -776,6 +797,7 @@ export class ScheduleEngine {
       duration_ms: end.getTime() - start.getTime(),
       type: 'interstitial',
       content_type: null,
+      backdrop_url: nextBackdropUrl,
       guide_url: nextItem ? `/api/images/${nextItem.Id}/Guide` : null,
       thumbnail_url: nextItem ? `/api/images/${nextItem.Id}/Primary` : null,
       banner_url: nextItem ? `/api/images/${nextItem.Id}/Banner` : null,

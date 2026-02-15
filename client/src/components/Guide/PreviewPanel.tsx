@@ -835,6 +835,7 @@ function getProgress(program: ScheduleProgram, now: Date): number {
 
 function getPreviewArtworkSources(program: ScheduleProgram): string[] {
   const candidates = [
+    program.backdrop_url,
     program.guide_url || (program.jellyfin_item_id ? `/api/images/${program.jellyfin_item_id}/Guide` : null),
     program.thumbnail_url,
     program.banner_url,
