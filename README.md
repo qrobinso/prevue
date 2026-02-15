@@ -16,6 +16,14 @@ docker compose up -d
 Open `http://localhost:3080` in your browser.
 Then go to **Settings > Servers** to add your Jellyfin server.
 
+### Jellyfin Discovery in Docker
+
+If **Discover Servers** returns no results, this is usually Docker networking (not a Prevue bug).  
+In bridge mode, container LAN discovery can miss Jellyfin broadcasts/subnets.
+
+- Recommended fallback: manually enter your Jellyfin URL (for example `http://<jellyfin-ip>:8096`).
+- Optional (Linux): use host networking for better LAN discovery by adding `network_mode: host` to your compose service.
+
 ## Quick Start (Development)
 
 ```bash
