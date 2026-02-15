@@ -60,6 +60,7 @@ function AppContent() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
   const [lastChannelId, setLastChannelId] = useState<number | null>(null);
+  const [guideFocusedChannelId, setGuideFocusedChannelId] = useState<number | null>(null);
   const enterFullscreenRef = useRef(false);
 
   // iOS interaction detection (required for video autoplay)
@@ -145,8 +146,13 @@ function AppContent() {
   }, [navigate]);
 
   const handleOpenSettings = useCallback(() => {
+    // Capture the currently focused guide channel before opening settings so
+    // guide remount can restore to the same channel without restore loops.
+    if (guideFocusedChannelId != null) {
+      setLastChannelId(guideFocusedChannelId);
+    }
     setSettingsOpen(true);
-  }, []);
+  }, [guideFocusedChannelId]);
 
   const handleCloseSettings = useCallback(() => {
     setGuideRefreshKey(k => k + 1);
@@ -211,6 +217,7 @@ function AppContent() {
           streamingPaused={guideStreamingPaused}
           initialChannelId={lastChannelId}
           keyboardDisabled={playerActive}
+          onFocusedChannelChange={setGuideFocusedChannelId}
         />
         {settingsOpen && !playerActive && (
           <Settings onClose={handleCloseSettings} />

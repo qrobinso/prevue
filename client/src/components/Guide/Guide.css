@@ -76,7 +76,8 @@
 
 /* ── Preview Panel (expanded ~20% for more video space) ─────────────────────── */
 .preview-panel {
-  height: 60%;
+  /* Keep preview at <=60% while capping to a 16:9 full-width frame height */
+  height: min(60%, calc(100vw * 9 / 16));
   background: var(--bg-preview);
   display: flex;
   align-items: center;
@@ -944,7 +945,7 @@ html[data-preview-bg="white"] .preview-video-container {
 /* ── Responsive - Tablet (iPad, etc.) ────────────── */
 @media (max-width: 1023px) {
   .preview-panel {
-    height: 60%;
+    height: min(60%, calc(100vw * 9 / 16));
   }
 
   .preview-logo-text {
@@ -1128,7 +1129,7 @@ html[data-preview-bg="white"] .preview-video-container {
 @media (max-width: 767px) {
   /* Preview Panel - more compact on mobile */
   .preview-panel {
-    height: 60%;
+    height: min(60%, calc(100vw * 9 / 16));
   }
 
   .preview-logo-text {
@@ -1319,7 +1320,7 @@ html[data-preview-bg="white"] .preview-video-container {
 /* ── Responsive - Small Mobile (iPhone SE, etc.) ─── */
 @media (max-width: 480px) {
   .preview-panel {
-    height: 60%;
+    height: min(60%, calc(100vw * 9 / 16));
   }
 
   .preview-logo-text {
@@ -1572,7 +1573,7 @@ html[data-preview-bg="white"] .preview-video-container {
 @media (orientation: landscape) and (max-height: 500px) {
   /* Preview panel much smaller in landscape - maximize guide space */
   .preview-panel {
-    height: 60%;
+    height: min(60%, calc(100vw * 9 / 16));
   }
 
   .preview-overlay {
@@ -1750,7 +1751,7 @@ html[data-preview-bg="white"] .preview-video-container {
 /* Landscape tablets (iPad landscape, larger Android tablets) */
 @media (orientation: landscape) and (min-height: 501px) and (max-height: 900px) and (max-width: 1366px) {
   .preview-panel {
-    height: 60%;
+    height: min(60%, calc(100vw * 9 / 16));
   }
 
   .preview-overlay {
@@ -1796,7 +1797,7 @@ html[data-preview-bg="white"] .preview-video-container {
 @media (orientation: portrait) and (max-width: 480px) {
   /* Larger preview in portrait - more room to show video */
   .preview-panel {
-    height: 60%;
+    height: min(60%, calc(100vw * 9 / 16));
   }
 
   .preview-overlay {
@@ -1839,7 +1840,7 @@ html[data-preview-bg="white"] .preview-video-container {
 @media (orientation: portrait) and (min-width: 481px) and (max-width: 1024px) {
   /* Generous preview panel */
   .preview-panel {
-    height: 60%;
+    height: min(60%, calc(100vw * 9 / 16));
   }
 
   .preview-overlay {

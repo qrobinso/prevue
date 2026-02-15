@@ -23,9 +23,17 @@ interface GuideProps {
   streamingPaused?: boolean;
   initialChannelId?: number | null;
   keyboardDisabled?: boolean;
+  onFocusedChannelChange?: (channelId: number | null) => void;
 }
 
-export default function Guide({ onTune, onOpenSettings, streamingPaused = false, initialChannelId, keyboardDisabled = false }: GuideProps) {
+export default function Guide({
+  onTune,
+  onOpenSettings,
+  streamingPaused = false,
+  initialChannelId,
+  keyboardDisabled = false,
+  onFocusedChannelChange,
+}: GuideProps) {
   const { channels, scheduleByChannel, loading, error, refresh } = useSchedule();
   const visibleChannels = getVisibleChannels();
   const [guideHours, setGuideHoursState] = useState(getGuideHours);
@@ -201,6 +209,10 @@ export default function Guide({ onTune, onOpenSettings, streamingPaused = false,
   const focusedChannel = channels[focusedChannelIdx] || null;
   const focusedPrograms = focusedChannel ? scheduleByChannel.get(focusedChannel.id) || [] : [];
   const focusedProgram = focusedPrograms[focusedProgramIdx] || null;
+
+  useEffect(() => {
+    onFocusedChannelChange?.(focusedChannel?.id ?? null);
+  }, [focusedChannel?.id, onFocusedChannelChange]);
 
   // Compute the currently airing program from schedule + currentTime (updates every second).
   // This ensures the preview automatically switches when one program ends and the next starts,
