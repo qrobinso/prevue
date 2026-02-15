@@ -374,7 +374,8 @@ export class ScheduleEngine {
           ? standaloneItems
           : standaloneItems.filter(i => getRatingBucket(i.OfficialRating) === lastScheduledBucket);
         const moviePool = moviesInBucket.length > 0 ? moviesInBucket : standaloneItems;
-        // Get all movies, preferring ones not used in this block, not in cooldown, and not conflicting
+        // Get all movies, preferring ones not used in this block, not in cooldown, and not conflicting.
+        // Never schedule an item that would play at the same time on another channel.
         const movieCandidates = moviePool
           .filter(i => {
             const dur = this.jellyfin.getItemDurationMs(i);
@@ -388,16 +389,16 @@ export class ScheduleEngine {
             inCooldown: scheduledInCooldown.has(i.Id),
             isLastItem: i.Id === lastItemId
           }))
+          .filter(c => !c.conflicts)
           .sort((a, b) => {
-            // Prefer: not conflicting > not in cooldown > not used before > not last item > longer duration
-            if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
+            // Prefer: not in cooldown > not used before > not last item > longer duration
             if (a.inCooldown !== b.inCooldown) return a.inCooldown ? 1 : -1;
             if (a.usedBefore !== b.usedBefore) return a.usedBefore ? 1 : -1;
             if (a.isLastItem !== b.isLastItem) return a.isLastItem ? 1 : -1;
             return b.duration - a.duration;
           });
 
-        // Movie-only channels: if no candidates (all in cooldown/conflict), allow cooldown reuse to avoid interstitials
+        // Movie-only channels: if no candidates (all in cooldown), allow cooldown reuse to avoid interstitials (still no cross-channel conflict)
         let movieCandidatesToUse = movieCandidates;
         if (movieCandidatesToUse.length === 0 && isMovieOnlyChannel) {
           movieCandidatesToUse = moviePool
@@ -413,8 +414,8 @@ export class ScheduleEngine {
               inCooldown: scheduledInCooldown.has(i.Id),
               isLastItem: i.Id === lastItemId
             }))
+            .filter(c => !c.conflicts)
             .sort((a, b) => {
-              if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
               if (a.inCooldown !== b.inCooldown) return a.inCooldown ? 1 : -1;
               if (a.usedBefore !== b.usedBefore) return a.usedBefore ? 1 : -1;
               if (a.isLastItem !== b.isLastItem) return a.isLastItem ? 1 : -1;
@@ -430,10 +431,7 @@ export class ScheduleEngine {
           const endTime = new Date(endMs);
           
           programs.push(this.createProgram(selected.item, currentTime, endTime));
-          // Only add to global tracker if not conflicting (allow same-channel replays)
-          if (!selected.conflicts) {
-            this.addToTracker(tracker, selected.item.Id, startMs, endMs);
-          }
+          this.addToTracker(tracker, selected.item.Id, startMs, endMs);
           usedInBlock.add(selected.item.Id);
           lastItemId = selected.item.Id;
           lastScheduledBucket = getRatingBucket(selected.item.OfficialRating);
@@ -523,9 +521,8 @@ export class ScheduleEngine {
               usedInBlock: usedInBlock.has(i.Id),
               inCooldown: scheduledInCooldown.has(i.Id)
             }))
-            .filter(x => x.duration > 0 && x.duration <= remainingGap && (allowCooldown || !x.inCooldown))
+            .filter(x => x.duration > 0 && x.duration <= remainingGap && !x.conflicts && (allowCooldown || !x.inCooldown))
             .sort((a, b) => {
-              if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
               if (a.inCooldown !== b.inCooldown) return a.inCooldown ? 1 : -1;
               if (a.usedInBlock !== b.usedInBlock) return a.usedInBlock ? 1 : -1;
               return b.duration - a.duration;
@@ -534,7 +531,7 @@ export class ScheduleEngine {
         if (candidates.length === 0) {
           candidates = buildGapCandidates(true);
         }
-        // Last resort: try all items (any rating) with cooldown allowed
+        // Last resort: try all items (any rating) with cooldown allowed, still no cross-channel conflict
         if (candidates.length === 0 && itemsForGap.length < allItems.length) {
           candidates = allItems
             .map(i => ({
@@ -550,13 +547,11 @@ export class ScheduleEngine {
 
         if (candidates.length > 0) {
           const topN = Math.min(MOVIE_POOL_SIZE, candidates.length);
-          const { item, duration, conflicts } = candidates[Math.floor(rng() * topN)];
+          const { item, duration } = candidates[Math.floor(rng() * topN)];
           const endMs = startMs + duration;
           const endTime = new Date(endMs);
           programs.push(this.createProgram(item, currentTime, endTime));
-          if (!conflicts) {
-            this.addToTracker(tracker, item.Id, startMs, endMs);
-          }
+          this.addToTracker(tracker, item.Id, startMs, endMs);
           usedInBlock.add(item.Id);
           lastScheduledBucket = getRatingBucket(item.OfficialRating);
           currentTime = endTime;
@@ -579,34 +574,33 @@ export class ScheduleEngine {
   }
 
   /**
-   * Maintain schedules - generate upcoming blocks and clean old ones
+   * Maintain schedules - generate upcoming blocks and clean old ones.
+   * Uses a shared global tracker so the same program is not scheduled at the same time on different channels.
    */
   async maintainSchedules(): Promise<void> {
     const now = new Date();
     const channels = queries.getAllChannels(this.db);
-
-    // Generate next blocks if current block is within 1 hour of expiry
     const currentBlockStart = getBlockStart(now);
     const currentBlockEnd = getBlockEnd(currentBlockStart);
     const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+    const nextBlockStart = getNextBlockStart(currentBlockStart);
+    const nextNextBlockStart = getNextBlockStart(nextBlockStart);
+    const blockEndForTracker = getBlockEnd(nextNextBlockStart);
+    const tracker = this.buildGlobalTracker(currentBlockStart, blockEndForTracker);
 
     for (const channel of channels) {
-      await this.ensureSchedule(channel, now);
+      await this.ensureSchedule(channel, now, tracker);
 
-      // If within 1 hour of block end, ensure next block
       if (oneHourFromNow.getTime() >= currentBlockEnd.getTime()) {
-        const nextBlockStart = getNextBlockStart(currentBlockStart);
-        const nextNextBlockStart = getNextBlockStart(nextBlockStart);
         const nextNextBlock = queries.getScheduleBlock(
           this.db, channel.id, nextNextBlockStart.toISOString()
         );
         if (!nextNextBlock) {
-          this.generateBlock(channel, nextNextBlockStart);
+          await this.generateBlock(channel, nextNextBlockStart, tracker);
         }
       }
     }
 
-    // Clean blocks older than 24 hours
     const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     queries.cleanOldScheduleBlocks(this.db, cutoff.toISOString());
   }

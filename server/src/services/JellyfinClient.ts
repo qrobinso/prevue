@@ -363,6 +363,28 @@ export class JellyfinClient {
     );
   }
 
+  /**
+   * Return all items that have the given genre (or any alternate name) anywhere in Genres.
+   */
+  getItemsWithGenre(canonicalGenre: string, alternateNames: string[] = []): JellyfinItem[] {
+    const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
+    return this.getLibraryItems().filter(item =>
+      (item.Genres || []).some(g => matchNames.includes(g.toLowerCase()))
+    );
+  }
+
+  /**
+   * Return items whose lead (first) genre is the given genre or one of the alternate names.
+   * Ensures each item is assigned to at most one genre channel (e.g. a comedy is not placed on Drama).
+   */
+  getItemsWithLeadGenre(canonicalGenre: string, alternateNames: string[] = []): JellyfinItem[] {
+    const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
+    return this.getLibraryItems().filter(item => {
+      const lead = (item.Genres || [])[0];
+      return lead != null && matchNames.includes(lead.toLowerCase());
+    });
+  }
+
   getGenres(): Map<string, JellyfinItem[]> {
     const genres = new Map<string, JellyfinItem[]>();
     for (const item of this.getLibraryItems()) {
