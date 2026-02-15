@@ -15,12 +15,12 @@ async function getAudioTracksForItem(
   const mediaSource = playbackInfo.MediaSources?.[0];
   const streams = mediaSource?.MediaStreams ?? [];
   const audioStreams = streams.filter(
-    (s: { Type?: string }) => (s.Type || '').toLowerCase() === 'audio'
+    (s) => (s.Type || '').toLowerCase() === 'audio'
   );
-  return audioStreams.map((s: { Index?: number; Language?: string; DisplayTitle?: string; Title?: string }) => ({
+  return audioStreams.map((s) => ({
     index: s.Index ?? -1,
-    language: (s.Language || 'und').toLowerCase(),
-    name: s.DisplayTitle || s.Title || `Track ${(s.Index ?? 0) + 1}`,
+    language: (s.Language ?? 'und').toLowerCase(),
+    name: s.DisplayTitle ?? s.Title ?? `Track ${(s.Index ?? 0) + 1}`,
   })).filter((t: { index: number }) => t.index >= 0);
 }
 
@@ -33,12 +33,12 @@ async function getSubtitleTracksForItem(
   const mediaSource = playbackInfo.MediaSources?.[0];
   const streams = mediaSource?.MediaStreams ?? [];
   const subtitleStreams = streams.filter(
-    (s: { Type?: string }) => (s.Type || '').toLowerCase() === 'subtitle'
+    (s) => (s.Type || '').toLowerCase() === 'subtitle'
   );
-  return subtitleStreams.map((s: { Index?: number; Language?: string; DisplayTitle?: string; Title?: string }) => ({
+  return subtitleStreams.map((s) => ({
     index: s.Index ?? -1,
-    language: (s.Language || 'und').toLowerCase(),
-    name: s.DisplayTitle || s.Title || `Subtitle ${(s.Index ?? 0) + 1}`,
+    language: (s.Language ?? 'und').toLowerCase(),
+    name: s.DisplayTitle ?? s.Title ?? `Subtitle ${(s.Index ?? 0) + 1}`,
   })).filter((t: { index: number }) => t.index >= 0);
 }
 
