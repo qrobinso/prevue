@@ -194,6 +194,20 @@
   margin-bottom: 8px;
 }
 
+.settings-group-heading {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 0.08em;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-grid);
+}
+
+.settings-group-heading:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
 .settings-section-header {
   display: flex;
   align-items: center;

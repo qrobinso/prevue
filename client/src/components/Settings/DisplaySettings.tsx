@@ -502,32 +502,14 @@ export default function DisplaySettings() {
     <div className="settings-section">
       <h3>DISPLAY</h3>
 
-      <div className="settings-subsection">
-        <h4>GENERAL</h4>
-        <div className="settings-toggle-row">
-          <label className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={sharePlaybackProgress}
-              onChange={handleSharePlaybackToggle}
-            />
-            <span className="settings-toggle-slider" />
-          </label>
-          <span className="settings-toggle-label">
-            Share playback progress with Jellyfin
-          </span>
-        </div>
-        <p className="settings-field-hint">
-          When enabled, your watch progress is synced to Jellyfin after 5 minutes of viewing.
-          This updates "Continue Watching" and watched status on your Jellyfin server.
-        </p>
-      </div>
+      {/* ── Playback ─────────────────────────────────────── */}
+      <div className="settings-group-heading">PLAYBACK</div>
 
       <div className="settings-subsection">
         <h4>VIDEO QUALITY</h4>
         <p className="settings-field-hint">
           Maximum streaming quality. Lower quality uses less bandwidth and loads faster.
-          You can also change this while watching using the quality button.
+          You can also change this while watching using the settings button.
         </p>
         <div className="settings-quality-options">
           {QUALITY_PRESETS.map((preset) => (
@@ -542,6 +524,29 @@ export default function DisplaySettings() {
           ))}
         </div>
       </div>
+
+      <div className="settings-subsection">
+        <h4>PROGRESS TRACKING</h4>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={sharePlaybackProgress}
+              onChange={handleSharePlaybackToggle}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            Share playback progress with Jellyfin
+          </span>
+        </div>
+        <p className="settings-field-hint">
+          Syncs your watch progress to Jellyfin so "Continue Watching" and watched status stay up to date.
+        </p>
+      </div>
+
+      {/* ── Appearance ───────────────────────────────────── */}
+      <div className="settings-group-heading">APPEARANCE</div>
 
       <div className="settings-subsection">
         <h4>COLOR SCHEME</h4>
@@ -573,9 +578,83 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection">
-        <h4>GUIDE COLORS</h4>
+        <h4>PREVIEW BACKGROUND</h4>
         <p className="settings-field-hint">
-          Color-code schedule blocks in the guide by content type.
+          Color of the preview area when no channel is selected.
+        </p>
+        <div className="settings-preview-bg-options">
+          {(['theme', 'black', 'white'] as const).map((opt) => (
+            <button
+              key={opt}
+              className={`settings-preview-bg-btn ${previewBg === opt ? 'active' : ''}`}
+              onClick={() => handlePreviewBgChange(opt)}
+              style={
+                opt === 'theme'
+                  ? undefined
+                  : opt === 'black'
+                    ? { '--preview-bg-swatch': '#000' } as React.CSSProperties
+                    : { '--preview-bg-swatch': '#fff' } as React.CSSProperties
+              }
+            >
+              <span className="settings-preview-bg-swatch" />
+              <span className="settings-preview-bg-label">
+                {opt === 'theme' ? 'Theme' : opt === 'black' ? 'Black' : 'White'}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Guide ────────────────────────────────────────── */}
+      <div className="settings-group-heading">GUIDE</div>
+
+      <div className="settings-subsection">
+        <h4>LAYOUT</h4>
+        <p className="settings-field-hint">
+          Channels visible at once in the guide grid. Fewer channels means larger rows.
+        </p>
+        <div className="settings-channel-count-options">
+          {CHANNEL_OPTIONS.map((count) => (
+            <button
+              key={count}
+              className={`settings-channel-count-btn ${visibleChannels === count ? 'active' : ''}`}
+              onClick={() => handleVisibleChannelsChange(count)}
+            >
+              {count}
+            </button>
+          ))}
+        </div>
+        <div className="settings-channel-count-label">
+          {visibleChannels <= 3 && 'Extra Large'}
+          {visibleChannels === 5 && 'Large'}
+          {visibleChannels === 7 && 'Medium'}
+          {visibleChannels === 10 && 'Compact'}
+          {visibleChannels >= 15 && 'Dense'}
+        </div>
+      </div>
+
+      <div className="settings-subsection">
+        <h4>ZOOM</h4>
+        <p className="settings-field-hint">
+          Hours visible on screen at once. Lower values zoom in for more detail.
+        </p>
+        <div className="settings-channel-count-options">
+          {[1, 2, 3, 4].map((hours) => (
+            <button
+              key={hours}
+              className={`settings-channel-count-btn ${guideHours === hours ? 'active' : ''}`}
+              onClick={() => handleGuideHoursChange(hours)}
+            >
+              {hours}h
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-subsection">
+        <h4>BLOCK COLORS</h4>
+        <p className="settings-field-hint">
+          Color-code schedule blocks by content type.
         </p>
         <div className="settings-toggle-row">
           <label className="settings-toggle">
@@ -622,9 +701,9 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection">
-        <h4>GUIDE RATINGS</h4>
+        <h4>RATINGS BADGES</h4>
         <p className="settings-field-hint">
-          Show content rating badges on schedule blocks in the guide.
+          Show content rating badges on schedule blocks.
         </p>
         <div className="settings-toggle-row">
           <label className="settings-toggle">
@@ -642,39 +721,10 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection">
-        <h4>PREVIEW BACKGROUND</h4>
-        <p className="settings-field-hint">
-          Color of the preview video area when no channel is selected.
-        </p>
-        <div className="settings-preview-bg-options">
-          {(['theme', 'black', 'white'] as const).map((opt) => (
-            <button
-              key={opt}
-              className={`settings-preview-bg-btn ${previewBg === opt ? 'active' : ''}`}
-              onClick={() => handlePreviewBgChange(opt)}
-              style={
-                opt === 'theme'
-                  ? undefined
-                  : opt === 'black'
-                    ? { '--preview-bg-swatch': '#000' } as React.CSSProperties
-                    : { '--preview-bg-swatch': '#fff' } as React.CSSProperties
-              }
-            >
-              <span className="settings-preview-bg-swatch" />
-              <span className="settings-preview-bg-label">
-                {opt === 'theme' ? 'Theme' : opt === 'black' ? 'Black' : 'White'}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="settings-subsection">
         <h4>AUTO-SCROLL</h4>
         <p className="settings-field-hint">
-          Automatically scroll through channels like the classic TV Guide channel.
-          Displays a page of channels, then scrolls to the next page.
-          Any keyboard or mouse input will pause scrolling temporarily.
+          Scroll through channels automatically like the classic TV Guide channel.
+          Any input pauses scrolling temporarily.
         </p>
         <div className="settings-toggle-row">
           <label className="settings-toggle">
@@ -707,55 +757,9 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection">
-        <h4>VISIBLE CHANNELS</h4>
+        <h4>TOTAL CHANNELS</h4>
         <p className="settings-field-hint">
-          Number of channels visible at once in the guide grid.
-          Fewer channels means larger rows and text.
-        </p>
-        <div className="settings-channel-count-options">
-          {CHANNEL_OPTIONS.map((count) => (
-            <button
-              key={count}
-              className={`settings-channel-count-btn ${visibleChannels === count ? 'active' : ''}`}
-              onClick={() => handleVisibleChannelsChange(count)}
-            >
-              {count}
-            </button>
-          ))}
-        </div>
-        <div className="settings-channel-count-label">
-          {visibleChannels <= 3 && 'Extra Large'}
-          {visibleChannels === 5 && 'Large'}
-          {visibleChannels === 7 && 'Medium'}
-          {visibleChannels === 10 && 'Compact'}
-          {visibleChannels >= 15 && 'Dense'}
-        </div>
-      </div>
-
-      <div className="settings-subsection">
-        <h4>GUIDE ZOOM</h4>
-        <p className="settings-field-hint">
-          How many hours to show on screen at once. Lower values zoom in for more detail.
-          You can still scroll through the full 8-hour schedule.
-        </p>
-        <div className="settings-channel-count-options">
-          {[1, 2, 3, 4].map((hours) => (
-            <button
-              key={hours}
-              className={`settings-channel-count-btn ${guideHours === hours ? 'active' : ''}`}
-              onClick={() => handleGuideHoursChange(hours)}
-            >
-              {hours}h
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="settings-subsection">
-        <h4>TOTAL CHANNELS TO GENERATE</h4>
-        <p className="settings-field-hint">
-          Maximum number of channels to auto-generate when regenerating channels.
-          More channels = more variety but may spread content thinner.
+          Maximum channels to auto-generate. More channels = more variety but may spread content thinner.
         </p>
         <div className="settings-slider-container">
           <input
@@ -775,11 +779,13 @@ export default function DisplaySettings() {
         </div>
       </div>
 
+      {/* ── App ──────────────────────────────────────────── */}
+      <div className="settings-group-heading">APP</div>
+
       <div className="settings-subsection">
         <h4>INSTALL APP</h4>
         <p className="settings-field-hint">
-          Install Prevue as a progressive web app for quick access from your home screen or app drawer.
-          Works offline once installed.
+          Install Prevue as a progressive web app for quick access from your home screen.
         </p>
         {isInstalled ? (
           <div className="settings-pwa-installed">
@@ -819,17 +825,28 @@ export default function DisplaySettings() {
           </>
         ) : (
           <p className="settings-field-hint settings-pwa-hint">
-            Use your browser&apos;s menu to install (e.g. Chrome: ⋮ → Install app).
-            Or visit this page on a supported device.
+            Use your browser&apos;s menu to install (e.g. Chrome: ⋮ &rarr; Install app).
           </p>
         )}
       </div>
 
-      <div className="settings-subsection settings-danger-zone">
-        <h4>DANGER ZONE</h4>
+      <div className="settings-subsection">
+        <h4>ABOUT</h4>
         <p className="settings-field-hint">
-          Factory reset will delete all servers, channels, schedules, and settings.
-          This action cannot be undone.
+          Learn more about Prevue, its creator, and open-source credits.
+        </p>
+        <button
+          className="settings-btn-sm"
+          onClick={() => setShowAbout(true)}
+        >
+          ABOUT PREVUE
+        </button>
+      </div>
+
+      <div className="settings-subsection settings-danger-zone">
+        <h4>FACTORY RESET</h4>
+        <p className="settings-field-hint">
+          Delete all servers, channels, schedules, and settings. This cannot be undone.
         </p>
         {error && <div className="settings-error">{error}</div>}
         <button
@@ -848,19 +865,6 @@ export default function DisplaySettings() {
             CANCEL
           </button>
         )}
-      </div>
-
-      <div className="settings-subsection">
-        <h4>ABOUT</h4>
-        <p className="settings-field-hint">
-          Learn more about Prevue, its creator, and open-source credits.
-        </p>
-        <button
-          className="settings-btn-sm"
-          onClick={() => setShowAbout(true)}
-        >
-          ABOUT PREVUE
-        </button>
       </div>
 
       {showAbout && (
