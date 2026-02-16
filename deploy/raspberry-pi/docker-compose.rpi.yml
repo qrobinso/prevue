@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  prevue:
+    image: ghcr.io/user/prevue:latest
+    container_name: prevue
+    restart: unless-stopped
+
+    ports:
+      - "3080:3080"
+
+    volumes:
+      - /home/prevue/data:/app/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+
+    environment:
+      - PORT=3080
+      - PREVUE_ALLOW_PRIVATE_URLS=${PREVUE_ALLOW_PRIVATE_URLS:-1}
+      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY}
+      - PREVUE_API_KEY=${PREVUE_API_KEY:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - TRUST_PROXY=${TRUST_PROXY:-false}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    labels:
+      io.prevue.kiosk: "true"

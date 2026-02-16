@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal Openbox configuration for Prevue Kiosk -->
+<openbox_config xmlns="http://openbox.org/3.4/rc" xmlns:xi="http://www.w3.org/2001/XInclude">
+
+  <resistance>
+    <strength>10</strength>
+    <screen_edge_strength>20</screen_edge_strength>
+  </resistance>
+
+  <focus>
+    <focusNew>yes</focusNew>
+    <focusLast>yes</focusLast>
+    <focusLastOnDesktop>yes</focusLastOnDesktop>
+    <cyclerise>no</cyclerise>
+  </focus>
+
+  <placement>
+    <policy>UnderMouse</policy>
+    <center>yes</center>
+    <monitor>Primary</monitor>
+  </placement>
+
+  <theme>
+    <name>Clearlooks</name>
+    <titleLayout>NLIMC</titleLayout>
+    <keepBorder>yes</keepBorder>
+    <animateIconify>yes</animateIconify>
+    <font place="ActiveWindow">
+      <name>sans</name>
+      <size>8</size>
+      <weight>normal</weight>
+      <slant>normal</slant>
+    </font>
+    <font place="InactiveWindow">
+      <name>sans</name>
+      <size>8</size>
+      <weight>normal</weight>
+      <slant>normal</slant>
+    </font>
+  </theme>
+
+  <desktops>
+    <number>1</number>
+    <firstdesk>1</firstdesk>
+    <names>
+      <name>Desktop 1</name>
+    </names>
+    <popupTime>0</popupTime>
+  </desktops>
+
+  <resize>
+    <drawContents>yes</drawContents>
+    <popupShow>Never</popupShow>
+  </resize>
+
+  <!-- Minimal keyboard bindings - only emergency exit -->
+  <keyboard>
+    <!-- Alt+F4 to close current window (disabled for kiosk) -->
+    <!-- Ctrl+Alt+Backspace to exit X (not recommended) -->
+    <!-- F12 to open terminal for debugging (if needed) -->
+    <keybind key="F12">
+      <action name="Execute">
+        <command>lxterminal</command>
+      </action>
+    </keybind>
+  </keyboard>
+
+  <!-- Windows snap to edges -->
+  <windows>
+    <placement>
+      <policy>UnderMouse</policy>
+    </placement>
+    <decorations>no</decorations>
+    <animateIconify>yes</animateIconify>
+    <font place="ActiveWindow">
+      <name>sans</name>
+      <size>8</size>
+      <weight>bold</weight>
+      <slant>normal</slant>
+    </font>
+    <font place="InactiveWindow">
+      <name>sans</name>
+      <size>8</size>
+      <weight>normal</weight>
+      <slant>normal</slant>
+    </font>
+    <font place="MenuHeader">
+      <name>sans</name>
+      <size>8</size>
+      <weight>normal</weight>
+      <slant>normal</slant>
+    </font>
+    <font place="MenuItem">
+      <name>sans</name>
+      <size>8</size>
+      <weight>normal</weight>
+      <slant>normal</slant>
+    </font>
+    <font place="OnScreenDisplay">
+      <name>sans</name>
+      <size>8</size>
+      <weight>bold</weight>
+      <slant>normal</slant>
+    </font>
+  </windows>
+
+  <!-- Hide window decorations completely for kiosk -->
+  <applications>
+    <application class="chromium-browser">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <skip_taskbar>yes</skip_taskbar>
+      <skip_pager>yes</skip_pager>
+    </application>
+  </applications>
+
+</openbox_config>

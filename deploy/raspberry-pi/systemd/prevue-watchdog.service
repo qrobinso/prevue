@@ -1,0 +1,19 @@
+[Unit]
+Description=Prevue Health Watchdog
+Documentation=https://github.com/user/prevue
+After=prevue-docker.service
+PartOf=prevue.target
+
+[Service]
+Type=simple
+ExecStart=/home/prevue/deploy/maintenance/health-check.sh --daemon
+Restart=always
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+
+# Run as root for systemctl/docker commands
+User=root
+
+[Install]
+WantedBy=multi-user.target

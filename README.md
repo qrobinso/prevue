@@ -16,6 +16,31 @@ docker compose up -d
 Open `http://localhost:3080` in your browser.
 Then go to **Settings > Servers** to add your Jellyfin server.
 
+## Raspberry Pi Cable Box Deployment
+
+Transform your Raspberry Pi into a dedicated cable box connected to your TV via HDMI!
+
+```bash
+# One-command installation (on fresh Raspberry Pi OS)
+curl -fsSL https://raw.githubusercontent.com/user/prevue/master/deploy/raspberry-pi/install.sh | sudo bash
+```
+
+The system will:
+- Boot directly to fullscreen Prevue guide
+- Support TV remote control via HDMI-CEC
+- Auto-recover from crashes
+- Stream video via hardware acceleration
+
+**Features:**
+- ✓ Fullscreen kiosk mode (no desktop visible)
+- ✓ TV remote control (HDMI-CEC)
+- ✓ Keyboard/mouse fallback support
+- ✓ Auto-recovery on crashes
+- ✓ One-click updates
+- ✓ Works with local or remote Jellyfin
+
+For detailed setup and troubleshooting, see **[Raspberry Pi Deployment Guide](deploy/raspberry-pi/README-PI.md)**.
+
 ### Jellyfin Discovery in Docker
 
 If **Discover Servers** returns no results, this is usually Docker networking (not a Prevue bug).  

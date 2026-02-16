@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prevue - Loading</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #fff;
+      overflow: hidden;
+    }
+
+    .container {
+      text-align: center;
+      max-width: 600px;
+      padding: 40px;
+    }
+
+    .logo {
+      font-size: 48px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      letter-spacing: 2px;
+      color: #00d4ff;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+    }
+
+    .status {
+      font-size: 24px;
+      margin-bottom: 30px;
+      color: #ccc;
+      font-weight: 300;
+    }
+
+    .spinner {
+      display: inline-block;
+      position: relative;
+      width: 80px;
+      height: 80px;
+      margin: 30px 0;
+    }
+
+    .spinner div {
+      position: absolute;
+      border: 4px solid rgba(0, 212, 255, 0.3);
+      opacity: 1;
+      border-radius: 50%;
+      animation: spinner 1.2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+    }
+
+    .spinner div:nth-child(1) {
+      width: 80px;
+      height: 80px;
+      animation-delay: -0.36s;
+    }
+
+    .spinner div:nth-child(2) {
+      width: 60px;
+      height: 60px;
+      animation-delay: -0.24s;
+    }
+
+    .spinner div:nth-child(3) {
+      width: 40px;
+      height: 40px;
+      animation-delay: -0.12s;
+    }
+
+    @keyframes spinner {
+      0% {
+        top: 6px;
+        left: 6px;
+        width: 80px;
+        height: 80px;
+        opacity: 1;
+      }
+      100% {
+        top: 0;
+        left: 0;
+        width: 80px;
+        height: 80px;
+        opacity: 0;
+      }
+    }
+
+    .info {
+      font-size: 14px;
+      margin-top: 40px;
+      color: #999;
+      line-height: 1.6;
+    }
+
+    .info p {
+      margin-bottom: 10px;
+    }
+
+    .tip {
+      margin-top: 30px;
+      padding: 15px;
+      background: rgba(0, 212, 255, 0.1);
+      border-left: 4px solid #00d4ff;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #00d4ff;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">⬤ PREVUE</div>
+
+    <div class="status">Starting Cable Guide...</div>
+
+    <div class="spinner">
+      <div></div>
+      <div></div>
+      <div></div>
+      <div></div>
+    </div>
+
+    <div class="info">
+      <p>Initializing system</p>
+      <p id="wait-time">Estimated wait: ~45 seconds</p>
+    </div>
+
+    <div class="tip">
+      💡 Tip: Your remote control will work once the guide loads.
+    </div>
+  </div>
+
+  <script>
+    // Update wait time based on elapsed time
+    const startTime = Date.now();
+    const updateWaitTime = () => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.max(0, 45 - elapsed);
+      const element = document.getElementById('wait-time');
+      if (element) {
+        if (remaining > 0) {
+          element.textContent = `Estimated wait: ~${remaining}s`;
+        } else {
+          element.textContent = 'Almost ready...';
+        }
+      }
+    };
+
+    setInterval(updateWaitTime, 1000);
+
+    // Try to detect when Prevue is ready and auto-redirect
+    const checkForApp = () => {
+      fetch('http://localhost:3080/api/health', { mode: 'no-cors' })
+        .then(() => {
+          // If we get here, the app is ready
+          document.body.style.opacity = '0';
+          document.body.style.transition = 'opacity 0.5s ease-out';
+          setTimeout(() => {
+            window.location.href = 'http://localhost:3080';
+          }, 500);
+        })
+        .catch(() => {
+          // App not ready yet, try again
+          setTimeout(checkForApp, 2000);
+        });
+    };
+
+    // Start checking after 5 seconds (let services settle)
+    setTimeout(checkForApp, 5000);
+  </script>
+</body>
+</html>

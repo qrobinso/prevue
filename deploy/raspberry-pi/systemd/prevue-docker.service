@@ -1,0 +1,25 @@
+[Unit]
+Description=Prevue Docker Container
+Documentation=https://github.com/user/prevue
+Requires=docker.service network-online.target
+After=docker.service network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+PartOf=prevue.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/prevue
+ExecStartPre=/home/prevue/deploy/scripts/wait-for-network.sh
+ExecStart=/usr/bin/docker compose -f /home/prevue/docker-compose.rpi.yml up -d
+ExecStop=/usr/bin/docker compose -f /home/prevue/docker-compose.rpi.yml down
+TimeoutStartSec=300
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

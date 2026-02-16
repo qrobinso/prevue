@@ -1,0 +1,8 @@
+[Unit]
+Description=Prevue TV Guide System
+Documentation=https://github.com/user/prevue
+Wants=prevue-docker.service prevue-kiosk.service prevue-watchdog.service
+After=network-online.target
+
+[Install]
+WantedBy=graphical.target

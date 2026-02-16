@@ -1,0 +1,20 @@
+[Unit]
+Description=Prevue CEC Key Mapper (TV Remote Control)
+Documentation=https://github.com/user/prevue
+After=display-manager.service network-online.target
+PartOf=prevue.target
+
+[Service]
+Type=simple
+User=root
+Group=video
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/prevue/.Xauthority"
+ExecStart=/home/prevue/deploy/input/cec-daemon.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target
