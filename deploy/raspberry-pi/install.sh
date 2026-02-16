@@ -409,28 +409,64 @@ install_systemd_services() {
     "prevue-watchdog.service"
   )
 
+  local installed=0
   for service in "${SERVICES[@]}"; do
-    if [ -f "$DEPLOY_DIR/systemd/$service" ]; then
-      cp "$DEPLOY_DIR/systemd/$service" /etc/systemd/system/
-      log "Installed $service"
+    local src="$DEPLOY_DIR/systemd/$service"
+    if [ -f "$src" ]; then
+      if cp "$src" /etc/systemd/system/; then
+        log "Installed $service"
+        installed=$((installed + 1))
+      else
+        error "Failed to copy $service to /etc/systemd/system/"
+      fi
+    else
+      error "Service file not found: $src"
     fi
   done
 
+  if [ $installed -eq 0 ]; then
+    error "No systemd services were installed. Files may not have downloaded correctly."
+  fi
+
   # Reload systemd daemon
-  systemctl daemon-reload
-  success "Systemd services installed"
+  systemctl daemon-reload || error "Failed to reload systemd daemon"
+
+  if [ $installed -gt 0 ]; then
+    success "Systemd services installed ($installed/$((${#SERVICES[@]})))"
+  fi
 }
 
 # Enable services
 enable_services() {
   log "Enabling services..."
 
-  systemctl enable prevue.target || warn "Failed to enable prevue.target"
-  systemctl enable prevue-docker.service || warn "Failed to enable prevue-docker.service"
-  systemctl enable prevue-kiosk.service || warn "Failed to enable prevue-kiosk.service"
-  systemctl enable prevue-watchdog.service || warn "Failed to enable prevue-watchdog.service"
+  SERVICES=(
+    "prevue.target"
+    "prevue-docker.service"
+    "prevue-kiosk.service"
+    "prevue-watchdog.service"
+  )
 
-  success "Services enabled for auto-start"
+  local enabled=0
+  for service in "${SERVICES[@]}"; do
+    # Check if service exists first
+    if systemctl list-unit-files | grep -q "^${service}"; then
+      if systemctl enable "$service" > /dev/null 2>&1; then
+        log "Enabled $service"
+        enabled=$((enabled + 1))
+      else
+        error "Failed to enable $service"
+      fi
+    else
+      error "Service not found: $service"
+    fi
+  done
+
+  if [ $enabled -gt 0 ]; then
+    success "Services enabled for auto-start ($enabled/$((${#SERVICES[@]})))"
+  else
+    error "No services were enabled"
+  fi
 }
 
 # Configure auto-login
