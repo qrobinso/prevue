@@ -341,7 +341,7 @@ clone_repository() {
   local TEMP_REPO="/tmp/prevue-repo-$$"
   rm -rf "$TEMP_REPO"
 
-  if ! git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_REPO"; then
+  if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_REPO"; then
     error "Failed to clone repository from $REPO_URL. Check internet connection."
   fi
 
