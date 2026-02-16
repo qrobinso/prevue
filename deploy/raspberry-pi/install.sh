@@ -345,49 +345,29 @@ copy_deployment_files() {
     chown -R prevue:prevue "$DEPLOY_DIR"
     chmod +x "$DEPLOY_DIR"/kiosk/*.sh "$DEPLOY_DIR"/scripts/*.sh "$DEPLOY_DIR"/maintenance/*.sh "$DEPLOY_DIR"/input/*.sh 2>/dev/null || true
   else
-    # Download files from GitHub
-    log "Downloading deployment files from GitHub..."
+    # Clone full repository from GitHub (needed for Docker build to work)
+    log "Cloning full repository from GitHub..."
 
-    mkdir -p "$DEPLOY_DIR"/{systemd,kiosk,input,scripts,maintenance}
-
-    local files=(
-      "docker-compose.rpi.yml"
-      "systemd/prevue.target"
-      "systemd/prevue-docker.service"
-      "systemd/prevue-kiosk.service"
-      "systemd/prevue-watchdog.service"
-      "kiosk/start-kiosk.sh"
-      "kiosk/openbox-rc.xml"
-      "kiosk/splash.html"
-      "input/libcec-setup.sh"
-      "input/cec-daemon.sh"
-      "input/cec-keymapper.service"
-      "input/test-remote.sh"
-      "scripts/wait-for-network.sh"
-      "scripts/detect-display.sh"
-      "maintenance/health-check.sh"
-      "maintenance/update.sh"
-      "maintenance/backup.sh"
-      "maintenance/factory-reset.sh"
-    )
-
-    for file in "${files[@]}"; do
-      local url="https://raw.githubusercontent.com/qrobinso/prevue/master/deploy/raspberry-pi/$file"
-      local dest="$DEPLOY_DIR/$file"
-
-      log "Downloading: $file"
-      if curl -fL "$url" -o "$dest" 2>/dev/null; then
-        success "Downloaded: $file"
+    if [ -d "$INSTALL_DIR/.git" ]; then
+      log "Repository already cloned, updating..."
+      cd "$INSTALL_DIR"
+      sudo -u prevue git pull origin "$REPO_BRANCH" 2>/dev/null || log "Git pull had issues, continuing..."
+    else
+      log "Cloning repository to $INSTALL_DIR..."
+      if git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR" 2>&1 | grep -v "warning: redirecting"; then
+        success "Repository cloned successfully"
       else
-        error "Failed to download: $file (check internet connection)"
+        error "Failed to clone repository from GitHub. Check internet connection."
       fi
-    done
+    fi
 
-    success "All deployment files downloaded from GitHub"
+    chown -R prevue:prevue "$INSTALL_DIR"
 
-    # Set permissions
-    chown -R prevue:prevue "$DEPLOY_DIR"
+    # Ensure deployment directory exists and has correct permissions
+    mkdir -p "$DEPLOY_DIR"/{systemd,kiosk,input,scripts,maintenance}
     chmod +x "$DEPLOY_DIR"/kiosk/*.sh "$DEPLOY_DIR"/scripts/*.sh "$DEPLOY_DIR"/maintenance/*.sh "$DEPLOY_DIR"/input/*.sh 2>/dev/null || true
+
+    success "Deployment files ready from cloned repository"
   fi
 
   success "Deployment files ready"
