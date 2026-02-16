@@ -1,5 +1,5 @@
 [Unit]
-Description=Prevue Kiosk Display (Epiphany on Pi OS Desktop)
+Description=Prevue Kiosk Display (Chromium on Pi OS Desktop)
 Documentation=https://github.com/qrobinso/prevue
 Requires=prevue-docker.service
 After=prevue-docker.service graphical.target
@@ -12,6 +12,7 @@ Group=prevue
 Environment="DISPLAY=:0"
 Environment="HOME=/home/prevue"
 Environment="XAUTHORITY=/home/prevue/.Xauthority"
+Environment="XDG_RUNTIME_DIR=/run/user/1001"
 ExecStart=/home/prevue/deploy/raspberry-pi/kiosk/start-kiosk.sh
 Restart=always
 RestartSec=5

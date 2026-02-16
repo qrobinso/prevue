@@ -136,8 +136,6 @@ install_dependencies() {
     "git"
     "docker.io"
     "docker-compose"
-    "epiphany-browser"
-    "xdotool"
     "unclutter"
     "libcec-dev"
     "cec-utils"
@@ -258,6 +256,13 @@ test_jellyfin_connection() {
 # Configure system settings
 configure_system() {
   log "Configuring system settings..."
+
+  # Switch desktop to X11 (Wayland/labwc on Pi 5 breaks kiosk tools)
+  if command -v raspi-config &> /dev/null; then
+    log "Switching display server to X11..."
+    raspi-config nonint do_wayland W1 2>/dev/null || warn "Could not switch to X11 via raspi-config"
+    success "Display server set to X11"
+  fi
 
   # Disable screen blanking
   if ! grep -q "hdmi_blanking=" /boot/config.txt; then
@@ -439,20 +444,36 @@ enable_services() {
 
 # Configure auto-login
 configure_autologin() {
-  log "Configuring auto-login..."
+  log "Configuring auto-login for prevue user..."
 
-  # This varies by display manager, try lightdm first (common on Pi OS)
-  if command -v lightdm &> /dev/null; then
-    if [ -f /etc/lightdm/lightdm.conf ]; then
-      if ! grep -q "autologin-user=prevue" /etc/lightdm/lightdm.conf; then
-        sed -i '/\[seat:\*\]/a autologin-user=prevue' /etc/lightdm/lightdm.conf || true
-        log "Configured lightdm auto-login"
-      fi
-    fi
-  else
-    warn "lightdm not found, skipping auto-login configuration"
-    warn "You may need to manually log in as 'prevue' user after boot"
+  # Method 1: raspi-config (most reliable on Pi OS Bookworm)
+  if command -v raspi-config &> /dev/null; then
+    # B4 = Desktop autologin
+    raspi-config nonint do_boot_behaviour B4 2>/dev/null || true
+    log "Set desktop autologin via raspi-config"
   fi
+
+  # Method 2: lightdm config (set prevue as the autologin user)
+  if [ -f /etc/lightdm/lightdm.conf ]; then
+    # Replace any existing autologin-user with prevue
+    if grep -q "^autologin-user=" /etc/lightdm/lightdm.conf; then
+      sed -i 's/^autologin-user=.*/autologin-user=prevue/' /etc/lightdm/lightdm.conf
+    elif grep -q "\[Seat:\*\]" /etc/lightdm/lightdm.conf; then
+      sed -i '/\[Seat:\*\]/a autologin-user=prevue' /etc/lightdm/lightdm.conf
+    else
+      echo -e "\n[Seat:*]\nautologin-user=prevue" >> /etc/lightdm/lightdm.conf
+    fi
+    log "Configured lightdm autologin for prevue"
+  fi
+
+  # Method 3: AccountsService (Bookworm uses this)
+  mkdir -p /var/lib/AccountsService/users
+  cat > /var/lib/AccountsService/users/prevue << EOF
+[User]
+SystemAccount=false
+XSession=LXDE-pi
+EOF
+  log "Configured AccountsService for prevue"
 
   success "Auto-login configuration complete"
 }

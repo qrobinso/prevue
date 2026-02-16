@@ -1,6 +1,7 @@
 #!/bin/bash
 # Prevue Kiosk Mode Launcher
-# Launches browser fullscreen on Pi OS Desktop (display already running)
+# Launches Chromium in kiosk mode on Pi OS Desktop
+# Designed to run from XDG autostart (inside the desktop session)
 
 # Logging
 LOG_DIR="/home/prevue/logs"
@@ -12,6 +13,14 @@ log() {
 }
 
 log "Starting Prevue Kiosk..."
+
+# Detect display environment
+if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+  # Not running inside a desktop session - try to find one
+  export DISPLAY=:0
+  log "No display detected, defaulting to DISPLAY=:0"
+fi
+log "Display: DISPLAY=${DISPLAY:-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset}"
 
 # Check if Prevue API is ready
 log "Waiting for Prevue API to be ready..."
@@ -27,22 +36,31 @@ while ! curl -sf http://localhost:3080/api/health > /dev/null 2>&1; do
 done
 log "Prevue API is ready after ${ELAPSED}s"
 
-# Detect Epiphany browser binary
-if command -v epiphany &> /dev/null; then
+# Detect browser binary (prefer chromium since it has native --kiosk)
+BROWSER_BIN=""
+BROWSER_ARGS=""
+if command -v chromium-browser &> /dev/null; then
+  BROWSER_BIN="chromium-browser"
+  BROWSER_ARGS="--kiosk --noerrdialogs --disable-infobars --no-first-run --check-for-update-interval=31536000 --disable-features=Translate"
+elif command -v chromium &> /dev/null; then
+  BROWSER_BIN="chromium"
+  BROWSER_ARGS="--kiosk --noerrdialogs --disable-infobars --no-first-run --check-for-update-interval=31536000 --disable-features=Translate"
+elif command -v epiphany &> /dev/null; then
   BROWSER_BIN="epiphany"
+  BROWSER_ARGS=""
 elif command -v gnome-web &> /dev/null; then
   BROWSER_BIN="gnome-web"
+  BROWSER_ARGS=""
 else
-  log "ERROR: No Epiphany browser found. Install with: sudo apt install epiphany-browser"
+  log "ERROR: No supported browser found (tried chromium-browser, chromium, epiphany)"
   exit 1
 fi
 log "Using browser: $BROWSER_BIN"
 
-# Disable screensaver and screen blanking
+# Disable screensaver and screen blanking (X11 only, safe to fail on Wayland)
 xset s off 2>/dev/null || true
 xset -dpms 2>/dev/null || true
 xset s noblank 2>/dev/null || true
-xdg-screensaver reset 2>/dev/null || true
 
 # Hide mouse cursor after 1 second of inactivity
 if command -v unclutter &> /dev/null; then
@@ -50,34 +68,12 @@ if command -v unclutter &> /dev/null; then
   unclutter -idle 1 &
 fi
 
-# Launch Epiphany and force fullscreen
-log "Launching $BROWSER_BIN..."
-$BROWSER_BIN http://localhost:3080 &
+# Launch browser in kiosk mode
+log "Launching $BROWSER_BIN $BROWSER_ARGS http://localhost:3080"
+$BROWSER_BIN $BROWSER_ARGS http://localhost:3080 &
 BROWSER_PID=$!
 
-# Wait for browser window to appear, then force fullscreen
-log "Waiting for browser window..."
-ATTEMPTS=0
-while [ $ATTEMPTS -lt 30 ]; do
-  if xdotool search --name "Epiphany" >/dev/null 2>&1 || \
-     xdotool search --name "GNOME Web" >/dev/null 2>&1 || \
-     xdotool search --name "Prevue" >/dev/null 2>&1 || \
-     xdotool search --class "Epiphany" >/dev/null 2>&1; then
-    sleep 1
-    # Send F11 to toggle fullscreen
-    xdotool search --class "Epiphany" windowactivate --sync key F11 2>/dev/null || \
-    xdotool search --name "Prevue" windowactivate --sync key F11 2>/dev/null || \
-    xdotool key F11 2>/dev/null
-    log "Browser fullscreen activated"
-    break
-  fi
-  sleep 1
-  ATTEMPTS=$((ATTEMPTS + 1))
-done
-
-if [ $ATTEMPTS -ge 30 ]; then
-  log "WARNING: Could not detect browser window for fullscreen"
-fi
+log "Browser launched (PID: $BROWSER_PID)"
 
 # Wait for browser process to exit
 wait $BROWSER_PID 2>/dev/null

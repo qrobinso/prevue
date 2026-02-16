@@ -40,7 +40,7 @@ check_container_status() {
 
 # Check if browser process is running
 check_browser_status() {
-  pgrep -f "epiphany" > /dev/null 2>&1 || pgrep -f "gnome-web" > /dev/null 2>&1
+  pgrep -f "chromium" > /dev/null 2>&1 || pgrep -f "epiphany" > /dev/null 2>&1
   return $?
 }
 
