@@ -52,9 +52,7 @@ fi
 
 # Launch Epiphany and force fullscreen
 log "Launching $BROWSER_BIN..."
-$BROWSER_BIN \
-  --incognito \
-  http://localhost:3080 &
+$BROWSER_BIN http://localhost:3080 &
 BROWSER_PID=$!
 
 # Wait for browser window to appear, then force fullscreen
