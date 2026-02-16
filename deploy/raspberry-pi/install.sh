@@ -371,24 +371,19 @@ copy_deployment_files() {
       "maintenance/factory-reset.sh"
     )
 
-    local failed=0
     for file in "${files[@]}"; do
       local url="https://raw.githubusercontent.com/qrobinso/prevue/master/deploy/raspberry-pi/$file"
       local dest="$DEPLOY_DIR/$file"
 
-      if curl -fsSL "$url" -o "$dest"; then
-        log "Downloaded: $file"
+      log "Downloading: $file"
+      if curl -fL "$url" -o "$dest" 2>/dev/null; then
+        success "Downloaded: $file"
       else
-        warn "Failed to download: $file"
-        failed=$((failed + 1))
+        error "Failed to download: $file (check internet connection)"
       fi
     done
 
-    if [ $failed -gt 0 ]; then
-      warn "Failed to download $failed files"
-    else
-      success "All deployment files downloaded from GitHub"
-    fi
+    success "All deployment files downloaded from GitHub"
 
     # Set permissions
     chown -R prevue:prevue "$DEPLOY_DIR"
