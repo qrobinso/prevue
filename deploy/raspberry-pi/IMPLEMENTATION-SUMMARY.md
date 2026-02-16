@@ -59,7 +59,7 @@ deploy/raspberry-pi/
 ### ✅ Phase 1: Core Kiosk Functionality
 - [x] Docker Compose configuration optimized for Pi
 - [x] Systemd services (docker, kiosk, watchdog)
-- [x] Fullscreen Chromium launcher with hardware acceleration
+- [x] Fullscreen Epiphany launcher with hardware acceleration
 - [x] Minimal Openbox window manager configuration
 - [x] Loading splash screen
 
@@ -110,7 +110,7 @@ curl -fsSL https://...install.sh | sudo bash -s -- \
 - [x] Factory reset capability
 
 **Services:**
-- **health-check.sh:** Monitors API, Docker, Chromium, network
+- **health-check.sh:** Monitors API, Docker, Epiphany, network
 - **watchdog:** Auto-restarts failed components
 - **update.sh:** Updates to latest version with rollback
 - **backup.sh:** Encrypted backups with USB support
@@ -160,7 +160,7 @@ curl -fsSL https://...install.sh | sudo bash -s -- \
 ## Technical Highlights
 
 ### Hardware Acceleration
-**Chromium Kiosk Flags:**
+**Epiphany Kiosk Flags:**
 ```bash
 --enable-features=VaapiVideoDecoder    # Hardware video decode
 --use-gl=egl                            # GPU rendering
@@ -196,7 +196,7 @@ curl -fsSL https://...install.sh | sudo bash -s -- \
 2. `docker-compose.rpi.yml` - Docker configuration
 3. `systemd/prevue-docker.service` - Docker lifecycle
 4. `systemd/prevue-kiosk.service` - Display service
-5. `kiosk/start-kiosk.sh` - Chromium launcher
+5. `kiosk/start-kiosk.sh` - Epiphany launcher
 
 ### 📺 Display & Remote
 6. `kiosk/splash.html` - Loading screen
@@ -244,7 +244,7 @@ curl -fsSL https://...install.sh | sudo bash -s -- \
 
 ### Feature Testing
 - [ ] Docker auto-starts on boot
-- [ ] Chromium launches and displays guide
+- [ ] Epiphany launches and displays guide
 - [ ] CEC remote buttons work
 - [ ] Health watchdog restarts services
 - [ ] Updates work with backups
@@ -253,7 +253,7 @@ curl -fsSL https://...install.sh | sudo bash -s -- \
 - [ ] Power loss → graceful recovery
 - [ ] Network disconnection → reconnects
 - [ ] Docker crash → watchdog restarts
-- [ ] Chromium crash → kiosk restarts
+- [ ] Epiphany crash → kiosk restarts
 - [ ] API unresponsive → watchdog reboots
 
 ---

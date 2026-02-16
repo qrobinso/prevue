@@ -106,7 +106,13 @@
 
   <!-- Hide window decorations completely for kiosk -->
   <applications>
-    <application class="chromium-browser">
+    <application class="Epiphany">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <skip_taskbar>yes</skip_taskbar>
+      <skip_pager>yes</skip_pager>
+    </application>
+    <application class="gnome-web">
       <decor>no</decor>
       <maximized>yes</maximized>
       <skip_taskbar>yes</skip_taskbar>

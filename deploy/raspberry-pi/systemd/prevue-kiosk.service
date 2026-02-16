@@ -1,5 +1,5 @@
 [Unit]
-Description=Prevue Kiosk Display (Chromium)
+Description=Prevue Kiosk Display (Epiphany)
 Documentation=https://github.com/user/prevue
 Requires=prevue-docker.service
 After=prevue-docker.service graphical.target display-manager.service

@@ -38,9 +38,9 @@ check_container_status() {
   return $?
 }
 
-# Check if Chromium process is running
-check_chromium_status() {
-  pgrep -f "chromium-browser.*--kiosk" > /dev/null
+# Check if browser process is running
+check_browser_status() {
+  pgrep -x "epiphany\|gnome-web" > /dev/null
   return $?
 }
 
@@ -94,24 +94,24 @@ generate_report() {
 
   local api_ok=0
   local container_ok=0
-  local chromium_ok=0
+  local browser_ok=0
   local network_ok=0
   local timestamp=$(date -Is)
 
   check_api_health && api_ok=1
   check_container_status && container_ok=1
-  check_chromium_status && chromium_ok=1
+  check_browser_status && browser_ok=1
   check_network && network_ok=1
 
   if [ "$json_format" = true ]; then
     cat << EOF
 {
   "timestamp": "$timestamp",
-  "status": $((api_ok && container_ok && chromium_ok ? 1 : 0)),
+  "status": $((api_ok && container_ok && browser_ok ? 1 : 0)),
   "components": {
     "api": $api_ok,
     "container": $container_ok,
-    "chromium": $chromium_ok,
+    "chromium": $browser_ok,
     "network": $network_ok
   },
   "failures": $CONSECUTIVE_FAILURES
@@ -122,10 +122,10 @@ EOF
     echo "============================================"
     echo "API Health:           $([ $api_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
     echo "Docker Container:     $([ $container_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
-    echo "Chromium Browser:     $([ $chromium_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
+    echo "Browser Browser:     $([ $browser_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
     echo "Network Connectivity: $([ $network_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
     echo ""
-    echo "Overall Status: $([ $((api_ok && container_ok && chromium_ok)) -eq 1 ] && echo 'HEALTHY' || echo 'DEGRADED')"
+    echo "Overall Status: $([ $((api_ok && container_ok && browser_ok)) -eq 1 ] && echo 'HEALTHY' || echo 'DEGRADED')"
     echo "Consecutive Failures: $CONSECUTIVE_FAILURES/$RESTART_THRESHOLD"
   fi
 }
@@ -134,7 +134,7 @@ EOF
 perform_health_check() {
   local api_failed=false
   local container_failed=false
-  local chromium_failed=false
+  local browser_failed=false
   local network_failed=false
 
   # Perform individual checks
@@ -146,8 +146,8 @@ perform_health_check() {
     container_failed=true
   fi
 
-  if ! check_chromium_status; then
-    chromium_failed=true
+  if ! check_browser_status; then
+    browser_failed=true
   fi
 
   if ! check_network; then
@@ -160,7 +160,7 @@ perform_health_check() {
     log "Health check failed (failure count: $CONSECUTIVE_FAILURES/3)"
     log "  API: $([ "$api_failed" = true ] && echo 'FAILED' || echo 'OK')"
     log "  Container: $([ "$container_failed" = true ] && echo 'FAILED' || echo 'OK')"
-    log "  Chromium: $([ "$chromium_failed" = true ] && echo 'FAILED' || echo 'OK')"
+    log "  Browser: $([ "$browser_failed" = true ] && echo 'FAILED' || echo 'OK')"
     log "  Network: $([ "$network_failed" = true ] && echo 'FAILED' || echo 'OK')"
 
     # Take recovery action based on failure count
@@ -168,7 +168,7 @@ perform_health_check() {
       log "Restarting Docker container..."
       restart_docker || log "Failed to restart Docker"
 
-    elif [ $CONSECUTIVE_FAILURES -eq 2 ] && [ "$chromium_failed" = true ]; then
+    elif [ $CONSECUTIVE_FAILURES -eq 2 ] && [ "$browser_failed" = true ]; then
       log "Restarting kiosk service..."
       restart_kiosk || log "Failed to restart kiosk"
 

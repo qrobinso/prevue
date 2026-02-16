@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/user/prevue/master/deploy/raspberry
 
 The script will:
 1. ✓ Detect your Raspberry Pi model
-2. ✓ Install dependencies (Docker, Chromium, HDMI-CEC, etc.)
+2. ✓ Install dependencies (Docker, Epiphany browser, HDMI-CEC, etc.)
 3. ✓ Prompt for Jellyfin server configuration
 4. ✓ Create systemd services for auto-start
 5. ✓ Reboot and boot directly to Prevue
@@ -174,7 +174,7 @@ The system attempts to:
 
 Services auto-start on boot:
 - `prevue-docker.service` - Prevue server
-- `prevue-kiosk.service` - Chromium display
+- `prevue-kiosk.service` - Epiphany browser display
 - `prevue-watchdog.service` - Health monitoring
 
 ### Manual Control
@@ -307,7 +307,7 @@ sudo /home/prevue/deploy/input/test-remote.sh
 - SSH in and control via API
 - Use Prevue web UI from phone/computer
 
-### Chromium Crashes or Freezes
+### Browser Crashes or Freezes
 
 **Symptom:** Screen goes black, frozen
 
@@ -319,11 +319,12 @@ sudo /home/prevue/deploy/input/test-remote.sh
   ```
 
 **Prevention:**
-- Check GPU memory allocation:
+- Epiphany is lightweight and rarely crashes
+- If issues occur, check system resources:
   ```bash
-  grep gpu_mem /boot/config.txt
+  free -h  # Check available RAM
+  top     # Monitor CPU/memory usage
   ```
-  Should show `gpu_mem=128` or higher
 
 ### High CPU Temperature
 

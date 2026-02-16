@@ -136,7 +136,7 @@ install_dependencies() {
     "git"
     "docker.io"
     "docker-compose"
-    "chromium"
+    "epiphany-browser"
     "openbox"
     "xserver-xorg"
     "xserver-xorg-core"

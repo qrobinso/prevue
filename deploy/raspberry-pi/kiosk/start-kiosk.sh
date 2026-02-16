@@ -30,16 +30,16 @@ while ! curl -sf http://localhost:3080/api/health > /dev/null 2>&1; do
 done
 log "Prevue API is ready after ${ELAPSED}s"
 
-# Detect chromium binary name
-if command -v chromium &> /dev/null; then
-  CHROMIUM_BIN="chromium"
-elif command -v chromium-browser &> /dev/null; then
-  CHROMIUM_BIN="chromium-browser"
+# Detect Epiphany browser binary
+if command -v epiphany &> /dev/null; then
+  BROWSER_BIN="epiphany"
+elif command -v gnome-web &> /dev/null; then
+  BROWSER_BIN="gnome-web"
 else
-  log "ERROR: No Chromium browser found. Install with: sudo apt install chromium"
+  log "ERROR: No Epiphany browser found. Install with: sudo apt install epiphany-browser"
   exit 1
 fi
-log "Using browser: $CHROMIUM_BIN"
+log "Using browser: $BROWSER_BIN"
 
 # Start X server if not already running
 if ! pgrep -x "Xorg" > /dev/null && ! pgrep -x "X" > /dev/null; then
@@ -58,35 +58,9 @@ if ! pgrep -x "Xorg" > /dev/null && ! pgrep -x "X" > /dev/null; then
     # Hide mouse cursor
     unclutter -idle 1 &
 
-    # Launch Chromium in kiosk mode
-    $CHROMIUM_BIN \\
-      --kiosk \\
-      --no-first-run \\
-      --no-default-browser-check \\
-      --noerrdialogs \\
-      --disable-infobars \\
-      --disable-session-crashed-bubble \\
-      --disable-translate \\
-      --disable-component-update \\
-      --disable-features=TranslateUI \\
-      --check-for-update-interval=31536000 \\
-      --enable-features=VaapiVideoDecoder \\
-      --use-gl=egl \\
-      --ignore-gpu-blocklist \\
-      --enable-gpu-rasterization \\
-      --enable-zero-copy \\
-      --enable-hardware-overlays \\
-      --disable-smooth-scrolling \\
-      --autoplay-policy=no-user-gesture-required \\
-      --force-dark-mode \\
-      --disable-background-networking \\
-      --disable-breakpad \\
-      --disable-client-side-phishing-detection \\
-      --disable-default-apps \\
-      --disable-extensions \\
-      --disable-password-manager-ui \\
-      --disable-sync \\
-      --metrics-recording-only \\
+    # Launch Epiphany in fullscreen mode
+    $BROWSER_BIN \\
+      --incognito \\
       http://localhost:3080
   " -- :0 vt1 2>&1 | tee -a "$LOG_FILE"
 else
@@ -106,35 +80,9 @@ else
   # Hide mouse cursor
   unclutter -idle 1 &
 
-  # Launch Chromium
-  $CHROMIUM_BIN \
-    --kiosk \
-    --no-first-run \
-    --no-default-browser-check \
-    --noerrdialogs \
-    --disable-infobars \
-    --disable-session-crashed-bubble \
-    --disable-translate \
-    --disable-component-update \
-    --disable-features=TranslateUI \
-    --check-for-update-interval=31536000 \
-    --enable-features=VaapiVideoDecoder \
-    --use-gl=egl \
-    --ignore-gpu-blocklist \
-    --enable-gpu-rasterization \
-    --enable-zero-copy \
-    --enable-hardware-overlays \
-    --disable-smooth-scrolling \
-    --autoplay-policy=no-user-gesture-required \
-    --force-dark-mode \
-    --disable-background-networking \
-    --disable-breakpad \
-    --disable-client-side-phishing-detection \
-    --disable-default-apps \
-    --disable-extensions \
-    --disable-password-manager-ui \
-    --disable-sync \
-    --metrics-recording-only \
+  # Launch Epiphany in fullscreen mode
+  $BROWSER_BIN \
+    --incognito \
     http://localhost:3080 2>&1 | tee -a "$LOG_FILE"
 fi
 
