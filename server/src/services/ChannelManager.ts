@@ -182,7 +182,7 @@ export class ChannelManager {
       // Filter items based on preset filter
       let filteredItems = this.filterItemsByChannelFilter(libraryItems, preset.filter);
 
-      // Apply global content filters (content types, blocked ratings, blocked genres)
+      // Apply global content filters (content types, blocked ratings, blocked genres, unwatched)
       filteredItems = filteredItems.filter(item => {
         // Content type filter
         if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
@@ -194,6 +194,8 @@ export class ChannelManager {
         for (const genre of itemGenres) {
           if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
         }
+        // Unwatched only filter
+        if (settings.unwatchedOnly && item.UserData?.Played) return false;
         return true;
       });
 
@@ -311,6 +313,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
@@ -340,6 +343,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
@@ -637,6 +641,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1601,10 +1606,11 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
-        
+
         if (duration >= MIN_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: decade.name, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1842,17 +1848,19 @@ export class ChannelManager {
     return name;
   }
 
-  private getFilterSettings(): { 
-    genreFilter: { mode: string; genres: string[] }; 
+  private getFilterSettings(): {
+    genreFilter: { mode: string; genres: string[] };
     contentTypes: { movies: boolean; tv_shows: boolean };
     ratingFilter: { mode: string; ratings: string[]; ratingSystem: string };
     separateContentTypes: boolean;
+    unwatchedOnly: boolean;
   } {
     const genreFilter = (queries.getSetting(this.db, 'genre_filter') as { mode: string; genres: string[] }) || { mode: 'allow', genres: [] };
     const contentTypes = (queries.getSetting(this.db, 'content_types') as { movies: boolean; tv_shows: boolean }) || { movies: true, tv_shows: true };
     const ratingFilter = (queries.getSetting(this.db, 'rating_filter') as { mode: string; ratings: string[]; ratingSystem: string }) || { mode: 'allow', ratings: [], ratingSystem: 'us' };
     const separateContentTypes = (queries.getSetting(this.db, 'separate_content_types') as boolean) ?? true;
-    return { genreFilter, contentTypes, ratingFilter, separateContentTypes };
+    const unwatchedOnly = (queries.getSetting(this.db, 'unwatched_only') as boolean) ?? false;
+    return { genreFilter, contentTypes, ratingFilter, separateContentTypes, unwatchedOnly };
   }
 
   private isRatingAllowed(rating: string | undefined, filter: { mode: string; ratings: string[] }): boolean {

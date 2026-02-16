@@ -1165,6 +1165,102 @@
   50% { opacity: 1; }
 }
 
+/* ── Filter Status Bar ──────────────────────────── */
+.filter-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.filter-status-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-status-blocked {
+  font-family: var(--font-retro);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-red);
+  background: rgba(255, 82, 82, 0.1);
+  border: 1px solid rgba(255, 82, 82, 0.3);
+  border-radius: 12px;
+  padding: 4px 10px;
+}
+
+.filter-status-unrated {
+  opacity: 0.8;
+}
+
+.filter-status-pill {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: 12px;
+  padding: 4px 10px;
+}
+
+/* ── Collapsible Filter Sections ───────────────── */
+.filter-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.filter-section-header:active {
+  opacity: 0.8;
+}
+
+.filter-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-section-title h4 {
+  margin: 0;
+}
+
+.filter-section-badge {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--accent-red);
+  background: rgba(255, 82, 82, 0.12);
+  border: 1px solid rgba(255, 82, 82, 0.25);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+
+.filter-section-chevron {
+  font-size: 14px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  transform: rotate(-90deg);
+}
+
+.filter-section-chevron-open {
+  transform: rotate(0deg);
+}
+
+.filter-section-body {
+  margin-top: 12px;
+}
+
 /* ── Create Tabs ─────────────────────────────────── */
 .settings-create-tabs {
   display: flex;
@@ -2543,6 +2639,38 @@
 
   .settings-rating-items {
     grid-template-columns: 1fr;
+  }
+
+  /* Filter status bar - stack on mobile */
+  .filter-status-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .filter-status-left {
+    width: 100%;
+  }
+
+  /* Filter section headers - larger touch targets */
+  .filter-section-header {
+    min-height: 44px;
+    padding: 4px 0;
+  }
+
+  .filter-section-badge {
+    font-size: 8px;
+  }
+
+  /* Genre items - larger touch targets */
+  .settings-genre-item {
+    padding: 12px 14px;
+    min-height: 48px;
+  }
+
+  /* Rating items - larger touch targets */
+  .settings-rating-item {
+    padding: 12px 14px;
+    min-height: 48px;
   }
 
   .settings-list-item {

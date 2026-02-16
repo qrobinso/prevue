@@ -158,14 +158,19 @@ export default function FilterSettings() {
   const [unratedCount, setUnratedCount] = useState(0);
   const [genreFilter, setGenreFilter] = useState<{ mode: string; genres: string[] }>({ mode: 'allow', genres: [] });
   const [contentTypes, setContentTypes] = useState<{ movies: boolean; tv_shows: boolean }>({ movies: true, tv_shows: true });
-  const [ratingFilter, setRatingFilter] = useState<{ mode: string; ratings: string[]; ratingSystem: string }>({ 
+  const [ratingFilter, setRatingFilter] = useState<{ mode: string; ratings: string[]; ratingSystem: string }>({
     mode: 'allow', // Always 'allow' mode (block selected)
-    ratings: [], 
-    ratingSystem: 'us' 
+    ratings: [],
+    ratingSystem: 'us'
   });
+  const [unwatchedOnly, setUnwatchedOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  
+
+  // Collapsible section state
+  const [ratingsOpen, setRatingsOpen] = useState(true);
+  const [genresOpen, setGenresOpen] = useState(true);
+
   // Track if filters have changed since initial load
   const hasChangedRef = useRef(false);
   const initialLoadRef = useRef(true);
@@ -175,7 +180,8 @@ export default function FilterSettings() {
   const autoSave = useCallback(async (
     newGenreFilter: typeof genreFilter,
     newContentTypes: typeof contentTypes,
-    newRatingFilter: typeof ratingFilter
+    newRatingFilter: typeof ratingFilter,
+    newUnwatchedOnly: boolean
   ) => {
     // Clear any pending save
     if (saveTimeoutRef.current) {
@@ -190,6 +196,7 @@ export default function FilterSettings() {
           genre_filter: newGenreFilter,
           content_types: newContentTypes,
           rating_filter: newRatingFilter,
+          unwatched_only: newUnwatchedOnly,
         });
         hasChangedRef.current = true;
       } catch {
@@ -221,6 +228,9 @@ export default function FilterSettings() {
           const filter = settingsData.rating_filter as { mode: string; ratings: string[]; ratingSystem: string };
           setRatingFilter({ ...filter, mode: 'allow' });
         }
+        if (typeof settingsData.unwatched_only === 'boolean') {
+          setUnwatchedOnly(settingsData.unwatched_only as boolean);
+        }
         setGenres(genresData);
         if (Array.isArray(ratingsData)) {
           setRatings(ratingsData);
@@ -249,7 +259,7 @@ export default function FilterSettings() {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-      
+
       // If filters changed, regenerate channels
       if (hasChangedRef.current) {
         regenerateChannels().catch(() => {
@@ -265,12 +275,12 @@ export default function FilterSettings() {
         ? prev.genres.filter(g => g !== genre)
         : [...prev.genres, genre];
       const newFilter = { ...prev, genres: newGenres };
-      
+
       // Auto-save after change
       if (!initialLoadRef.current) {
-        autoSave(newFilter, contentTypes, ratingFilter);
+        autoSave(newFilter, contentTypes, ratingFilter, unwatchedOnly);
       }
-      
+
       return newFilter;
     });
   };
@@ -281,12 +291,12 @@ export default function FilterSettings() {
         ? prev.ratings.filter(r => r !== rating)
         : [...prev.ratings, rating];
       const newFilter = { ...prev, ratings: newRatings };
-      
+
       // Auto-save after change
       if (!initialLoadRef.current) {
-        autoSave(genreFilter, contentTypes, newFilter);
+        autoSave(genreFilter, contentTypes, newFilter, unwatchedOnly);
       }
-      
+
       return newFilter;
     });
   };
@@ -298,14 +308,22 @@ export default function FilterSettings() {
         ratingSystem: systemId,
         ratings: [], // Clear selections when changing systems
       };
-      
+
       // Auto-save after change
       if (!initialLoadRef.current) {
-        autoSave(genreFilter, contentTypes, newFilter);
+        autoSave(genreFilter, contentTypes, newFilter, unwatchedOnly);
       }
-      
+
       return newFilter;
     });
+  };
+
+  const handleUnwatchedToggle = () => {
+    const newValue = !unwatchedOnly;
+    setUnwatchedOnly(newValue);
+    if (!initialLoadRef.current) {
+      autoSave(genreFilter, contentTypes, ratingFilter, newValue);
+    }
   };
 
   const getCurrentRatingSystem = () => {
@@ -320,12 +338,12 @@ export default function FilterSettings() {
   // Calculate total blocked items
   const getBlockedItemCount = (): number => {
     let blocked = 0;
-    
+
     // Count blocked ratings
     for (const rating of ratingFilter.ratings) {
       blocked += getRatingCount(rating);
     }
-    
+
     // Count blocked genres
     for (const genre of genreFilter.genres) {
       const genreInfo = genres.find(g => g.genre === genre);
@@ -333,7 +351,7 @@ export default function FilterSettings() {
         blocked += genreInfo.count;
       }
     }
-    
+
     return blocked;
   };
 
@@ -352,110 +370,167 @@ export default function FilterSettings() {
     <div className="settings-section">
       <h3>Content Filters</h3>
 
-      <div className="settings-blocked-count-row">
-        {blockedCount > 0 && (
-          <div className="settings-blocked-count">
-            <span className="settings-blocked-icon">🚫</span>
-            <span className="settings-blocked-text">{blockedCount.toLocaleString()} items blocked</span>
-            {hasRatingBlocks && unratedCount > 0 && (
-              <span className="settings-blocked-unrated">
-                ({unratedCount.toLocaleString()} with no rating)
-              </span>
-            )}
-          </div>
-        )}
+      {/* Status bar */}
+      <div className="filter-status-bar">
+        <div className="filter-status-left">
+          {blockedCount > 0 && (
+            <span className="filter-status-blocked">
+              {blockedCount.toLocaleString()} blocked
+              {hasRatingBlocks && unratedCount > 0 && (
+                <span className="filter-status-unrated"> + {unratedCount.toLocaleString()} unrated</span>
+              )}
+            </span>
+          )}
+          {unwatchedOnly && (
+            <span className="filter-status-pill">Unwatched only</span>
+          )}
+        </div>
         {saving && (
           <span className="settings-autosave-indicator">Saving...</span>
         )}
       </div>
 
+      {/* Unwatched Only Toggle */}
       <div className="settings-subsection">
-        <h4>Content Rating Filter</h4>
-        <p className="settings-description">
-          Select ratings to block from your channels.
-        </p>
-        
-        <div className="settings-field">
-          <label>Rating System</label>
-          <select
-            value={ratingFilter.ratingSystem}
-            onChange={e => handleRatingSystemChange(e.target.value)}
-          >
-            {RATING_SYSTEMS.map(system => (
-              <option key={system.id} value={system.id}>
-                {system.name}
-              </option>
-            ))}
-          </select>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={unwatchedOnly}
+              onChange={handleUnwatchedToggle}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            Unwatched content only
+          </span>
         </div>
+        <p className="settings-field-hint">
+          Only include content you haven't finished watching. Removes fully watched movies and episodes from all channels.
+        </p>
+      </div>
 
-        <div className="settings-rating-grid">
-          {getCurrentRatingSystem().categories.map(category => (
-            <div key={category.id} className="settings-rating-category">
-              <h5>{category.name}</h5>
-              <div className="settings-rating-items">
-                {category.ratings.map(rating => {
-                  const count = getRatingCount(rating.code);
-                  const isBlocked = ratingFilter.ratings.includes(rating.code);
+      {/* Content Ratings - Collapsible */}
+      <div className="settings-subsection">
+        <button
+          className="filter-section-header"
+          onClick={() => setRatingsOpen(!ratingsOpen)}
+        >
+          <div className="filter-section-title">
+            <h4>Content Ratings</h4>
+            {ratingFilter.ratings.length > 0 && (
+              <span className="filter-section-badge">{ratingFilter.ratings.length} blocked</span>
+            )}
+          </div>
+          <span className={`filter-section-chevron ${ratingsOpen ? 'filter-section-chevron-open' : ''}`}>&#9662;</span>
+        </button>
+
+        {ratingsOpen && (
+          <div className="filter-section-body">
+            <p className="settings-description">
+              Select ratings to block from your channels.
+            </p>
+
+            <div className="settings-field">
+              <label>Rating System</label>
+              <select
+                value={ratingFilter.ratingSystem}
+                onChange={e => handleRatingSystemChange(e.target.value)}
+              >
+                {RATING_SYSTEMS.map(system => (
+                  <option key={system.id} value={system.id}>
+                    {system.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="settings-rating-grid">
+              {getCurrentRatingSystem().categories.map(category => (
+                <div key={category.id} className="settings-rating-category">
+                  <h5>{category.name}</h5>
+                  <div className="settings-rating-items">
+                    {category.ratings.map(rating => {
+                      const count = getRatingCount(rating.code);
+                      const isBlocked = ratingFilter.ratings.includes(rating.code);
+                      return (
+                        <label
+                          key={rating.code}
+                          className={`settings-rating-item ${isBlocked ? 'settings-rating-blocked' : ''}`}
+                          title={rating.description}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isBlocked}
+                            onChange={() => toggleRating(rating.code)}
+                          />
+                          <div className="settings-rating-info">
+                            <span className="settings-rating-code">{rating.code}</span>
+                            <span className="settings-rating-name">{rating.name}</span>
+                            {rating.minAge !== undefined && rating.minAge > 0 && (
+                              <span className="settings-rating-age">{rating.minAge}+</span>
+                            )}
+                            {count > 0 && (
+                              <span className="settings-rating-count">{count} items</span>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Genre Filter - Collapsible */}
+      <div className="settings-subsection">
+        <button
+          className="filter-section-header"
+          onClick={() => setGenresOpen(!genresOpen)}
+        >
+          <div className="filter-section-title">
+            <h4>Genres</h4>
+            {genreFilter.genres.length > 0 && (
+              <span className="filter-section-badge">{genreFilter.genres.length} blocked</span>
+            )}
+          </div>
+          <span className={`filter-section-chevron ${genresOpen ? 'filter-section-chevron-open' : ''}`}>&#9662;</span>
+        </button>
+
+        {genresOpen && (
+          <div className="filter-section-body">
+            <p className="settings-description">
+              Select genres to block from your channels.
+            </p>
+
+            {genres.length === 0 ? (
+              <div className="settings-empty">Connect a server to see available genres.</div>
+            ) : (
+              <div className="settings-genre-grid">
+                {genres.map(g => {
+                  const isBlocked = genreFilter.genres.includes(g.genre);
                   return (
                     <label
-                      key={rating.code}
-                      className={`settings-rating-item ${isBlocked ? 'settings-rating-blocked' : ''}`}
-                      title={rating.description}
+                      key={g.genre}
+                      className={`settings-genre-item ${isBlocked ? 'settings-genre-blocked' : ''}`}
                     >
                       <input
                         type="checkbox"
                         checked={isBlocked}
-                        onChange={() => toggleRating(rating.code)}
+                        onChange={() => toggleGenre(g.genre)}
                       />
-                      <div className="settings-rating-info">
-                        <span className="settings-rating-code">{rating.code}</span>
-                        <span className="settings-rating-name">{rating.name}</span>
-                        {rating.minAge !== undefined && rating.minAge > 0 && (
-                          <span className="settings-rating-age">{rating.minAge}+</span>
-                        )}
-                        {count > 0 && (
-                          <span className="settings-rating-count">{count} items</span>
-                        )}
+                      <div className="settings-genre-info">
+                        <span className="settings-genre-name">{g.genre}</span>
+                        <span className="settings-genre-stats">{g.count} items &middot; {formatDuration(g.totalDurationMs)}</span>
                       </div>
                     </label>
                   );
                 })}
               </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="settings-subsection">
-        <h4>Genre Filter</h4>
-        <p className="settings-description">
-          Select genres to block from your channels.
-        </p>
-
-        {genres.length === 0 ? (
-          <div className="settings-empty">Connect a server to see available genres.</div>
-        ) : (
-          <div className="settings-genre-grid">
-            {genres.map(g => {
-              const isBlocked = genreFilter.genres.includes(g.genre);
-              return (
-                <label
-                  key={g.genre}
-                  className={`settings-genre-item ${isBlocked ? 'settings-genre-blocked' : ''}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isBlocked}
-                    onChange={() => toggleGenre(g.genre)}
-                  />
-                  <div className="settings-genre-info">
-                    <span className="settings-genre-name">{g.genre}</span>
-                    <span className="settings-genre-stats">{g.count} items &middot; {formatDuration(g.totalDurationMs)}</span>
-                  </div>
-                </label>
-              );
-            })}
+            )}
           </div>
         )}
       </div>

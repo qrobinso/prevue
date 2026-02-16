@@ -23,6 +23,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'visible_channels',
   'openrouter_api_key',
   'openrouter_model',
+  'unwatched_only',
 ]);
 
 // GET /api/settings - Get all settings
