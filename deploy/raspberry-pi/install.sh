@@ -336,7 +336,7 @@ EOF
 
 # Copy deployment files
 copy_deployment_files() {
-  log "Copying deployment files..."
+  log "Setting up deployment files..."
 
   # Check if this is being run from a git clone
   if [ -d "deploy/raspberry-pi" ]; then
@@ -345,12 +345,57 @@ copy_deployment_files() {
     chown -R prevue:prevue "$DEPLOY_DIR"
     chmod +x "$DEPLOY_DIR"/kiosk/*.sh "$DEPLOY_DIR"/scripts/*.sh "$DEPLOY_DIR"/maintenance/*.sh "$DEPLOY_DIR"/input/*.sh 2>/dev/null || true
   else
-    warn "Deployment files not found in current directory"
-    warn "This script should be run from the Prevue repository root"
-    warn "Some features may not work correctly"
+    # Download files from GitHub
+    log "Downloading deployment files from GitHub..."
+
+    mkdir -p "$DEPLOY_DIR"/{systemd,kiosk,input,scripts,maintenance}
+
+    local files=(
+      "docker-compose.rpi.yml"
+      "systemd/prevue.target"
+      "systemd/prevue-docker.service"
+      "systemd/prevue-kiosk.service"
+      "systemd/prevue-watchdog.service"
+      "kiosk/start-kiosk.sh"
+      "kiosk/openbox-rc.xml"
+      "kiosk/splash.html"
+      "input/libcec-setup.sh"
+      "input/cec-daemon.sh"
+      "input/cec-keymapper.service"
+      "input/test-remote.sh"
+      "scripts/wait-for-network.sh"
+      "scripts/detect-display.sh"
+      "maintenance/health-check.sh"
+      "maintenance/update.sh"
+      "maintenance/backup.sh"
+      "maintenance/factory-reset.sh"
+    )
+
+    local failed=0
+    for file in "${files[@]}"; do
+      local url="https://raw.githubusercontent.com/qrobinso/prevue/master/deploy/raspberry-pi/$file"
+      local dest="$DEPLOY_DIR/$file"
+
+      if curl -fsSL "$url" -o "$dest"; then
+        log "Downloaded: $file"
+      else
+        warn "Failed to download: $file"
+        failed=$((failed + 1))
+      fi
+    done
+
+    if [ $failed -gt 0 ]; then
+      warn "Failed to download $failed files"
+    else
+      success "All deployment files downloaded from GitHub"
+    fi
+
+    # Set permissions
+    chown -R prevue:prevue "$DEPLOY_DIR"
+    chmod +x "$DEPLOY_DIR"/kiosk/*.sh "$DEPLOY_DIR"/scripts/*.sh "$DEPLOY_DIR"/maintenance/*.sh "$DEPLOY_DIR"/input/*.sh 2>/dev/null || true
   fi
 
-  success "Deployment files copied"
+  success "Deployment files ready"
 }
 
 # Install systemd services
