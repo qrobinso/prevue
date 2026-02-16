@@ -119,4 +119,6 @@ All endpoints prefixed with `/api`:
 
 ## License
 
-MIT
+This project is licensed under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+**You are free to use, share, and modify this software for non-commercial purposes.** Commercial use requires explicit permission from the copyright holder.
