@@ -19,7 +19,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_URL="https://github.com/user/prevue"
+REPO_URL="https://github.com/qrobinso/prevue.git"
 REPO_BRANCH="master"
 INSTALL_DIR="/home/prevue"
 DEPLOY_DIR="$INSTALL_DIR/deploy/raspberry-pi"
@@ -136,7 +136,7 @@ install_dependencies() {
     "git"
     "docker.io"
     "docker-compose"
-    "chromium-browser"
+    "chromium"
     "openbox"
     "xserver-xorg"
     "xserver-xorg-core"
@@ -145,7 +145,6 @@ install_dependencies() {
     "xinit"
     "unclutter"
     "libcec-dev"
-    "libcec4"
     "cec-utils"
     "python3"
     "python3-pip"
@@ -156,7 +155,7 @@ install_dependencies() {
       log "$dep already installed"
     else
       log "Installing $dep..."
-      apt-get install -y "$dep" 2>&1 | grep -v "^Get:" | grep -v "^Unpacking" || warn "Failed to install $dep"
+      apt-get install -y "$dep" 2>&1 | grep -v "^Get:" | grep -v "^Unpacking" || warn "Failed to install $dep (non-critical)"
     fi
   done
 
@@ -334,48 +333,42 @@ EOF
   success "Environment file created at $INSTALL_DIR/.env"
 }
 
-# Copy deployment files
-copy_deployment_files() {
-  log "Setting up deployment files..."
+# Clone repository and set up deployment files
+clone_repository() {
+  log "Cloning Prevue repository from GitHub..."
 
-  # Check if this is being run from a git clone
-  if [ -d "deploy/raspberry-pi" ]; then
-    log "Found deployment files in current directory"
-    cp -r deploy/raspberry-pi "$INSTALL_DIR/"
-    chown -R prevue:prevue "$DEPLOY_DIR"
-    chmod +x "$DEPLOY_DIR"/kiosk/*.sh "$DEPLOY_DIR"/scripts/*.sh "$DEPLOY_DIR"/maintenance/*.sh "$DEPLOY_DIR"/input/*.sh 2>/dev/null || true
-  else
-    # Clone full repository from GitHub (needed for Docker build to work)
-    log "Cloning full repository from GitHub..."
+  # Clone into temp directory, then move files to install dir
+  local TEMP_REPO="/tmp/prevue-repo-$$"
+  rm -rf "$TEMP_REPO"
 
-    # Clone into temp directory since /home/prevue already exists
-    local TEMP_REPO="/tmp/prevue-repo-$$"
-
-    if git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_REPO" 2>&1 | grep -v "warning: redirecting"; then
-      success "Repository cloned to temporary location"
-
-      # Move all files from temp repo to install directory
-      log "Moving repository files to $INSTALL_DIR..."
-      cp -r "$TEMP_REPO"/* "$INSTALL_DIR/"
-      cp -r "$TEMP_REPO"/.[^.]* "$INSTALL_DIR/" 2>/dev/null || true
-
-      # Clean up temp directory
-      rm -rf "$TEMP_REPO"
-      success "Repository files moved to installation directory"
-    else
-      error "Failed to clone repository from GitHub. Check internet connection."
-    fi
-
-    chown -R prevue:prevue "$INSTALL_DIR"
-
-    # Ensure deployment directory exists and has correct permissions
-    mkdir -p "$DEPLOY_DIR"/{systemd,kiosk,input,scripts,maintenance}
-    chmod +x "$DEPLOY_DIR"/kiosk/*.sh "$DEPLOY_DIR"/scripts/*.sh "$DEPLOY_DIR"/maintenance/*.sh "$DEPLOY_DIR"/input/*.sh 2>/dev/null || true
-
-    success "Deployment files ready from cloned repository"
+  if ! git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_REPO"; then
+    error "Failed to clone repository from $REPO_URL. Check internet connection."
   fi
 
-  success "Deployment files ready"
+  # Move all repo files into install directory
+  log "Moving repository files to $INSTALL_DIR..."
+  cp -a "$TEMP_REPO"/* "$INSTALL_DIR"/
+  cp -a "$TEMP_REPO"/.git "$INSTALL_DIR"/ 2>/dev/null || true
+  cp -a "$TEMP_REPO"/.gitignore "$INSTALL_DIR"/ 2>/dev/null || true
+  cp -a "$TEMP_REPO"/.env.example "$INSTALL_DIR"/ 2>/dev/null || true
+
+  rm -rf "$TEMP_REPO"
+
+  chown -R prevue:prevue "$INSTALL_DIR"
+
+  # Verify critical files exist
+  if [ ! -f "$INSTALL_DIR/Dockerfile" ]; then
+    error "Dockerfile not found after clone. Repository may be incomplete."
+  fi
+
+  if [ ! -d "$DEPLOY_DIR/systemd" ]; then
+    error "Deployment files not found after clone. Repository may be incomplete."
+  fi
+
+  # Set executable permissions on scripts
+  chmod +x "$DEPLOY_DIR"/kiosk/*.sh "$DEPLOY_DIR"/scripts/*.sh "$DEPLOY_DIR"/maintenance/*.sh "$DEPLOY_DIR"/input/*.sh 2>/dev/null || true
+
+  success "Repository cloned and files deployed"
 }
 
 # Install systemd services
@@ -483,6 +476,15 @@ configure_docker() {
   systemctl enable docker || warn "Failed to enable docker"
   systemctl start docker || error "Failed to start docker"
 
+  # Pre-build the Docker image so first boot is faster
+  log "Building Prevue Docker image (this may take a few minutes)..."
+  cd "$INSTALL_DIR"
+  if docker compose -f "$DEPLOY_DIR/docker-compose.rpi.yml" build 2>&1 | tail -5; then
+    success "Docker image built successfully"
+  else
+    warn "Docker image build failed. It will be attempted again on first boot."
+  fi
+
   success "Docker configured"
 }
 
@@ -554,7 +556,7 @@ main() {
   test_jellyfin_connection
   configure_system
   generate_env_file
-  copy_deployment_files
+  clone_repository
   install_systemd_services
   enable_services
   configure_autologin
