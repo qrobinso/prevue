@@ -137,6 +137,7 @@ install_dependencies() {
     "docker.io"
     "docker-compose"
     "epiphany-browser"
+    "xdotool"
     "unclutter"
     "libcec-dev"
     "cec-utils"
