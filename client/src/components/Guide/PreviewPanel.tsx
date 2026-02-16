@@ -226,12 +226,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     if (Hls.isSupported()) {
       const hls = new Hls({
         startPosition,
-        maxBufferLength: 3,
-        maxMaxBufferLength: 8,
-        maxBufferSize: 4 * 1000 * 1000,
-        fragLoadingMaxRetry: 2,
-        manifestLoadingMaxRetry: 2,
-        levelLoadingMaxRetry: 2,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 20,
+        maxBufferSize: 10 * 1000 * 1000,
+        fragLoadingMaxRetry: 4,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingMaxRetry: 4,
       });
       hlsRef.current = hls;
       hls.loadSource(info.stream_url);
