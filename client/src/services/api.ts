@@ -123,6 +123,10 @@ export async function createAIChannel(prompt: string): Promise<{ channel: Channe
   });
 }
 
+export async function refreshAIChannel(id: number): Promise<{ channel: Channel; ai_description: string }> {
+  return request(`/channels/${id}/ai-refresh`, { method: 'PUT' });
+}
+
 export async function updateChannel(id: number, data: Partial<Channel>): Promise<Channel> {
   return request(`/channels/${id}`, {
     method: 'PUT',
@@ -136,6 +140,30 @@ export async function deleteChannel(id: number): Promise<void> {
 
 export async function getAIStatus(): Promise<{ available: boolean }> {
   return request('/channels/ai/status');
+}
+
+export interface AIConfig {
+  hasKey: boolean;
+  hasUserKey: boolean;
+  hasEnvKey: boolean;
+  model: string;
+  defaultModel: string;
+  available: boolean;
+}
+
+export async function getAIConfig(): Promise<AIConfig> {
+  return request('/channels/ai/config');
+}
+
+export async function updateAIConfig(config: { apiKey?: string; model?: string }): Promise<AIConfig> {
+  return request('/channels/ai/config', {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function getAISuggestions(): Promise<{ suggestions: string[] }> {
+  return request('/channels/ai/suggestions');
 }
 
 export async function regenerateChannels(): Promise<{ channels_created: number }> {

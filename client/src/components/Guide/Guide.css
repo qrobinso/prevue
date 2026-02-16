@@ -368,6 +368,25 @@ html[data-preview-bg="white"] .preview-video-container {
   border: 1px solid var(--border-grid);
 }
 
+.preview-runtime {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.preview-description {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  opacity: 0.85;
+}
+
 .preview-time {
   font-family: var(--font-retro);
   font-size: 10px;
@@ -918,6 +937,12 @@ html[data-preview-bg="white"] .preview-video-container {
   line-height: 1.2;
 }
 
+.guide-continuation-arrow {
+  color: var(--accent-cyan);
+  font-weight: 700;
+  opacity: 0.7;
+}
+
 .guide-program-subtitle {
   font-size: 9px;
   color: var(--text-secondary);
@@ -925,6 +950,26 @@ html[data-preview-bg="white"] .preview-video-container {
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.2;
+}
+
+.guide-rating-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 4px;
+  font-size: 0.75em;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-cell);
+  border-radius: 2px;
+  vertical-align: middle;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.guide-program-focused .guide-rating-badge {
+  color: var(--text-primary);
+  border-color: var(--accent-cyan);
+  opacity: 1;
 }
 
 .guide-program-focused .guide-program-title {
@@ -980,12 +1025,17 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-year,
-  .preview-rating {
+  .preview-rating,
+  .preview-runtime {
     font-size: 9px;
   }
 
   .preview-time {
     font-size: 10px;
+  }
+
+  .preview-description {
+    -webkit-line-clamp: 2;
   }
 
   .preview-progress {
@@ -1362,7 +1412,13 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-year,
-  .preview-rating {
+  .preview-rating,
+  .preview-runtime {
+    font-size: 8px;
+  }
+
+  .preview-description {
+    -webkit-line-clamp: 2;
     font-size: 8px;
   }
 
@@ -1614,7 +1670,13 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-year,
-  .preview-rating {
+  .preview-rating,
+  .preview-runtime {
+    font-size: 8px;
+  }
+
+  .preview-description {
+    -webkit-line-clamp: 2;
     font-size: 8px;
   }
 

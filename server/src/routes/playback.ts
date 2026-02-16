@@ -6,40 +6,43 @@ import type { JellyfinClient } from '../services/JellyfinClient.js';
 
 export const playbackRoutes = Router();
 
-// Extract audio tracks from Jellyfin MediaSources for the item
-async function getAudioTracksForItem(
+// Extract audio/subtitle tracks and session info from Jellyfin in a single API call.
+// Returns PlaySessionId and MediaSourceId so the stream endpoint can skip a redundant call.
+async function getTracksAndSession(
   jellyfinClient: JellyfinClient,
   itemId: string
-): Promise<{ index: number; language: string; name: string }[]> {
+): Promise<{
+  audio_tracks: { index: number; language: string; name: string }[];
+  subtitle_tracks: { index: number; language: string; name: string }[];
+  playSessionId: string;
+  mediaSourceId: string;
+}> {
   const playbackInfo = await jellyfinClient.getPlaybackInfo(itemId);
   const mediaSource = playbackInfo.MediaSources?.[0];
   const streams = mediaSource?.MediaStreams ?? [];
-  const audioStreams = streams.filter(
-    (s) => (s.Type || '').toLowerCase() === 'audio'
-  );
-  return audioStreams.map((s) => ({
-    index: s.Index ?? -1,
-    language: (s.Language ?? 'und').toLowerCase(),
-    name: s.DisplayTitle ?? s.Title ?? `Track ${(s.Index ?? 0) + 1}`,
-  })).filter((t: { index: number }) => t.index >= 0);
-}
 
-// Extract subtitle tracks from Jellyfin MediaSources for the item
-async function getSubtitleTracksForItem(
-  jellyfinClient: JellyfinClient,
-  itemId: string
-): Promise<{ index: number; language: string; name: string }[]> {
-  const playbackInfo = await jellyfinClient.getPlaybackInfo(itemId);
-  const mediaSource = playbackInfo.MediaSources?.[0];
-  const streams = mediaSource?.MediaStreams ?? [];
-  const subtitleStreams = streams.filter(
-    (s) => (s.Type || '').toLowerCase() === 'subtitle'
-  );
-  return subtitleStreams.map((s) => ({
-    index: s.Index ?? -1,
-    language: (s.Language ?? 'und').toLowerCase(),
-    name: s.DisplayTitle ?? s.Title ?? `Subtitle ${(s.Index ?? 0) + 1}`,
-  })).filter((t: { index: number }) => t.index >= 0);
+  const audio_tracks = streams
+    .filter((s) => (s.Type || '').toLowerCase() === 'audio')
+    .map((s) => ({
+      index: s.Index ?? -1,
+      language: (s.Language ?? 'und').toLowerCase(),
+      name: s.DisplayTitle ?? s.Title ?? `Track ${(s.Index ?? 0) + 1}`,
+    }))
+    .filter((t) => t.index >= 0);
+
+  const subtitle_tracks = streams
+    .filter((s) => (s.Type || '').toLowerCase() === 'subtitle')
+    .map((s) => ({
+      index: s.Index ?? -1,
+      language: (s.Language ?? 'und').toLowerCase(),
+      name: s.DisplayTitle ?? s.Title ?? `Subtitle ${(s.Index ?? 0) + 1}`,
+    }))
+    .filter((t) => t.index >= 0);
+
+  const playSessionId = (playbackInfo as Record<string, unknown>).PlaySessionId as string || '';
+  const mediaSourceId = mediaSource?.Id as string || itemId;
+
+  return { audio_tracks, subtitle_tracks, playSessionId, mediaSourceId };
 }
 
 // GET /api/playback/:channelId - Get streaming info for current program
@@ -88,14 +91,15 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
         ? parseInt(req.query.audioStreamIndex as string, 10)
         : undefined;
 
-    // Audio and subtitle tracks from Jellyfin (so UI can show them)
+    // Audio/subtitle tracks + Jellyfin session from a single PlaybackInfo call.
+    // PlaySessionId and MediaSourceId are forwarded to the stream URL so it can
+    // skip a redundant getPlaybackInfo round-trip to Jellyfin.
     let audio_tracks: { index: number; language: string; name: string }[] = [];
     let subtitle_tracks: { index: number; language: string; name: string }[] = [];
+    let playSessionId = '';
+    let mediaSourceId = '';
     try {
-      [audio_tracks, subtitle_tracks] = await Promise.all([
-        getAudioTracksForItem(jf, program.jellyfin_item_id),
-        getSubtitleTracksForItem(jf, program.jellyfin_item_id),
-      ]);
+      ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = await getTracksAndSession(jf, program.jellyfin_item_id));
     } catch (e) {
       console.warn('[Playback] Could not fetch tracks:', (e as Error).message);
     }
@@ -124,8 +128,10 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
           ? preferredSubIndex
           : null;
 
-    // Build stream URL with quality, optional audio track, and optional subtitle track
+    // Build stream URL with quality, optional audio track, and pre-fetched session IDs
     const streamParams = new URLSearchParams();
+    if (playSessionId) streamParams.set('playSessionId', playSessionId);
+    if (mediaSourceId) streamParams.set('mediaSourceId', mediaSourceId);
     if (bitrate) streamParams.set('bitrate', String(bitrate));
     if (maxWidth) streamParams.set('maxWidth', String(maxWidth));
     if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {

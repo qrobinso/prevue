@@ -21,6 +21,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [reauthPassword, setReauthPassword] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [resyncingId, setResyncingId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const loadServers = async () => {
     try {
@@ -83,7 +84,12 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   };
 
   const handleDelete = async (id: number) => {
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      return;
+    }
     try {
+      setConfirmDeleteId(null);
       await deleteServer(id);
       await loadServers();
     } catch (err) {
@@ -135,13 +141,26 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     }
   };
 
+  const renderTestResult = (id: number) => {
+    const result = testResults[id];
+    if (result === null) return <span className="server-test-pending" />;
+    if (!result) return null;
+    if (result.connected && result.authenticated) {
+      return <span className="server-test-ok">Connected</span>;
+    }
+    if (result.connected) {
+      return <span className="server-test-warn">No Auth</span>;
+    }
+    return <span className="server-test-fail">Failed</span>;
+  };
+
   if (loading) return <div className="settings-loading">Loading...</div>;
 
   return (
     <div className="settings-section">
       <div className="settings-section-header">
         <h3>Jellyfin Servers</h3>
-        <button className="settings-btn-primary" onClick={() => setShowAdd(!showAdd)}>
+        <button className="settings-btn-primary" onClick={() => { setShowAdd(!showAdd); setError(''); }}>
           {showAdd ? 'CANCEL' : '+ ADD SERVER'}
         </button>
       </div>
@@ -149,11 +168,15 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
       {error && <div className="settings-error">{error}</div>}
 
       {showAdd && (
-        <div className="settings-form">
-          {/* Discovered servers section */}
+        <div className="server-add-card">
+          <div className="server-add-step">
+            <span className="server-add-step-num">1</span>
+            <span className="server-add-step-label">Find your server</span>
+          </div>
+
           <div className="settings-discover">
             <div className="settings-discover-header">
-              <label>Servers Found on Network</label>
+              <label>Servers on your network</label>
               <button
                 className="settings-btn-sm"
                 onClick={runDiscovery}
@@ -166,7 +189,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
               <div className="settings-discover-scanning">Scanning network...</div>
             )}
             {!discovering && discovered.length === 0 && (
-              <div className="settings-discover-empty">No servers found. Enter details manually below.</div>
+              <div className="settings-discover-empty">No servers found automatically. Enter details manually below.</div>
             )}
             {discovered.length > 0 && (
               <div className="settings-discover-list">
@@ -184,45 +207,61 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
             )}
           </div>
 
-          <div className="settings-field">
-            <label>Server Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="My Jellyfin Server"
-            />
+          <div className="server-add-divider">
+            <span>or enter manually</span>
           </div>
-          <div className="settings-field">
-            <label>Server URL</label>
-            <input
-              type="text"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              placeholder="http://192.168.1.100:8096"
-            />
+
+          <div className="server-add-step">
+            <span className="server-add-step-num">2</span>
+            <span className="server-add-step-label">Server details</span>
           </div>
-          <div className="settings-field">
-            <label>Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              placeholder="Your Jellyfin username"
-            />
+
+          <div className="server-add-fields">
+            <div className="server-add-field-row">
+              <div className="settings-field">
+                <label>Server Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="My Jellyfin Server"
+                />
+              </div>
+              <div className="settings-field">
+                <label>Server URL</label>
+                <input
+                  type="text"
+                  value={url}
+                  onChange={e => setUrl(e.target.value)}
+                  placeholder="http://192.168.1.100:8096"
+                />
+              </div>
+            </div>
+            <div className="server-add-field-row">
+              <div className="settings-field">
+                <label>Username</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  placeholder="Your Jellyfin username"
+                />
+              </div>
+              <div className="settings-field">
+                <label>Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Your Jellyfin password"
+                />
+              </div>
+            </div>
           </div>
-          <div className="settings-field">
-            <label>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Your Jellyfin password"
-            />
-          </div>
-          <button 
-            className="settings-btn-primary" 
-            onClick={handleAdd} 
+
+          <button
+            className="settings-btn-primary server-add-connect-btn"
+            onClick={handleAdd}
             disabled={!name || !url || !username || connecting}
           >
             {connecting ? 'CONNECTING...' : 'CONNECT'}
@@ -230,85 +269,111 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
         </div>
       )}
 
+      {servers.length === 0 && !showAdd && (
+        <div className="server-empty-state">
+          <div className="server-empty-icon">⬡</div>
+          <p>No servers configured</p>
+          <span>Add a Jellyfin server to get started</span>
+        </div>
+      )}
+
       <div className="settings-list">
-        {servers.length === 0 && !showAdd && (
-          <div className="settings-empty">No servers configured. Add a Jellyfin server to get started.</div>
-        )}
-        {servers.map(server => (
-          <div key={server.id} className={`settings-list-item ${server.is_active ? 'settings-list-item-active' : ''}`}>
-            <div className="settings-list-info">
-              <span className="settings-list-name">
-                {server.name}
-                {server.is_active && <span className="settings-badge">ACTIVE</span>}
-                {!server.is_authenticated && <span className="settings-badge settings-badge-warning">NEEDS AUTH</span>}
-              </span>
-              <span className="settings-list-detail">{server.url}</span>
-              <span className="settings-list-detail">User: {server.username}</span>
-            </div>
-            <div className="settings-list-actions">
-              <button className="settings-btn-sm" onClick={() => handleTest(server.id)}>
-                {testResults[server.id] === null ? '...' : 
-                  testResults[server.id]?.connected && testResults[server.id]?.authenticated ? '✓ OK' : 
-                  testResults[server.id]?.connected ? '⚠ NO AUTH' : 
-                  testResults[server.id] ? '✗ FAIL' : 'TEST'}
-              </button>
-              <button 
-                className={`settings-btn-sm ${!server.is_authenticated ? 'settings-btn-warning' : ''}`} 
-                onClick={() => {
-                  if (reauthId === server.id) {
-                    setReauthId(null);
-                    setReauthPassword('');
-                  } else {
-                    setReauthId(server.id);
-                    setReauthPassword('');
-                  }
-                }}
-              >
-                {reauthId === server.id ? 'CANCEL' : 'RE-AUTH'}
-              </button>
-              {!server.is_active && server.is_authenticated && (
-                <button className="settings-btn-sm settings-btn-accent" onClick={() => handleActivate(server.id)}>
-                  ACTIVATE
+        {servers.map(server => {
+          const isActive = server.is_active;
+          const needsAuth = !server.is_authenticated;
+          const isReauthing = reauthId === server.id;
+          const isResyncing = resyncingId === server.id;
+          const isConfirmingDelete = confirmDeleteId === server.id;
+
+          return (
+            <div key={server.id} className={`server-card ${isActive ? 'server-card-active' : ''} ${needsAuth ? 'server-card-warning' : ''}`}>
+              <div className="server-card-header">
+                <div className="server-card-info">
+                  <div className="server-card-name">
+                    {server.name}
+                    {isActive && <span className="server-status-dot server-status-active" title="Active" />}
+                    {needsAuth && <span className="server-status-dot server-status-warning" title="Needs authentication" />}
+                  </div>
+                  <div className="server-card-details">
+                    <span className="server-card-url">{server.url}</span>
+                    <span className="server-card-user">{server.username}</span>
+                  </div>
+                </div>
+                {renderTestResult(server.id)}
+              </div>
+
+              <div className="server-card-actions">
+                <button className="server-action-btn" onClick={() => handleTest(server.id)}>
+                  TEST
                 </button>
-              )}
-              {server.is_active && server.is_authenticated && (
+
+                {needsAuth && (
+                  <button
+                    className="server-action-btn server-action-warning"
+                    onClick={() => {
+                      if (isReauthing) { setReauthId(null); setReauthPassword(''); }
+                      else { setReauthId(server.id); setReauthPassword(''); }
+                    }}
+                  >
+                    {isReauthing ? 'CANCEL' : 'RE-AUTH'}
+                  </button>
+                )}
+
+                {!needsAuth && !isActive && (
+                  <button
+                    className="server-action-btn server-action-accent"
+                    onClick={() => handleActivate(server.id)}
+                  >
+                    ACTIVATE
+                  </button>
+                )}
+
+                {isActive && !needsAuth && (
+                  <button
+                    className="server-action-btn server-action-accent"
+                    onClick={() => handleResync(server.id)}
+                    disabled={isResyncing}
+                  >
+                    {isResyncing ? 'SYNCING...' : 'RESYNC'}
+                  </button>
+                )}
+
                 <button
-                  className="settings-btn-sm settings-btn-accent"
-                  onClick={() => handleResync(server.id)}
-                  disabled={resyncingId === server.id}
+                  className={`server-action-btn server-action-danger ${isConfirmingDelete ? 'server-action-danger-confirm' : ''}`}
+                  onClick={() => handleDelete(server.id)}
+                  onBlur={() => setConfirmDeleteId(null)}
                 >
-                  {resyncingId === server.id ? 'RESYNCING...' : 'RESYNC'}
-                </button>
-              )}
-              <button className="settings-btn-sm settings-btn-danger" onClick={() => handleDelete(server.id)}>
-                DELETE
-              </button>
-            </div>
-            {reauthId === server.id && (
-              <div className="settings-reauth-form">
-                <input
-                  type="password"
-                  value={reauthPassword}
-                  onChange={e => setReauthPassword(e.target.value)}
-                  placeholder="Enter your Jellyfin password"
-                  className="settings-reauth-input"
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && reauthPassword) {
-                      handleReauthenticate(server.id);
-                    }
-                  }}
-                />
-                <button 
-                  className="settings-btn-sm settings-btn-accent" 
-                  onClick={() => handleReauthenticate(server.id)}
-                  disabled={!reauthPassword}
-                >
-                  LOGIN
+                  {isConfirmingDelete ? 'CONFIRM' : 'DELETE'}
                 </button>
               </div>
-            )}
-          </div>
-        ))}
+
+              {isReauthing && (
+                <div className="server-reauth">
+                  <input
+                    type="password"
+                    value={reauthPassword}
+                    onChange={e => setReauthPassword(e.target.value)}
+                    placeholder="Enter password"
+                    className="server-reauth-input"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && reauthPassword) {
+                        handleReauthenticate(server.id);
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    className="server-action-btn server-action-accent"
+                    onClick={() => handleReauthenticate(server.id)}
+                    disabled={!reauthPassword}
+                  >
+                    LOGIN
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

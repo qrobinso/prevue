@@ -24,6 +24,12 @@ const VIDEO_QUALITY_KEY = 'prevue_video_quality';
 const COLOR_THEME_KEY = 'prevue_color_theme';
 const AUTO_SCROLL_KEY = 'prevue_auto_scroll';
 const AUTO_SCROLL_SPEED_KEY = 'prevue_auto_scroll_speed';
+const GUIDE_COLORS_ENABLED_KEY = 'prevue_guide_colors_enabled';
+const GUIDE_COLOR_MOVIE_KEY = 'prevue_guide_color_movie';
+const GUIDE_COLOR_EPISODE_KEY = 'prevue_guide_color_episode';
+const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
+const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
+const GUIDE_RATINGS_KEY = 'prevue_guide_ratings';
 
 export type PreviewBgOption = 'theme' | 'black' | 'white';
 
@@ -76,6 +82,64 @@ export function getAutoScrollSpeed(): ScrollSpeedPreset {
 export function setAutoScrollSpeed(speedId: string): void {
   localStorage.setItem(AUTO_SCROLL_SPEED_KEY, speedId);
   window.dispatchEvent(new CustomEvent('autoscrollspeedchange', { detail: { speedId } }));
+}
+
+// Guide color-coding helpers
+export function getGuideColorsEnabled(): boolean {
+  try {
+    return localStorage.getItem(GUIDE_COLORS_ENABLED_KEY) === 'true';
+  } catch {}
+  return false;
+}
+
+export function setGuideColorsEnabled(enabled: boolean): void {
+  localStorage.setItem(GUIDE_COLORS_ENABLED_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('guidecolorschange'));
+}
+
+export function getGuideColorMovie(): string {
+  try {
+    const stored = localStorage.getItem(GUIDE_COLOR_MOVIE_KEY);
+    if (stored && /^#[0-9a-fA-F]{6}$/.test(stored)) return stored;
+  } catch {}
+  return DEFAULT_GUIDE_COLOR_MOVIE;
+}
+
+export function setGuideColorMovie(color: string): void {
+  localStorage.setItem(GUIDE_COLOR_MOVIE_KEY, color);
+  window.dispatchEvent(new CustomEvent('guidecolorschange'));
+}
+
+export function getGuideColorEpisode(): string {
+  try {
+    const stored = localStorage.getItem(GUIDE_COLOR_EPISODE_KEY);
+    if (stored && /^#[0-9a-fA-F]{6}$/.test(stored)) return stored;
+  } catch {}
+  return DEFAULT_GUIDE_COLOR_EPISODE;
+}
+
+export function setGuideColorEpisode(color: string): void {
+  localStorage.setItem(GUIDE_COLOR_EPISODE_KEY, color);
+  window.dispatchEvent(new CustomEvent('guidecolorschange'));
+}
+
+export function resetGuideColors(): void {
+  localStorage.removeItem(GUIDE_COLOR_MOVIE_KEY);
+  localStorage.removeItem(GUIDE_COLOR_EPISODE_KEY);
+  window.dispatchEvent(new CustomEvent('guidecolorschange'));
+}
+
+// Guide ratings badge helpers
+export function getGuideRatings(): boolean {
+  try {
+    return localStorage.getItem(GUIDE_RATINGS_KEY) === 'true';
+  } catch {}
+  return false;
+}
+
+export function setGuideRatings(enabled: boolean): void {
+  localStorage.setItem(GUIDE_RATINGS_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('guideratingschange'));
 }
 
 // Color theme presets
@@ -137,6 +201,30 @@ export const THEME_PRESETS: ThemePreset[] = [
     name: 'Golden Hour',
     description: 'Dark amber & yellow',
     colors: { primary: '#161006', accent: '#ffd24d' },
+  },
+  {
+    id: 'dark',
+    name: 'Dark Mode',
+    description: 'Pure dark & minimal',
+    colors: { primary: '#0e0e0e', accent: '#a0a0a0' },
+  },
+  {
+    id: 'vapor',
+    name: 'Vaporwave',
+    description: 'Pink & teal retro',
+    colors: { primary: '#1a0a20', accent: '#ff71ce' },
+  },
+  {
+    id: 'forest',
+    name: 'Forest',
+    description: 'Deep green & moss',
+    colors: { primary: '#0b1410', accent: '#7dcea0' },
+  },
+  {
+    id: 'noir',
+    name: 'Film Noir',
+    description: 'Monochrome cinema',
+    colors: { primary: '#121212', accent: '#d4af37' },
   },
 ];
 
@@ -260,6 +348,10 @@ export default function DisplaySettings() {
   const [error, setError] = useState<string | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const [showPWAInstructions, setShowPWAInstructions] = useState(false);
+  const [guideColorsEnabled, setGuideColorsEnabledState] = useState(getGuideColorsEnabled);
+  const [guideColorMovie, setGuideColorMovieState] = useState(getGuideColorMovie);
+  const [guideColorEpisode, setGuideColorEpisodeState] = useState(getGuideColorEpisode);
+  const [guideRatingsEnabled, setGuideRatingsEnabledState] = useState(getGuideRatings);
   const closeAbout = useCallback(() => setShowAbout(false), []);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
@@ -331,6 +423,34 @@ export default function DisplaySettings() {
       setAutoScrollSpeedState(preset);
       setAutoScrollSpeed(speedId);
     }
+  };
+
+  const handleGuideColorsToggle = () => {
+    const newValue = !guideColorsEnabled;
+    setGuideColorsEnabledState(newValue);
+    setGuideColorsEnabled(newValue);
+  };
+
+  const handleGuideColorMovieChange = (color: string) => {
+    setGuideColorMovieState(color);
+    setGuideColorMovie(color);
+  };
+
+  const handleGuideColorEpisodeChange = (color: string) => {
+    setGuideColorEpisodeState(color);
+    setGuideColorEpisode(color);
+  };
+
+  const handleResetGuideColors = () => {
+    setGuideColorMovieState(DEFAULT_GUIDE_COLOR_MOVIE);
+    setGuideColorEpisodeState(DEFAULT_GUIDE_COLOR_EPISODE);
+    resetGuideColors();
+  };
+
+  const handleGuideRatingsToggle = () => {
+    const newValue = !guideRatingsEnabled;
+    setGuideRatingsEnabledState(newValue);
+    setGuideRatings(newValue);
   };
 
   const handleVisibleChannelsChange = (value: number) => {
@@ -449,6 +569,75 @@ export default function DisplaySettings() {
               </span>
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="settings-subsection">
+        <h4>GUIDE COLORS</h4>
+        <p className="settings-field-hint">
+          Color-code schedule blocks in the guide by content type.
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={guideColorsEnabled}
+              onChange={handleGuideColorsToggle}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {guideColorsEnabled ? 'ON' : 'OFF'}
+          </span>
+        </div>
+        {guideColorsEnabled && (
+          <div className="settings-color-options">
+            <div className="settings-color-row">
+              <input
+                type="color"
+                className="settings-color-swatch"
+                value={guideColorMovie}
+                onChange={(e) => handleGuideColorMovieChange(e.target.value)}
+              />
+              <span className="settings-color-label">Movies</span>
+            </div>
+            <div className="settings-color-row">
+              <input
+                type="color"
+                className="settings-color-swatch"
+                value={guideColorEpisode}
+                onChange={(e) => handleGuideColorEpisodeChange(e.target.value)}
+              />
+              <span className="settings-color-label">Shows</span>
+            </div>
+            <button
+              className="settings-btn-sm"
+              onClick={handleResetGuideColors}
+              style={{ marginTop: 8 }}
+            >
+              RESET TO DEFAULTS
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="settings-subsection">
+        <h4>GUIDE RATINGS</h4>
+        <p className="settings-field-hint">
+          Show content rating badges on schedule blocks in the guide.
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={guideRatingsEnabled}
+              onChange={handleGuideRatingsToggle}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {guideRatingsEnabled ? 'ON' : 'OFF'}
+          </span>
         </div>
       </div>
 

@@ -1,11 +1,14 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { 
-  getChannels, 
-  deleteChannel, 
+import {
+  getChannels,
+  deleteChannel,
   updateChannel,
-  createChannel, 
-  createAIChannel, 
-  getAIStatus, 
+  createChannel,
+  createAIChannel,
+  refreshAIChannel,
+  getAIConfig,
+  updateAIConfig,
+  getAISuggestions,
   getChannelPresets,
   getSelectedPresets,
   generateChannels,
@@ -14,10 +17,11 @@ import {
   type ChannelWithProgram,
   type ChannelPresetData,
   type ChannelPreset,
+  type AIConfig,
 } from '../../services/api';
 import { wsClient } from '../../services/websocket';
 
-type ViewMode = 'list' | 'presets';
+type ViewMode = 'presets' | 'list' | 'ai';
 
 const PRESET_MULTIPLIER_STORAGE_KEY = 'prevue_preset_multipliers';
 const MULTIPLIER_OPTIONS = [1, 2, 3, 4] as const;
@@ -50,16 +54,19 @@ interface GenerationProgress {
   total?: number;
 }
 
+interface AICreationResult {
+  channelName: string;
+  description: string;
+  itemCount: number;
+}
+
 export default function ChannelSettings() {
   const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
   const [presetData, setPresetData] = useState<ChannelPresetData | null>(null);
   const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
   const [presetMultipliers, setPresetMultipliers] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
-  const [aiAvailable, setAiAvailable] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const [createMode, setCreateMode] = useState<'ai' | 'manual'>('ai');
-  const [aiPrompt, setAiPrompt] = useState('');
   const [channelName, setChannelName] = useState('');
   const [creating, setCreating] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -75,6 +82,20 @@ export default function ChannelSettings() {
   const [draggingChannelId, setDraggingChannelId] = useState<number | null>(null);
   const [dragOverChannelId, setDragOverChannelId] = useState<number | null>(null);
   const dragPointerIdRef = useRef<number | null>(null);
+
+  const [refreshingChannelId, setRefreshingChannelId] = useState<number | null>(null);
+
+  // AI state
+  const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
+  const [aiKeyInput, setAiKeyInput] = useState('');
+  const [aiModelInput, setAiModelInput] = useState('');
+  const [aiConfigSaving, setAiConfigSaving] = useState(false);
+  const [aiConfigExpanded, setAiConfigExpanded] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiCreating, setAiCreating] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiResult, setAiResult] = useState<AICreationResult | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
 
   // Subscribe to WebSocket for progress updates
   useEffect(() => {
@@ -92,15 +113,22 @@ export default function ChannelSettings() {
 
   const loadData = async () => {
     try {
-      const [channelsData, aiStatus, presetsData, savedPresets, settingsData] = await Promise.all([
+      const [channelsData, aiConfigData, presetsData, savedPresets, settingsData] = await Promise.all([
         getChannels(),
-        getAIStatus().catch(() => ({ available: false })),
+        getAIConfig().catch(() => null),
         getChannelPresets(),
         getSelectedPresets().catch(() => []),
         getSettings().catch(() => ({})),
       ]);
       setChannels(channelsData);
-      setAiAvailable(aiStatus.available);
+      if (aiConfigData) {
+        setAiConfig(aiConfigData);
+        setAiModelInput(aiConfigData.model);
+        // Auto-expand config section if no key is configured
+        if (!aiConfigData.hasKey) {
+          setAiConfigExpanded(true);
+        }
+      }
       setPresetData(presetsData);
       if (!separateLoadedRef.current) {
         const settings = settingsData as Record<string, unknown>;
@@ -144,6 +172,19 @@ export default function ChannelSettings() {
       await loadData();
     } catch (err) {
       setError((err as Error).message);
+    }
+  };
+
+  const handleRefreshAI = async (id: number) => {
+    try {
+      setRefreshingChannelId(id);
+      setError('');
+      await refreshAIChannel(id);
+      await loadData();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRefreshingChannelId(null);
     }
   };
 
@@ -214,19 +255,93 @@ export default function ChannelSettings() {
     await persistChannelOrder(reordered);
   }, [channels, draggingChannelId, dragOverChannelId, persistChannelOrder, reorderChannelsById]);
 
+  // Fetch fresh suggestions each time AI tab is shown
+  useEffect(() => {
+    if (viewMode === 'ai') {
+      getAISuggestions().then(r => setAiSuggestions(r.suggestions)).catch(() => {});
+    }
+  }, [viewMode]);
+
+  const handleSuggestionClick = (prompt: string) => {
+    setAiPrompt(prompt);
+    // Auto-create immediately
+    setAiCreating(true);
+    setAiError('');
+    setAiResult(null);
+    createAIChannel(prompt)
+      .then(async (result) => {
+        setAiResult({
+          channelName: result.channel.name,
+          description: result.ai_description,
+          itemCount: result.channel.item_ids.length,
+        });
+        setAiPrompt('');
+        await loadData();
+        // Refresh suggestions for next time
+        getAISuggestions().then(r => setAiSuggestions(r.suggestions)).catch(() => {});
+      })
+      .catch((err: Error) => {
+        setAiError(err.message);
+      })
+      .finally(() => {
+        setAiCreating(false);
+      });
+  };
+
+  // AI config handlers
+  const handleSaveAIConfig = async () => {
+    setAiConfigSaving(true);
+    setAiError('');
+    try {
+      const update: { apiKey?: string; model?: string } = {};
+      if (aiKeyInput) update.apiKey = aiKeyInput;
+      if (aiModelInput !== aiConfig?.model) update.model = aiModelInput;
+
+      const result = await updateAIConfig(update);
+      setAiConfig(result);
+      setAiKeyInput('');
+      if (result.hasUserKey) {
+        setAiConfigExpanded(false);
+      }
+    } catch (err) {
+      setAiError((err as Error).message);
+    } finally {
+      setAiConfigSaving(false);
+    }
+  };
+
+  const handleClearAIKey = async () => {
+    setAiConfigSaving(true);
+    setAiError('');
+    try {
+      const result = await updateAIConfig({ apiKey: '' });
+      setAiConfig(result);
+      setAiConfigExpanded(true);
+    } catch (err) {
+      setAiError((err as Error).message);
+    } finally {
+      setAiConfigSaving(false);
+    }
+  };
+
   const handleCreateAI = async () => {
     if (!aiPrompt.trim()) return;
-    setCreating(true);
-    setError('');
+    setAiCreating(true);
+    setAiError('');
+    setAiResult(null);
     try {
-      await createAIChannel(aiPrompt);
+      const result = await createAIChannel(aiPrompt);
+      setAiResult({
+        channelName: result.channel.name,
+        description: result.ai_description,
+        itemCount: result.channel.item_ids.length,
+      });
       setAiPrompt('');
-      setShowCreate(false);
       await loadData();
     } catch (err) {
-      setError((err as Error).message);
+      setAiError((err as Error).message);
     } finally {
-      setCreating(false);
+      setAiCreating(false);
     }
   };
 
@@ -318,7 +433,7 @@ export default function ChannelSettings() {
     });
   };
 
-  // Build preset list in UI order (by category, then preset) so same channel type is back-to-back: Action, Action 2, Action 3, etc.
+  // Build preset list in UI order (by category, then preset) so same channel type is back-to-back
   const expandedPresetIds = useMemo(() => {
     const ids: string[] = [];
     if (!presetData) return ids;
@@ -380,7 +495,13 @@ export default function ChannelSettings() {
           className={`settings-view-tab ${viewMode === 'list' ? 'active' : ''}`}
           onClick={() => setViewMode('list')}
         >
-          CURRENT CHANNELS ({channels.length})
+          CHANNELS ({channels.length})
+        </button>
+        <button
+          className={`settings-view-tab ${viewMode === 'ai' ? 'active' : ''}`}
+          onClick={() => setViewMode('ai')}
+        >
+          AI CREATE
         </button>
       </div>
 
@@ -490,7 +611,7 @@ export default function ChannelSettings() {
             {presetData.categories.map(category => {
               const categoryPresets = presetsByCategory.get(category.id) || [];
               if (categoryPresets.length === 0) return null;
-              
+
               const isExpanded = expandedCategories.has(category.id);
               const selectedCount = categoryPresets.filter(p => selectedPresets.has(p.id)).length;
 
@@ -507,7 +628,7 @@ export default function ChannelSettings() {
                     )}
                     <span className={`settings-preset-category-arrow ${isExpanded ? 'expanded' : ''}`}>▼</span>
                   </button>
-                  
+
                   {isExpanded && (
                     <div className="settings-preset-list">
                       {categoryPresets.map(preset => {
@@ -571,62 +692,28 @@ export default function ChannelSettings() {
 
           {showCreate && (
             <div className="settings-form">
-              <div className="settings-create-tabs">
-                {aiAvailable && (
-                  <button
-                    className={`settings-create-tab ${createMode === 'ai' ? 'active' : ''}`}
-                    onClick={() => setCreateMode('ai')}
-                  >
-                    AI CREATE
-                  </button>
-                )}
-                <button
-                  className={`settings-create-tab ${createMode === 'manual' ? 'active' : ''}`}
-                  onClick={() => setCreateMode('manual')}
-                >
-                  MANUAL
-                </button>
+              <div className="settings-field">
+                <label>Channel Name</label>
+                <input
+                  type="text"
+                  value={channelName}
+                  onChange={e => setChannelName(e.target.value)}
+                  placeholder="My Custom Channel"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleCreateManual();
+                    }
+                  }}
+                />
               </div>
-
-              {createMode === 'ai' && aiAvailable ? (
-                <>
-                  <div className="settings-field">
-                    <label>Describe your channel</label>
-                    <textarea
-                      value={aiPrompt}
-                      onChange={e => setAiPrompt(e.target.value)}
-                      placeholder='e.g., "Create a 90s nostalgia channel" or "Horror movies marathon"'
-                      rows={3}
-                    />
-                  </div>
-                  <button
-                    className="settings-btn-primary"
-                    onClick={handleCreateAI}
-                    disabled={creating || !aiPrompt.trim()}
-                  >
-                    {creating ? 'CREATING...' : 'CREATE WITH AI'}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="settings-field">
-                    <label>Channel Name</label>
-                    <input
-                      type="text"
-                      value={channelName}
-                      onChange={e => setChannelName(e.target.value)}
-                      placeholder="My Custom Channel"
-                    />
-                  </div>
-                  <button
-                    className="settings-btn-primary"
-                    onClick={handleCreateManual}
-                    disabled={creating || !channelName.trim()}
-                  >
-                    {creating ? 'CREATING...' : 'CREATE CHANNEL'}
-                  </button>
-                </>
-              )}
+              <button
+                className="settings-btn-primary"
+                onClick={handleCreateManual}
+                disabled={creating || !channelName.trim()}
+              >
+                {creating ? 'CREATING...' : 'CREATE CHANNEL'}
+              </button>
             </div>
           )}
 
@@ -647,13 +734,27 @@ export default function ChannelSettings() {
                     <span className={`settings-badge settings-badge-${ch.type}`}>
                       {ch.type.toUpperCase()}
                     </span>
+                    {ch.ai_prompt && (
+                      <span className="settings-badge settings-badge-ai">AI</span>
+                    )}
                   </span>
                   <span className="settings-list-detail">
                     {ch.item_ids.length} items
+                    {ch.ai_prompt && ` · Prompt: "${ch.ai_prompt}"`}
                     {ch.current_program && ` · Now: ${ch.current_program.title}`}
                   </span>
                 </div>
                 <div className="settings-list-actions settings-list-actions-channel">
+                  {ch.ai_prompt && (
+                    <button
+                      className="settings-btn-sm settings-btn-ai-refresh"
+                      onClick={() => handleRefreshAI(ch.id)}
+                      disabled={refreshingChannelId !== null || savingOrder || draggingChannelId !== null}
+                      title={`Re-query AI with: "${ch.ai_prompt}"`}
+                    >
+                      {refreshingChannelId === ch.id ? 'UPDATING...' : 'REFRESH'}
+                    </button>
+                  )}
                   <button
                     className="settings-btn-sm settings-btn-reorder settings-btn-drag-handle"
                     onPointerDown={(e) => handleDragStart(ch.id, e)}
@@ -682,6 +783,173 @@ export default function ChannelSettings() {
             )}
           </div>
         </>
+      )}
+
+      {viewMode === 'ai' && (
+        <div className="settings-ai">
+          {/* OpenRouter Configuration */}
+          <div className="settings-ai-config">
+            <button
+              className="settings-ai-config-header"
+              onClick={() => setAiConfigExpanded(!aiConfigExpanded)}
+            >
+              <span className="settings-ai-config-title">OpenRouter Configuration</span>
+              <div className="settings-ai-config-status">
+                {aiConfig?.hasKey ? (
+                  <span className="settings-badge settings-badge-ai-active">CONNECTED</span>
+                ) : (
+                  <span className="settings-badge settings-badge-ai-inactive">NOT CONFIGURED</span>
+                )}
+                <span className={`settings-preset-category-arrow ${aiConfigExpanded ? 'expanded' : ''}`}>▼</span>
+              </div>
+            </button>
+
+            {aiConfigExpanded && (
+              <div className="settings-ai-config-body">
+                {aiConfig?.hasEnvKey && !aiConfig?.hasUserKey && (
+                  <p className="settings-field-hint">
+                    Using API key from server environment. You can override it below.
+                  </p>
+                )}
+
+                <div className="settings-field">
+                  <label>API Key</label>
+                  {aiConfig?.hasUserKey ? (
+                    <div className="settings-ai-key-configured">
+                      <span className="settings-ai-key-mask">sk-or-...configured</span>
+                      <button
+                        className="settings-btn-sm settings-btn-danger"
+                        onClick={handleClearAIKey}
+                        disabled={aiConfigSaving}
+                      >
+                        CLEAR
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      type="password"
+                      value={aiKeyInput}
+                      onChange={e => setAiKeyInput(e.target.value)}
+                      placeholder="sk-or-..."
+                      autoComplete="off"
+                    />
+                  )}
+                  <span className="settings-field-hint">
+                    Get your API key from openrouter.ai
+                  </span>
+                </div>
+
+                <div className="settings-field">
+                  <label>Model</label>
+                  <input
+                    type="text"
+                    value={aiModelInput}
+                    onChange={e => setAiModelInput(e.target.value)}
+                    placeholder={aiConfig?.defaultModel || 'google/gemini-3-flash-preview'}
+                  />
+                  <span className="settings-field-hint">
+                    OpenRouter model ID (e.g. google/gemini-3-flash-preview, anthropic/claude-sonnet-4)
+                  </span>
+                </div>
+
+                <button
+                  className="settings-btn-primary"
+                  onClick={handleSaveAIConfig}
+                  disabled={aiConfigSaving || (!aiKeyInput && aiModelInput === aiConfig?.model)}
+                >
+                  {aiConfigSaving ? 'SAVING...' : 'SAVE CONFIGURATION'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* AI Channel Creation */}
+          <div className="settings-ai-create">
+            <h3>Create a Channel with AI</h3>
+            <p className="settings-field-hint">
+              Describe the kind of channel you want and AI will curate content from your library.
+            </p>
+
+            {!aiConfig?.hasKey && !aiConfig?.hasEnvKey ? (
+              <div className="settings-ai-unconfigured">
+                <p>Configure your OpenRouter API key above to start creating AI channels.</p>
+              </div>
+            ) : (
+              <>
+                {/* Suggestion chips */}
+                {aiSuggestions.length > 0 && !aiCreating && !aiResult && (
+                  <div className="settings-ai-suggestions">
+                    <span className="settings-ai-suggestions-label">Try:</span>
+                    {aiSuggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        className="settings-ai-suggestion-chip"
+                        onClick={() => handleSuggestionClick(s)}
+                        disabled={aiCreating}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Success result */}
+                {aiResult && (
+                  <div className="settings-ai-result">
+                    <div className="settings-ai-result-header">Channel Created</div>
+                    <div className="settings-ai-result-name">{aiResult.channelName}</div>
+                    <div className="settings-ai-result-desc">{aiResult.description}</div>
+                    <div className="settings-ai-result-meta">{aiResult.itemCount} items added to channel</div>
+                    <button
+                      className="settings-btn-accent settings-btn-sm"
+                      onClick={() => {
+                        setAiResult(null);
+                        setViewMode('list');
+                      }}
+                    >
+                      VIEW IN CHANNELS
+                    </button>
+                  </div>
+                )}
+
+                {/* Prompt input */}
+                <div className="settings-ai-prompt-area">
+                  <textarea
+                    className="settings-ai-prompt"
+                    value={aiPrompt}
+                    onChange={e => setAiPrompt(e.target.value)}
+                    placeholder={"Describe your channel...\n\ne.g. \"80s action movies\" or \"cozy rainy day vibes\" or \"sci-fi TV marathon\""}
+                    rows={4}
+                    disabled={aiCreating}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        void handleCreateAI();
+                      }
+                    }}
+                  />
+
+                  <button
+                    className="settings-btn-primary settings-ai-create-btn"
+                    onClick={handleCreateAI}
+                    disabled={aiCreating || !aiPrompt.trim()}
+                  >
+                    {aiCreating ? (
+                      <span className="settings-ai-creating">
+                        <span className="settings-progress-spinner" />
+                        CURATING YOUR CHANNEL...
+                      </span>
+                    ) : (
+                      'CREATE CHANNEL'
+                    )}
+                  </button>
+
+                  {aiError && <div className="settings-error">{aiError}</div>}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

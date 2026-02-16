@@ -236,7 +236,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [error, setError] = useState<string | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
   const [bufferingMessage, setBufferingMessage] = useState('BUFFERING...');
-  const [progress, setProgress] = useState(0);
+  const progressBarRef = useRef<HTMLDivElement>(null);
   const [showSettingsOpen, setShowSettingsOpen] = useState(false);
   const [showNerdStats, setShowNerdStats] = useState(false);
   const [nerdStats, setNerdStats] = useState<NerdStatsData | null>(null);
@@ -308,7 +308,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     audioStreamIndex?: number,
     isRecoveryReload?: boolean,
     cancelledRef?: { current: boolean },
-    reuseInfo?: { info: Awaited<ReturnType<typeof getPlaybackInfo>>; startPositionSec?: number }
+    reuseInfo?: { info: Awaited<ReturnType<typeof getPlaybackInfo>> | null; startPositionSec?: number }
   ) => {
     autoAdvanceDisabledRef.current = false; // Re-enable auto-advance when loading new program
     try {
@@ -404,8 +404,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         
         const hls = new Hls({
           startPosition: startPosition,  // Start at the scheduled position
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
+          maxBufferLength: 15,
+          maxMaxBufferLength: 30,
           // Limit retries to avoid hammering the server
           fragLoadingMaxRetry: 2,
           manifestLoadingMaxRetry: 2,
@@ -437,7 +437,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         };
         const removePlayingListeners = () => {
           video.removeEventListener('playing', onFirstPlaying);
-          video.removeEventListener('loadeddata', onFirstPlaying);
           video.removeEventListener('waiting', onWaiting);
           video.removeEventListener('stalled', onWaiting);
           video.removeEventListener('canplay', onCanPlayBuffering);
@@ -455,8 +454,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const removePlayingListenersNow = removePlayingListenersRef.current;
         if (removePlayingListenersNow) removePlayingListenersNow();
         removePlayingListenersRef.current = removePlayingListeners;
+        // Only use 'playing' — 'loadeddata' can fire before frames render,
+        // causing the overlay to fade over a black/frozen video.
         video.addEventListener('playing', onFirstPlaying);
-        video.addEventListener('loadeddata', onFirstPlaying);
         video.addEventListener('waiting', onWaiting);
         video.addEventListener('stalled', onWaiting);
         video.addEventListener('canplay', onCanPlayBuffering);
@@ -475,6 +475,11 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelledRef?.current) return;
           errorCountRef.current = 0; // Reset on success
+          // Explicitly seek to startPosition — hls.js startPosition is only a hint
+          // and may not be applied if segments haven't been generated yet
+          if (startPosition > 0 && Math.abs(video.currentTime - startPosition) > 1) {
+            video.currentTime = startPosition;
+          }
           tryAutoplayMuted(video);
           setLoading(false);
           showOverlayBriefly();
@@ -519,9 +524,12 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                 streamReloadAttemptedRef.current = true;
                 setBufferingMessage('Reconnecting stream...');
                 setIsBuffering(true);
+                // Preserve current playback position before destroying HLS instance
+                const currentPositionSec = video.currentTime || 0;
                 hls.destroy();
                 hlsRef.current = null;
-                loadPlayback(currentQuality, selectedAudioStreamIndexRef.current ?? undefined, true);
+                loadPlayback(currentQuality, selectedAudioStreamIndexRef.current ?? undefined, true, undefined,
+                  currentPositionSec > 0 ? { info: null, startPositionSec: currentPositionSec } : undefined);
                 return;
               }
             }
@@ -653,6 +661,12 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
+      // Release browser media buffers so memory is freed immediately
+      const vid = videoRef.current;
+      if (vid) {
+        vid.removeAttribute('src');
+        vid.load();
+      }
       if (overlayTimer.current) clearTimeout(overlayTimer.current);
       if (checkTimer.current) clearInterval(checkTimer.current);
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
@@ -690,7 +704,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const start = new Date(currentProgram.start_time).getTime();
         const end = new Date(currentProgram.end_time).getTime();
         const prog = Math.min(100, ((now - start) / (end - start)) * 100);
-        setProgress(prog);
+        // Direct DOM update — avoids re-rendering the entire Player tree every second
+        if (progressBarRef.current) {
+          progressBarRef.current.style.width = `${prog}%`;
+        }
 
         // Auto-advance when program ends (disabled if user restarted - they stay until manual switch)
         if (now >= end && !autoAdvanceDisabledRef.current) {
@@ -1092,14 +1109,13 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           channel={channel}
           program={currentProgram}
           nextProgram={nextProgram}
-          progress={progress}
         />
       )}
 
-      {/* Non-interactive progress bar */}
+      {/* Non-interactive progress bar — updated via ref to avoid re-renders */}
       {showOverlay && !isInterstitial && currentProgram && (
         <div className="player-progress">
-          <div className="player-progress-bar" style={{ width: `${progress}%` }} />
+          <div className="player-progress-bar" ref={progressBarRef} />
         </div>
       )}
 

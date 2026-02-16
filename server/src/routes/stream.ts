@@ -383,11 +383,24 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     const headers = jf.getProxyHeaders();
     const deviceId = jf.getDeviceId();
 
-    // Get playback info and session
-    const hlsInfo = await jf.getHlsStreamUrl(itemId);
-    const playSessionId = hlsInfo.playSessionId;
-    const isHdrSource = hlsInfo.isHdrSource;
-    const mediaSourceId = hlsInfo.mediaSourceId;
+    // Reuse session from /api/playback when available (avoids a redundant Jellyfin
+    // getPlaybackInfo round-trip). Fall back to getHlsStreamUrl for direct requests.
+    const prefetchedPlaySessionId = req.query.playSessionId as string | undefined;
+    const prefetchedMediaSourceId = req.query.mediaSourceId as string | undefined;
+
+    let playSessionId: string;
+    let mediaSourceId: string;
+    let isHdrSource: boolean;
+    if (prefetchedPlaySessionId && prefetchedMediaSourceId) {
+      playSessionId = prefetchedPlaySessionId;
+      mediaSourceId = prefetchedMediaSourceId;
+      isHdrSource = false; // HDR detection only used for logging
+    } else {
+      const hlsInfo = await jf.getHlsStreamUrl(itemId);
+      playSessionId = hlsInfo.playSessionId;
+      mediaSourceId = hlsInfo.mediaSourceId;
+      isHdrSource = hlsInfo.isHdrSource;
+    }
 
     activeSessions.set(itemId, { playSessionId, mediaSourceId });
     lastActivityByItemId.set(itemId, Date.now());

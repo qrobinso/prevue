@@ -21,6 +21,8 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'schedule_auto_update_hours',
   'channel_count',
   'visible_channels',
+  'openrouter_api_key',
+  'openrouter_model',
 ]);
 
 // GET /api/settings - Get all settings

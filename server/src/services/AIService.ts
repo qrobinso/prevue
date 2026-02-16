@@ -1,7 +1,7 @@
 import type { JellyfinItem } from '../types/index.js';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'google/gemini-3-flash-preview';
+const DEFAULT_MODEL = 'google/gemini-3-flash-preview';
 
 interface AIChannelResult {
   name: string;
@@ -9,59 +9,90 @@ interface AIChannelResult {
   description: string;
 }
 
+/** Raw shape returned by the LLM (uses short index keys, not real Jellyfin IDs). */
+interface AIRawResult {
+  name: string;
+  /** Short keys like "M0", "M5", "S2" */
+  items: string[];
+  description: string;
+}
+
+interface AIRequestOptions {
+  apiKey?: string;
+  model?: string;
+}
+
 export class AIService {
-  private apiKey: string | undefined;
+  private envApiKey: string | undefined;
 
   constructor() {
-    this.apiKey = process.env.OPENROUTER_API_KEY || undefined;
+    this.envApiKey = process.env.OPENROUTER_API_KEY || undefined;
   }
 
+  /** Check if AI is available via env var alone (for backward compat). */
   isAvailable(): boolean {
-    return !!this.apiKey;
+    return !!this.envApiKey;
+  }
+
+  /** Check if AI is available given optional user-configured key. */
+  isAvailableWith(userApiKey?: string): boolean {
+    return !!(userApiKey || this.envApiKey);
+  }
+
+  /** Resolve the effective API key: user-configured takes priority, then env var. */
+  private resolveApiKey(options?: AIRequestOptions): string | undefined {
+    return options?.apiKey || this.envApiKey;
+  }
+
+  /** Resolve the effective model: user-configured takes priority, then default. */
+  private resolveModel(options?: AIRequestOptions): string {
+    return options?.model || DEFAULT_MODEL;
   }
 
   async createChannelFromPrompt(
     prompt: string,
-    libraryItems: JellyfinItem[]
+    libraryItems: JellyfinItem[],
+    options?: AIRequestOptions
   ): Promise<AIChannelResult> {
-    if (!this.apiKey) {
+    const apiKey = this.resolveApiKey(options);
+    if (!apiKey) {
       throw new Error('OpenRouter API key not configured');
     }
 
-    // Build a compact library summary for the AI
-    const librarySummary = this.buildLibrarySummary(libraryItems);
+    const model = this.resolveModel(options);
 
-    const systemPrompt = `You are a TV channel curator. The user wants to create a custom TV channel from their media library.
+    // Build compact library with short index keys to minimize tokens
+    const { summary, movieKeyToId, seriesKeyToEpisodeIds } = this.buildLibrarySummary(libraryItems);
 
-Given the user's request and their available library, return a JSON object with:
-- "name": A short, catchy channel name (e.g., "90s Nostalgia", "Horror Night")
-- "item_ids": An array of item IDs from the library that match the request
-- "description": A one-sentence description of the channel
+    const systemPrompt = `You curate TV channels from a media library. Return JSON with:
+- "name": Short channel name (e.g. "90s Nostalgia", "Horror Night")
+- "items": Array of keys from the library below (M0, M1... for movies, S0, S1... for series)
+- "description": One sentence about the channel
 
-IMPORTANT RULES:
-1. ONLY include item IDs that exist in the provided library
-2. Try to include at least 4 hours worth of content
-3. If you can't find enough matching content, include what you can and explain in the description
-4. Return ONLY valid JSON, no markdown or extra text
+Rules:
+1. ONLY use keys listed below
+2. Include enough for ~4+ hours of content
+3. For series (S keys), all episodes are included automatically
+4. Return ONLY valid JSON
 
-Available Library:
-${librarySummary}`;
+Library:
+${summary}`;
 
     const response = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'HTTP-Referer': 'https://github.com/prevue',
         'X-Title': 'Prevue TV Guide',
       },
       body: JSON.stringify({
-        model: MODEL,
+        model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt },
         ],
-        max_tokens: 4096,
+        max_tokens: 2048,
         temperature: 0.3,
         response_format: { type: 'json_object' },
       }),
@@ -82,28 +113,51 @@ ${librarySummary}`;
     }
 
     // Parse the JSON response
-    const result = JSON.parse(content) as AIChannelResult;
+    const raw = JSON.parse(content) as AIRawResult;
 
-    // Validate that all item_ids exist in the library
-    const validIds = new Set(libraryItems.map(i => i.Id));
-    result.item_ids = result.item_ids.filter(id => validIds.has(id));
+    // Map short keys back to real Jellyfin IDs
+    const itemIds: string[] = [];
+    for (const key of (raw.items || [])) {
+      const movieId = movieKeyToId.get(key);
+      if (movieId) {
+        itemIds.push(movieId);
+        continue;
+      }
+      const episodeIds = seriesKeyToEpisodeIds.get(key);
+      if (episodeIds) {
+        itemIds.push(...episodeIds);
+      }
+    }
 
-    if (result.item_ids.length === 0) {
+    // Deduplicate
+    const uniqueIds = [...new Set(itemIds)];
+
+    if (uniqueIds.length === 0) {
       throw new Error('AI could not find any matching content in your library');
     }
 
-    return result;
+    return {
+      name: raw.name,
+      item_ids: uniqueIds,
+      description: raw.description,
+    };
   }
 
-  private buildLibrarySummary(items: JellyfinItem[]): string {
-    // Group by type for compact representation
+  /**
+   * Build a token-efficient library summary using short index keys.
+   * Movies get M0..Mn, series get S0..Sn. Episodes are grouped under
+   * their series (the AI picks a series key, we expand to all episodes).
+   */
+  private buildLibrarySummary(items: JellyfinItem[]): {
+    summary: string;
+    movieKeyToId: Map<string, string>;
+    seriesKeyToEpisodeIds: Map<string, string[]>;
+  } {
     const movies = items.filter(i => i.Type === 'Movie');
     const episodes = items.filter(i => i.Type === 'Episode');
 
-    // For episodes, group by series
-    const seriesMap = new Map<string, { name: string; seasons: Set<number>; episodeCount: number; id: string }>();
-    const episodeIds: string[] = [];
-
+    // Group episodes by series
+    const seriesMap = new Map<string, { name: string; seasons: Set<number>; episodeCount: number; episodeIds: string[]; genres: Set<string>; year: number | null }>();
     for (const ep of episodes) {
       const seriesId = ep.SeriesId || ep.Id;
       if (!seriesMap.has(seriesId)) {
@@ -111,34 +165,57 @@ ${librarySummary}`;
           name: ep.SeriesName || ep.Name,
           seasons: new Set(),
           episodeCount: 0,
-          id: seriesId,
+          episodeIds: [],
+          genres: new Set(ep.Genres || []),
+          year: ep.ProductionYear || null,
         });
       }
       const series = seriesMap.get(seriesId)!;
       if (ep.ParentIndexNumber) series.seasons.add(ep.ParentIndexNumber);
       series.episodeCount++;
-      episodeIds.push(ep.Id);
+      series.episodeIds.push(ep.Id);
+      // Merge genres from episodes
+      for (const g of (ep.Genres || [])) series.genres.add(g);
     }
 
-    let summary = 'MOVIES:\n';
-    for (const movie of movies) {
-      const year = movie.ProductionYear ? ` (${movie.ProductionYear})` : '';
-      const genres = movie.Genres?.join(', ') || 'Unknown';
-      summary += `- ID:${movie.Id} | ${movie.Name}${year} | ${genres}\n`;
-    }
+    const movieKeyToId = new Map<string, string>();
+    const seriesKeyToEpisodeIds = new Map<string, string[]>();
+    const lines: string[] = [];
 
-    summary += '\nTV SERIES:\n';
-    for (const [seriesId, info] of seriesMap) {
-      const seasons = Array.from(info.seasons).sort((a, b) => a - b);
-      summary += `- Series:${seriesId} | ${info.name} | Seasons: ${seasons.join(',')} | ${info.episodeCount} episodes\n`;
-
-      // Include episode IDs for this series
-      const seriesEps = episodes.filter(e => e.SeriesId === seriesId);
-      for (const ep of seriesEps) {
-        summary += `  - ID:${ep.Id} | S${ep.ParentIndexNumber || '?'}E${ep.IndexNumber || '?'} ${ep.Name}\n`;
+    // Movies: "M0 The Matrix (1999) Action,Sci-Fi 136min"
+    if (movies.length > 0) {
+      lines.push('MOVIES:');
+      for (let i = 0; i < movies.length; i++) {
+        const m = movies[i];
+        const key = `M${i}`;
+        movieKeyToId.set(key, m.Id);
+        const year = m.ProductionYear ? ` (${m.ProductionYear})` : '';
+        const genres = m.Genres?.slice(0, 3).join(',') || '?';
+        const mins = m.RunTimeTicks ? Math.round(m.RunTimeTicks / 600000000) : 0;
+        const dur = mins > 0 ? ` ${mins}m` : '';
+        lines.push(`${key} ${m.Name}${year} ${genres}${dur}`);
       }
     }
 
-    return summary;
+    // Series: "S0 Breaking Bad S1-5 62ep Drama,Crime"
+    if (seriesMap.size > 0) {
+      lines.push('SERIES:');
+      let idx = 0;
+      for (const [, info] of seriesMap) {
+        const key = `S${idx}`;
+        seriesKeyToEpisodeIds.set(key, info.episodeIds);
+        const seasons = Array.from(info.seasons).sort((a, b) => a - b);
+        const seasonStr = seasons.length > 0
+          ? (seasons.length === 1 ? `S${seasons[0]}` : `S${seasons[0]}-${seasons[seasons.length - 1]}`)
+          : '';
+        const genres = Array.from(info.genres).slice(0, 3).join(',') || '?';
+        lines.push(`${key} ${info.name} ${seasonStr} ${info.episodeCount}ep ${genres}`);
+        idx++;
+      }
+    }
+
+    return { summary: lines.join('\n'), movieKeyToId, seriesKeyToEpisodeIds };
   }
 }
+
+export const DEFAULT_AI_MODEL = DEFAULT_MODEL;

@@ -256,6 +256,8 @@ export class ScheduleEngine {
     const MAX_FAILED_ATTEMPTS = 50; // Prevent infinite loops
     /** Current rating bucket so we don't mix kids and adult content. */
     let lastScheduledBucket: 'kids' | 'adult' | null = null;
+    /** Prevent back-to-back movies on mixed channels by forcing an episode run after a movie. */
+    let lastWasMovie = false;
 
     while (currentTime.getTime() < blockEndMs && failedAttempts < MAX_FAILED_ATTEMPTS) {
       const remainingMs = blockEndMs - currentTime.getTime();
@@ -272,7 +274,8 @@ export class ScheduleEngine {
       const startMs = currentTime.getTime();
 
       // Decide: episode run or standalone (movie-only channels: always movies, back-to-back)
-      const doEpisodeRun = seriesIds.length > 0 && (standaloneItems.length === 0 || (rng() < 0.6 && !isMovieOnlyChannel));
+      // Force episode run after a movie to prevent back-to-back movies (unless movie-only channel)
+      const doEpisodeRun = seriesIds.length > 0 && (standaloneItems.length === 0 || (!isMovieOnlyChannel && (lastWasMovie || rng() < 0.6)));
 
       let scheduledSomething = false;
 
@@ -353,6 +356,7 @@ export class ScheduleEngine {
               usedInBlock.add(episode.Id);
               lastItemId = seriesId;
               lastScheduledBucket = getRatingBucket(episode.OfficialRating);
+              lastWasMovie = false;
               currentTime = endTime;
               episodeIdx = (episodeIdx + attempt + 1) % episodes.length;
               found = true;
@@ -435,6 +439,7 @@ export class ScheduleEngine {
           usedInBlock.add(selected.item.Id);
           lastItemId = selected.item.Id;
           lastScheduledBucket = getRatingBucket(selected.item.OfficialRating);
+          lastWasMovie = true;
           currentTime = endTime;
           scheduledSomething = true;
         }
@@ -766,6 +771,7 @@ export class ScheduleEngine {
       banner_url: `/api/images/${item.Id}/Banner`,
       year: item.ProductionYear || null,
       rating: item.OfficialRating || null,
+      description: item.Overview || null,
     };
   }
 
@@ -797,6 +803,7 @@ export class ScheduleEngine {
       banner_url: nextItem ? `/api/images/${nextItem.Id}/Banner` : null,
       year: null,
       rating: null,
+      description: null,
     };
   }
 

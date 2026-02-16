@@ -3,12 +3,29 @@ import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
 import type { ChannelManager } from '../services/ChannelManager.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
-import { AIService } from '../services/AIService.js';
+import { AIService, DEFAULT_AI_MODEL } from '../services/AIService.js';
 import type { JellyfinClient } from '../services/JellyfinClient.js';
 import { broadcast } from '../websocket/index.js';
+import { encrypt, decrypt } from '../utils/crypto.js';
 
 export const channelRoutes = Router();
 const aiService = new AIService();
+
+/** Read user-configured OpenRouter API key from settings (decrypted). */
+function getUserAIKey(db: import('better-sqlite3').Database): string | undefined {
+  const encrypted = queries.getSetting(db, 'openrouter_api_key') as string | undefined;
+  if (!encrypted) return undefined;
+  try {
+    return decrypt(encrypted);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Read user-configured OpenRouter model from settings. */
+function getUserAIModel(db: import('better-sqlite3').Database): string | undefined {
+  return (queries.getSetting(db, 'openrouter_model') as string) || undefined;
+}
 
 // GET /api/channels - List all channels with current program info
 channelRoutes.get('/', (req: Request, res: Response) => {
@@ -53,12 +70,16 @@ channelRoutes.post('/', (req: Request, res: Response) => {
 // POST /api/channels/ai - Create channel via AI prompt
 channelRoutes.post('/ai', async (req: Request, res: Response) => {
   try {
-    if (!aiService.isAvailable()) {
-      res.status(503).json({ error: 'AI service not configured. Set OPENROUTER_API_KEY.' });
+    const { channelManager, jellyfinClient, wss, db } = req.app.locals;
+
+    const userKey = getUserAIKey(db);
+    const userModel = getUserAIModel(db);
+
+    if (!aiService.isAvailableWith(userKey)) {
+      res.status(503).json({ error: 'AI service not configured. Add your OpenRouter API key in Settings > Channels > AI Create.' });
       return;
     }
 
-    const { channelManager, jellyfinClient, wss } = req.app.locals;
     const { prompt } = req.body;
 
     if (!prompt) {
@@ -67,7 +88,10 @@ channelRoutes.post('/ai', async (req: Request, res: Response) => {
     }
 
     const libraryItems = (jellyfinClient as JellyfinClient).getLibraryItems();
-    const aiResult = await aiService.createChannelFromPrompt(prompt, libraryItems);
+    const aiResult = await aiService.createChannelFromPrompt(prompt, libraryItems, {
+      apiKey: userKey,
+      model: userModel,
+    });
 
     const channel = (channelManager as ChannelManager).createCustomChannel(
       aiResult.name,
@@ -77,6 +101,40 @@ channelRoutes.post('/ai', async (req: Request, res: Response) => {
 
     broadcast(wss, { type: 'channel:added', payload: channel });
     res.status(201).json({ channel, ai_description: aiResult.description });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PUT /api/channels/:id/ai-refresh - Re-run AI prompt to update channel items from latest library
+channelRoutes.put('/:id/ai-refresh', async (req: Request, res: Response) => {
+  try {
+    const { db, jellyfinClient, scheduleEngine } = req.app.locals;
+    const id = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
+
+    const channel = queries.getChannelById(db, id);
+    if (!channel) { res.status(404).json({ error: 'Channel not found' }); return; }
+    if (!channel.ai_prompt) { res.status(400).json({ error: 'Channel has no AI prompt' }); return; }
+
+    const userKey = getUserAIKey(db);
+    const userModel = getUserAIModel(db);
+    if (!aiService.isAvailableWith(userKey)) {
+      res.status(503).json({ error: 'AI service not configured' });
+      return;
+    }
+
+    const libraryItems = (jellyfinClient as JellyfinClient).getLibraryItems();
+    const aiResult = await aiService.createChannelFromPrompt(channel.ai_prompt, libraryItems, {
+      apiKey: userKey,
+      model: userModel,
+    });
+
+    // Update channel items with fresh AI results
+    const updated = queries.updateChannel(db, id, { item_ids: aiResult.item_ids });
+    (scheduleEngine as ScheduleEngine).regenerateForChannel(id);
+
+    res.json({ channel: updated, ai_description: aiResult.description });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
@@ -128,16 +186,176 @@ channelRoutes.delete('/:id', (req: Request, res: Response) => {
   }
 });
 
+// GET /api/channels/ai/suggestions - Generate sample prompts based on library
+channelRoutes.get('/ai/suggestions', (req: Request, res: Response) => {
+  try {
+    const { jellyfinClient } = req.app.locals;
+    const items = (jellyfinClient as JellyfinClient).getLibraryItems();
+
+    if (items.length === 0) {
+      res.json({ suggestions: [] });
+      return;
+    }
+
+    // Gather library metadata
+    const genreCounts = new Map<string, number>();
+    const decadeCounts = new Map<number, number>();
+    const seriesNames = new Set<string>();
+    const directorCounts = new Map<string, number>();
+    const actorCounts = new Map<string, number>();
+
+    for (const item of items) {
+      for (const g of (item.Genres || [])) genreCounts.set(g, (genreCounts.get(g) || 0) + 1);
+      if (item.ProductionYear) {
+        const decade = Math.floor(item.ProductionYear / 10) * 10;
+        decadeCounts.set(decade, (decadeCounts.get(decade) || 0) + 1);
+      }
+      if (item.Type === 'Episode' && item.SeriesName) seriesNames.add(item.SeriesName);
+      if (item.People) {
+        for (const p of item.People) {
+          if (p.Type === 'Director' && p.Name) directorCounts.set(p.Name, (directorCounts.get(p.Name) || 0) + 1);
+          if (p.Type === 'Actor' && p.Name) actorCounts.set(p.Name, (actorCounts.get(p.Name) || 0) + 1);
+        }
+      }
+    }
+
+    // Sort by count and pick top entries
+    const topGenres = [...genreCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(e => e[0]);
+    const topDecades = [...decadeCounts.entries()].filter(e => e[1] >= 5).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+    const topSeries = [...seriesNames].slice(0, 30);
+    const topDirectors = [...directorCounts.entries()].filter(e => e[1] >= 2).sort((a, b) => b[1] - a[1]).slice(0, 15).map(e => e[0]);
+    const topActors = [...actorCounts.entries()].filter(e => e[1] >= 3).sort((a, b) => b[1] - a[1]).slice(0, 15).map(e => e[0]);
+
+    // Build a pool of prompt templates, each referencing actual library data
+    const pool: string[] = [];
+    const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+    // Genre-based
+    if (topGenres.length >= 2) {
+      pool.push(`${pick(topGenres)} movies and shows`);
+      pool.push(`Best of ${pick(topGenres)} and ${pick(topGenres)}`);
+      pool.push(`Late night ${pick(topGenres).toLowerCase()} marathon`);
+    }
+    if (topGenres.length >= 1) {
+      pool.push(`Family-friendly ${pick(topGenres).toLowerCase()} channel`);
+      pool.push(`The best ${pick(topGenres).toLowerCase()} in my library`);
+    }
+
+    // Decade-based
+    if (topDecades.length >= 1) {
+      const d = pick(topDecades);
+      pool.push(`${d}s nostalgia channel`);
+      pool.push(`Classic ${d}s movies and TV`);
+    }
+
+    // Genre + decade combos
+    if (topGenres.length >= 1 && topDecades.length >= 1) {
+      pool.push(`${pick(topDecades)}s ${pick(topGenres).toLowerCase()}`);
+    }
+
+    // Series-based
+    if (topSeries.length >= 2) {
+      pool.push(`TV marathon: ${pick(topSeries)} and similar shows`);
+      pool.push(`Shows like ${pick(topSeries)}`);
+    }
+
+    // Director-based
+    if (topDirectors.length >= 1) {
+      pool.push(`Films directed by ${pick(topDirectors)}`);
+    }
+
+    // Actor-based
+    if (topActors.length >= 1) {
+      pool.push(`Everything starring ${pick(topActors)}`);
+    }
+
+    // Mood / vibe prompts using library genres
+    const moods = ['Cozy rainy day', 'Date night', 'Weekend binge', 'Feel-good', 'Edge of your seat'];
+    if (topGenres.length >= 1) {
+      pool.push(`${pick(moods)} ${pick(topGenres).toLowerCase()}`);
+    }
+    pool.push(`${pick(moods)} vibes`);
+
+    // Shuffle pool and pick 4 unique
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const suggestions = pool.slice(0, 4);
+
+    res.json({ suggestions });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // GET /api/channels/ai/status - Check AI availability
-channelRoutes.get('/ai/status', (_req: Request, res: Response) => {
-  res.json({ available: aiService.isAvailable() });
+channelRoutes.get('/ai/status', (req: Request, res: Response) => {
+  const { db } = req.app.locals;
+  const userKey = getUserAIKey(db);
+  res.json({ available: aiService.isAvailableWith(userKey) });
+});
+
+// GET /api/channels/ai/config - Get AI configuration (never exposes raw key)
+channelRoutes.get('/ai/config', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const userKey = getUserAIKey(db);
+    const userModel = getUserAIModel(db);
+    res.json({
+      hasKey: !!(userKey || aiService.isAvailable()),
+      hasUserKey: !!userKey,
+      hasEnvKey: aiService.isAvailable(),
+      model: userModel || DEFAULT_AI_MODEL,
+      defaultModel: DEFAULT_AI_MODEL,
+      available: aiService.isAvailableWith(userKey),
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PUT /api/channels/ai/config - Update AI configuration
+channelRoutes.put('/ai/config', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const { apiKey, model } = req.body;
+
+    if (apiKey !== undefined) {
+      if (apiKey === '' || apiKey === null) {
+        // Clear the key
+        queries.setSetting(db, 'openrouter_api_key', '');
+      } else {
+        // Encrypt and store
+        queries.setSetting(db, 'openrouter_api_key', encrypt(apiKey));
+      }
+    }
+
+    if (model !== undefined) {
+      queries.setSetting(db, 'openrouter_model', model || '');
+    }
+
+    // Return updated config
+    const userKey = getUserAIKey(db);
+    const userModel = getUserAIModel(db);
+    res.json({
+      hasKey: !!(userKey || aiService.isAvailable()),
+      hasUserKey: !!userKey,
+      hasEnvKey: aiService.isAvailable(),
+      model: userModel || DEFAULT_AI_MODEL,
+      defaultModel: DEFAULT_AI_MODEL,
+      available: aiService.isAvailableWith(userKey),
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 // POST /api/channels/regenerate - Regenerate channels (presets or auto/genre-based)
 channelRoutes.post('/regenerate', async (req: Request, res: Response) => {
   try {
     const { channelManager, scheduleEngine, wss, db } = req.app.locals;
-    
+
     // Check if we have saved preset selections
     const selectedPresets = queries.getSetting(db, 'selected_presets') as string[] | undefined;
 
@@ -149,7 +367,7 @@ channelRoutes.post('/regenerate', async (req: Request, res: Response) => {
       // Fall back to genre-based auto generation
       channels = await (channelManager as ChannelManager).autoGenerateChannels();
     }
-    
+
     await (scheduleEngine as ScheduleEngine).generateAllSchedules();
     broadcast(wss, { type: 'channels:regenerated', payload: { count: channels.length } });
     res.json({ channels_created: channels.length });
@@ -270,7 +488,7 @@ channelRoutes.post('/generate', async (req: Request, res: Response) => {
     // Step 1: Check if library needs sync (only sync if empty or force_sync requested)
     const jf = jellyfinClient as JellyfinClient;
     const existingItems = jf.getLibraryItems();
-    
+
     if (existingItems.length === 0 || force_sync) {
       // No library data or force sync requested
       const reason = force_sync ? 'Force sync requested' : 'No library data';
@@ -323,14 +541,14 @@ channelRoutes.put('/settings', (req: Request, res: Response) => {
   try {
     const { db } = req.app.locals;
     const { max_channels, selected_presets } = req.body;
-    
+
     if (max_channels !== undefined) {
       queries.setSetting(db, 'max_channels', max_channels);
     }
     if (selected_presets !== undefined) {
       queries.setSetting(db, 'selected_presets', selected_presets);
     }
-    
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

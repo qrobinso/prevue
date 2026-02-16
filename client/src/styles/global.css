@@ -216,6 +216,106 @@
   --border-cell: #6a4f1b;
 }
 
+[data-theme="dark"] {
+  --bg-primary: #0e0e0e;
+  --bg-secondary: #181818;
+  --bg-grid: #141414;
+  --bg-cell: #1e1e1e;
+  --bg-cell-hover: #2a2a2a;
+  --bg-cell-focus: #363636;
+  --bg-preview: #0a0a0a;
+  --bg-overlay: rgba(0, 0, 0, 0.9);
+
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-gold: #c0c0c0;
+  --text-cyan: #b0b0b0;
+  --text-muted: #606060;
+
+  --accent-cyan: #a0a0a0;
+  --accent-gold: #c0c0c0;
+  --accent-green: #66cc77;
+  --accent-red: #cc4444;
+
+  --border-grid: #2a2a2a;
+  --border-cell: #383838;
+}
+
+[data-theme="vapor"] {
+  --bg-primary: #1a0a20;
+  --bg-secondary: #261232;
+  --bg-grid: #1f0c28;
+  --bg-cell: #2e1440;
+  --bg-cell-hover: #3c1c55;
+  --bg-cell-focus: #4e266e;
+  --bg-preview: #140818;
+  --bg-overlay: rgba(15, 5, 20, 0.9);
+
+  --text-primary: #fff0ff;
+  --text-secondary: #e0b0e8;
+  --text-gold: #00e5d0;
+  --text-cyan: #ff71ce;
+  --text-muted: #9060a8;
+
+  --accent-cyan: #ff71ce;
+  --accent-gold: #00e5d0;
+  --accent-green: #71ffc5;
+  --accent-red: #ff4080;
+
+  --border-grid: #4a1e60;
+  --border-cell: #5c2878;
+}
+
+[data-theme="forest"] {
+  --bg-primary: #0b1410;
+  --bg-secondary: #121e18;
+  --bg-grid: #0e1a14;
+  --bg-cell: #16251e;
+  --bg-cell-hover: #1e3228;
+  --bg-cell-focus: #284236;
+  --bg-preview: #08100c;
+  --bg-overlay: rgba(5, 12, 8, 0.9);
+
+  --text-primary: #e8f5ec;
+  --text-secondary: #a8ccb4;
+  --text-gold: #e0c878;
+  --text-cyan: #7dcea0;
+  --text-muted: #5a8a6c;
+
+  --accent-cyan: #7dcea0;
+  --accent-gold: #e0c878;
+  --accent-green: #50e880;
+  --accent-red: #e06050;
+
+  --border-grid: #2a4434;
+  --border-cell: #345540;
+}
+
+[data-theme="noir"] {
+  --bg-primary: #121212;
+  --bg-secondary: #1c1c1c;
+  --bg-grid: #161616;
+  --bg-cell: #222222;
+  --bg-cell-hover: #2e2e2e;
+  --bg-cell-focus: #3a3a3a;
+  --bg-preview: #0c0c0c;
+  --bg-overlay: rgba(0, 0, 0, 0.92);
+
+  --text-primary: #f0ead6;
+  --text-secondary: #b8b0a0;
+  --text-gold: #d4af37;
+  --text-cyan: #d4af37;
+  --text-muted: #6e6860;
+
+  --accent-cyan: #d4af37;
+  --accent-gold: #d4af37;
+  --accent-green: #a0c070;
+  --accent-red: #c04040;
+
+  --border-grid: #333330;
+  --border-cell: #44443e;
+}
+
 * {
   margin: 0;
   padding: 0;

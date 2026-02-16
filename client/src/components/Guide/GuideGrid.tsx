@@ -1,6 +1,12 @@
-import { useRef, useEffect, useMemo, useState } from 'react';
+import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import type { ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
+import {
+  getGuideColorsEnabled,
+  getGuideColorMovie,
+  getGuideColorEpisode,
+  getGuideRatings,
+} from '../Settings/DisplaySettings';
 import './Guide.css';
 
 interface GuideGridProps {
@@ -45,6 +51,35 @@ export default function GuideGrid({
   const [containerWidth, setContainerWidth] = useState(0);
   const scrollLeftRef = useRef(0); // Track horizontal scroll for sticky titles (ref to avoid per-frame re-renders)
   const isScrollingSynced = useRef(false);
+
+  // Guide color-coding settings
+  const [guideColors, setGuideColors] = useState(() => ({
+    enabled: getGuideColorsEnabled(),
+    movie: getGuideColorMovie(),
+    episode: getGuideColorEpisode(),
+  }));
+
+  const refreshGuideColors = useCallback(() => {
+    setGuideColors({
+      enabled: getGuideColorsEnabled(),
+      movie: getGuideColorMovie(),
+      episode: getGuideColorEpisode(),
+    });
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('guidecolorschange', refreshGuideColors);
+    return () => window.removeEventListener('guidecolorschange', refreshGuideColors);
+  }, [refreshGuideColors]);
+
+  // Guide ratings badge setting
+  const [showRatings, setShowRatings] = useState(getGuideRatings);
+
+  useEffect(() => {
+    const refresh = () => setShowRatings(getGuideRatings());
+    window.addEventListener('guideratingschange', refresh);
+    return () => window.removeEventListener('guideratingschange', refresh);
+  }, []);
 
   // Measure the container to compute dynamic sizes
   useEffect(() => {
@@ -339,20 +374,41 @@ export default function GuideGrid({
                   const maxOffset = Math.max(0, width - padding * 2 - reservedForText);
                   const titleOffset = Math.max(0, Math.min(scrollPastCell, maxOffset));
                   
+                  // Color-coded background based on content type
+                  const cellBg = guideColors.enabled && prog.type !== 'interstitial'
+                    ? prog.content_type === 'movie'
+                      ? guideColors.movie
+                      : prog.content_type === 'episode'
+                        ? guideColors.episode
+                        : undefined
+                    : undefined;
+
+                  // Continuation arrows: program started before visible window
+                  const clippedMs = rangeStart - progStart; // how far back the program started
+                  const continuationArrow = clippedMs > 30 * 60 * 1000
+                    ? '\u25C2\u25C2 ' // ◂◂ — running 30+ min before visible window
+                    : clippedMs > 0
+                      ? '\u25C2 ' // ◂ — started before visible window
+                      : '';
+
                   return (
                     <div
                       key={`${prog.start_time}-${progIdx}`}
                       className={`guide-program-cell ${isFocused ? 'guide-program-focused' : ''} ${isCurrentlyAiring ? 'guide-program-airing' : ''} ${prog.type === 'interstitial' ? 'guide-program-interstitial' : ''}`}
-                      style={{ left, width }}
+                      style={{ left, width, background: cellBg }}
                       onClick={() => onProgramClick(chIdx, progIdx)}
                       title={prog.title + (prog.subtitle ? ` - ${prog.subtitle}` : '')}
                     >
-                      <div 
+                      <div
                         className="guide-program-content"
                         style={{ transform: `translateX(${titleOffset}px)` }}
                       >
                         <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
+                          {continuationArrow && <span className="guide-continuation-arrow">{continuationArrow}</span>}
                           {prog.title}
+                          {showRatings && prog.rating && prog.type !== 'interstitial' && (
+                            <span className="guide-rating-badge">{prog.rating}</span>
+                          )}
                         </span>
                         {showSubtitle && (
                           <span className="guide-program-subtitle" style={{ fontSize: Math.max(programTitleFontSize - 3, 9) }}>

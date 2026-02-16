@@ -27,6 +27,7 @@
   object-fit: contain;
   opacity: 0;
   transition: opacity 0.5s ease;
+  will-change: opacity;
 }
 
 .player-video-ready {
@@ -61,8 +62,10 @@
   gap: 24px;
   z-index: 10;
   overflow: hidden;
+  opacity: 1;
   transition: opacity 2s ease-out;
-  animation: player-artwork-fade-in 0.5s ease-out forwards;
+  animation: player-artwork-fade-in 0.5s ease-out;
+  will-change: opacity;
 }
 
 .player-loading-fade-out {
@@ -80,8 +83,9 @@
 
 .player-loading-banner-blur {
   background-size: cover;
-  filter: blur(24px);
+  filter: blur(16px);
   transform: scale(1.1);
+  will-change: opacity, filter;
 }
 
 .player-loading-artwork-wrap {
@@ -317,6 +321,26 @@
   padding: 3px 8px;
   border-radius: 4px;
   border: 1px solid var(--border-grid);
+}
+
+.info-runtime {
+  font-family: var(--font-retro);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.info-description {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-top: 6px;
+  max-width: 600px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  opacity: 0.85;
 }
 
 .info-time {
@@ -1557,13 +1581,20 @@
     gap: 6px;
   }
 
-  .info-year {
+  .info-year,
+  .info-runtime {
     font-size: 9px;
   }
 
   .info-rating {
     font-size: 8px;
     padding: 2px 6px;
+  }
+
+  .info-description {
+    -webkit-line-clamp: 2;
+    font-size: 9px;
+    max-width: 100%;
   }
 
   .info-time {
@@ -1816,13 +1847,19 @@
     gap: 12px;
   }
 
-  .info-year {
+  .info-year,
+  .info-runtime {
     font-size: 13px;
   }
 
   .info-rating {
     font-size: 12px;
     padding: 4px 10px;
+  }
+
+  .info-description {
+    font-size: 12px;
+    max-width: 800px;
   }
 
   .info-time {

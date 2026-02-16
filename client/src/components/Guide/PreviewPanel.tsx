@@ -124,6 +124,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    // Release browser media buffers so memory is freed immediately
+    const vid = videoRef.current;
+    if (vid) {
+      vid.removeAttribute('src');
+      vid.load();
+    }
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
@@ -181,7 +187,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     let canplayHandler: (() => void) | null = null;
     const removePlayingListeners = () => {
       video.removeEventListener('playing', onFirstPlaying);
-      video.removeEventListener('loadeddata', onFirstPlaying);
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('stalled', onWaiting);
       if (canplayHandler) {
@@ -231,8 +236,9 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       hlsRef.current = hls;
       hls.loadSource(info.stream_url);
       hls.attachMedia(video);
+      // Only use 'playing' — 'loadeddata' can fire before frames render,
+      // causing the overlay to fade over a black/frozen video.
       video.addEventListener('playing', onFirstPlaying);
-      video.addEventListener('loadeddata', onFirstPlaying);
       video.addEventListener('waiting', onWaiting);
       video.addEventListener('stalled', onWaiting);
       // Helper to set native text track mode
@@ -695,10 +701,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
               <div className="preview-meta">
                 {program.year && <span className="preview-year" style={{ fontSize: previewFontSizes.year }}>{program.year}</span>}
                 {program.rating && <span className="preview-rating" style={{ fontSize: previewFontSizes.rating }}>{program.rating}</span>}
+                {program.duration_ms > 0 && <span className="preview-runtime" style={{ fontSize: previewFontSizes.year }}>{formatRuntime(program.duration_ms)}</span>}
               </div>
               <div className="preview-time" style={{ fontSize: previewFontSizes.time }}>
                 {formatTime(program.start_time)} - {formatTime(program.end_time)}
               </div>
+              {program.description && (
+                <div className="preview-description" style={{ fontSize: previewFontSizes.year }}>{program.description}</div>
+              )}
               {program.type === 'program' && (
                 <div className="preview-progress">
                   <div
@@ -822,6 +832,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
 
 function formatTime(isoStr: string): string {
   return new Date(isoStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatRuntime(durationMs: number): string {
+  const totalMinutes = Math.round(durationMs / 60000);
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
 function getProgress(program: ScheduleProgram, now: Date): number {

@@ -105,12 +105,26 @@ export class ChannelManager {
    * Generate channels based on selected presets
    */
   async generateChannelsFromPresets(
-    presetIds: string[], 
+    presetIds: string[],
     onProgress?: (progress: { step: string; message: string; current?: number; total?: number }) => void
   ): Promise<ChannelParsed[]> {
     this.onProgress = onProgress;
     const maxCount = DEFAULT_MAX_CHANNELS;
-    
+
+    // Snapshot custom channel positions before deleting preset channels
+    const allBefore = queries.getAllChannels(this.db); // ordered by sort_order, number
+    const customPositions: { id: number; fraction: number }[] = [];
+    if (allBefore.length > 0) {
+      for (let i = 0; i < allBefore.length; i++) {
+        if (allBefore[i].type === 'custom') {
+          customPositions.push({
+            id: allBefore[i].id,
+            fraction: allBefore.length > 1 ? i / (allBefore.length - 1) : 0.5,
+          });
+        }
+      }
+    }
+
     // Remove existing auto and preset channels
     this.reportProgress('preparing', 'Removing existing channels...');
     queries.deleteAutoAndPresetChannels(this.db);
@@ -236,6 +250,26 @@ export class ChannelManager {
         created.push(channel);
         usedNames.add(channelName);
         console.log(`[ChannelManager] Created preset channel: ${channelName} (${filteredItems.length} items)`);
+      }
+    }
+
+    // Reinsert custom channels at their original relative positions and renumber everything
+    if (customPositions.length > 0 && created.length > 0) {
+      const finalOrder: number[] = created.map(c => c.id);
+      const totalAfter = finalOrder.length + customPositions.length;
+
+      // Insert custom channels at their original fractional positions (reverse order to keep indices stable)
+      const sorted = [...customPositions].sort((a, b) => b.fraction - a.fraction);
+      for (const cp of sorted) {
+        const insertIdx = Math.min(
+          Math.round(cp.fraction * (totalAfter - 1)),
+          finalOrder.length
+        );
+        finalOrder.splice(insertIdx, 0, cp.id);
+      }
+
+      for (let i = 0; i < finalOrder.length; i++) {
+        queries.updateChannel(this.db, finalOrder[i], { sort_order: i + 1, number: i + 1 });
       }
     }
 
