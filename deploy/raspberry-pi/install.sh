@@ -348,17 +348,22 @@ copy_deployment_files() {
     # Clone full repository from GitHub (needed for Docker build to work)
     log "Cloning full repository from GitHub..."
 
-    if [ -d "$INSTALL_DIR/.git" ]; then
-      log "Repository already cloned, updating..."
-      cd "$INSTALL_DIR"
-      sudo -u prevue git pull origin "$REPO_BRANCH" 2>/dev/null || log "Git pull had issues, continuing..."
+    # Clone into temp directory since /home/prevue already exists
+    local TEMP_REPO="/tmp/prevue-repo-$$"
+
+    if git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_REPO" 2>&1 | grep -v "warning: redirecting"; then
+      success "Repository cloned to temporary location"
+
+      # Move all files from temp repo to install directory
+      log "Moving repository files to $INSTALL_DIR..."
+      cp -r "$TEMP_REPO"/* "$INSTALL_DIR/"
+      cp -r "$TEMP_REPO"/.[^.]* "$INSTALL_DIR/" 2>/dev/null || true
+
+      # Clean up temp directory
+      rm -rf "$TEMP_REPO"
+      success "Repository files moved to installation directory"
     else
-      log "Cloning repository to $INSTALL_DIR..."
-      if git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR" 2>&1 | grep -v "warning: redirecting"; then
-        success "Repository cloned successfully"
-      else
-        error "Failed to clone repository from GitHub. Check internet connection."
-      fi
+      error "Failed to clone repository from GitHub. Check internet connection."
     fi
 
     chown -R prevue:prevue "$INSTALL_DIR"
