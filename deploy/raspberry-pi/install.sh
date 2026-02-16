@@ -286,6 +286,9 @@ configure_system() {
     echo "disable_overscan=1" >> /boot/config.txt
   fi
 
+  # Allow prevue user to start X server (required for Pi OS Lite kiosk)
+  echo "allowed_users=anybody" > /etc/X11/Xwrapper.config
+
   success "System settings configured"
 }
 
