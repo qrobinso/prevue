@@ -2,7 +2,8 @@ version: '3.8'
 
 services:
   prevue:
-    image: ghcr.io/user/prevue:latest
+    build: ../..
+    image: prevue:latest
     container_name: prevue
     restart: unless-stopped
 
