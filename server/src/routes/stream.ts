@@ -45,15 +45,29 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
     
     if (sessionId) {
       // Report playback stopped to Jellyfin if progress sharing is enabled and we have position data
+      let reportedStop = false;
       if (positionMs != null && session) {
         const { db } = req.app.locals;
         const enabled = isProgressSharingEnabled(queries.getSetting(db, 'share_playback_progress'));
         if (enabled) {
+          // Jellyfin requires PlaybackStart before PlaybackStopped to persist position.
+          // If the user watched less than 5 minutes, the progress endpoint never fired,
+          // so we send PlaybackStart here first.
+          if (!progressStartedSessions.has(sessionId)) {
+            console.log(`[Stream Progress] Sending PlaybackStart (on stop) item=${itemId} session=${sessionId} positionMs=${positionMs}`);
+            await jf.reportPlaybackStart(itemId, sessionId, session.mediaSourceId, positionMs).catch(() => {});
+            progressStartedSessions.add(sessionId);
+          }
           console.log(`[Stream Progress] Sending PlaybackStopped item=${itemId} session=${sessionId} positionMs=${positionMs}`);
           await jf.reportPlaybackStopped(itemId, sessionId, session.mediaSourceId, positionMs).catch(() => {});
+          reportedStop = true;
         }
       }
-      await jf.stopPlaybackSession(sessionId);
+      // Only send a bare session stop if reportPlaybackStopped didn't already hit
+      // the same /Sessions/Playing/Stopped endpoint (avoids overwriting position data).
+      if (!reportedStop) {
+        await jf.stopPlaybackSession(sessionId);
+      }
       await jf.deleteTranscodingJob(sessionId);
       progressStartedSessions.delete(sessionId);
       activeSessions.delete(itemId);
