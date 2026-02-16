@@ -195,6 +195,21 @@ interactive_config() {
     return
   fi
 
+  # Check if stdin is available (not piped)
+  if ! [ -t 0 ]; then
+    # Try to redirect from /dev/tty if available
+    if [ -c /dev/tty ]; then
+      exec < /dev/tty
+    else
+      error "Interactive mode requires terminal access. Use command-line arguments instead:"
+      error ""
+      error "  curl -fsSL https://...install.sh | sudo bash -s -- \\"
+      error "    --jellyfin-url \"http://jellyfin.local:8096\" \\"
+      error "    --jellyfin-user \"username\" \\"
+      error "    --jellyfin-password \"password\""
+    fi
+  fi
+
   echo ""
   echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
   echo -e "${BLUE}   Prevue Raspberry Pi Cable Box Installation${NC}"
