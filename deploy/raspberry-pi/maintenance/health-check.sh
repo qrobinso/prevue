@@ -40,7 +40,7 @@ check_container_status() {
 
 # Check if browser process is running
 check_browser_status() {
-  pgrep -x "epiphany\|gnome-web" > /dev/null
+  pgrep -f "epiphany" > /dev/null 2>&1 || pgrep -f "gnome-web" > /dev/null 2>&1
   return $?
 }
 
@@ -111,7 +111,7 @@ generate_report() {
   "components": {
     "api": $api_ok,
     "container": $container_ok,
-    "chromium": $browser_ok,
+    "browser": $browser_ok,
     "network": $network_ok
   },
   "failures": $CONSECUTIVE_FAILURES
@@ -122,7 +122,7 @@ EOF
     echo "============================================"
     echo "API Health:           $([ $api_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
     echo "Docker Container:     $([ $container_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
-    echo "Browser Browser:     $([ $browser_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
+    echo "Epiphany Browser:     $([ $browser_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
     echo "Network Connectivity: $([ $network_ok -eq 1 ] && echo 'OK' || echo 'FAILED')"
     echo ""
     echo "Overall Status: $([ $((api_ok && container_ok && browser_ok)) -eq 1 ] && echo 'HEALTHY' || echo 'DEGRADED')"

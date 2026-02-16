@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Prevue Kiosk
+Comment=Launch Prevue in fullscreen kiosk mode
+Exec=/home/prevue/deploy/raspberry-pi/kiosk/start-kiosk.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5

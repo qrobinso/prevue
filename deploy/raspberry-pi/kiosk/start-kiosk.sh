@@ -1,9 +1,6 @@
 #!/bin/bash
 # Prevue Kiosk Mode Launcher
-# Starts X server and Chromium in kiosk mode with hardware acceleration
-
-DISPLAY=:0
-export DISPLAY HOME=/home/prevue XAUTHORITY=/home/prevue/.Xauthority
+# Launches browser fullscreen on Pi OS Desktop (display already running)
 
 # Logging
 LOG_DIR="/home/prevue/logs"
@@ -41,49 +38,22 @@ else
 fi
 log "Using browser: $BROWSER_BIN"
 
-# Start X server if not already running
-if ! pgrep -x "Xorg" > /dev/null && ! pgrep -x "X" > /dev/null; then
-  log "Starting X server..."
-  xinit /bin/bash -c "
-    # Disable screensaver and power management
-    xset s off
-    xset -dpms
-    xset s noblank
-    xset b off
+# Disable screensaver and screen blanking
+xset s off 2>/dev/null || true
+xset -dpms 2>/dev/null || true
+xset s noblank 2>/dev/null || true
+xdg-screensaver reset 2>/dev/null || true
 
-    # Start window manager
-    openbox &
-    sleep 1
-
-    # Hide mouse cursor
-    unclutter -idle 1 &
-
-    # Launch Epiphany in fullscreen mode
-    $BROWSER_BIN \\
-      --incognito \\
-      http://localhost:3080
-  " -- :0 vt1 2>&1 | tee -a "$LOG_FILE"
-else
-  log "X server already running, launching browser directly..."
-
-  # Disable screensaver and power management
-  xset s off 2>/dev/null || true
-  xset -dpms 2>/dev/null || true
-  xset s noblank 2>/dev/null || true
-
-  # Start window manager if not running
-  if ! pgrep -x "openbox" > /dev/null; then
-    openbox &
-    sleep 1
-  fi
-
-  # Hide mouse cursor
+# Hide mouse cursor after 1 second of inactivity
+if command -v unclutter &> /dev/null; then
+  pkill unclutter 2>/dev/null || true
   unclutter -idle 1 &
-
-  # Launch Epiphany in fullscreen mode
-  $BROWSER_BIN \
-    --incognito \
-    http://localhost:3080 2>&1 | tee -a "$LOG_FILE"
 fi
+
+# Launch Epiphany in fullscreen/kiosk mode
+log "Launching $BROWSER_BIN..."
+$BROWSER_BIN \
+  --incognito \
+  http://localhost:3080 2>&1 | tee -a "$LOG_FILE"
 
 log "Kiosk exited"

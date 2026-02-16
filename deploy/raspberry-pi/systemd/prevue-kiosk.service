@@ -1,8 +1,8 @@
 [Unit]
-Description=Prevue Kiosk Display (Epiphany)
-Documentation=https://github.com/user/prevue
+Description=Prevue Kiosk Display (Epiphany on Pi OS Desktop)
+Documentation=https://github.com/qrobinso/prevue
 Requires=prevue-docker.service
-After=prevue-docker.service graphical.target display-manager.service
+After=prevue-docker.service graphical.target
 PartOf=prevue.target
 
 [Service]
@@ -11,7 +11,8 @@ User=prevue
 Group=prevue
 Environment="DISPLAY=:0"
 Environment="HOME=/home/prevue"
-ExecStart=/home/prevue/deploy/kiosk/start-kiosk.sh
+Environment="XAUTHORITY=/home/prevue/.Xauthority"
+ExecStart=/home/prevue/deploy/raspberry-pi/kiosk/start-kiosk.sh
 Restart=always
 RestartSec=5
 StandardOutput=journal

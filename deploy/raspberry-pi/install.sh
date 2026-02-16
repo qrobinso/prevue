@@ -137,12 +137,6 @@ install_dependencies() {
     "docker.io"
     "docker-compose"
     "epiphany-browser"
-    "openbox"
-    "xserver-xorg"
-    "xserver-xorg-core"
-    "x11-xserver-utils"
-    "x11-common"
-    "xinit"
     "unclutter"
     "libcec-dev"
     "cec-utils"
@@ -276,18 +270,15 @@ configure_system() {
     echo "gpu_mem=128" >> /boot/config.txt
   fi
 
-  # Enable hardware video decode
-  if ! grep -q "^start_x=1" /boot/config.txt; then
-    echo "start_x=1" >> /boot/config.txt
-  fi
-
   # Disable overscan by default (modern TVs don't need it)
   if ! grep -q "^disable_overscan=" /boot/config.txt; then
     echo "disable_overscan=1" >> /boot/config.txt
   fi
 
-  # Allow prevue user to start X server (required for Pi OS Lite kiosk)
-  echo "allowed_users=anybody" > /etc/X11/Xwrapper.config
+  # Disable screen blanking in desktop session
+  if [ -f /etc/xdg/lxsession/LXDE-pi/autostart ]; then
+    sed -i 's/@xscreensaver.*/#&/' /etc/xdg/lxsession/LXDE-pi/autostart 2>/dev/null || true
+  fi
 
   success "System settings configured"
 }
@@ -491,19 +482,19 @@ configure_docker() {
   success "Docker configured"
 }
 
-# Create openbox config
-create_openbox_config() {
-  log "Creating Openbox configuration..."
+# Set up desktop autostart for kiosk browser
+setup_autostart() {
+  log "Setting up kiosk autostart..."
 
-  OPENBOX_CONFIG="/home/prevue/.config/openbox/rc.xml"
-  mkdir -p "$(dirname "$OPENBOX_CONFIG")"
+  AUTOSTART_DIR="/home/prevue/.config/autostart"
+  mkdir -p "$AUTOSTART_DIR"
 
-  if [ -f "$DEPLOY_DIR/kiosk/openbox-rc.xml" ]; then
-    cp "$DEPLOY_DIR/kiosk/openbox-rc.xml" "$OPENBOX_CONFIG"
+  if [ -f "$DEPLOY_DIR/kiosk/prevue-kiosk.desktop" ]; then
+    cp "$DEPLOY_DIR/kiosk/prevue-kiosk.desktop" "$AUTOSTART_DIR/"
   fi
 
   chown -R prevue:prevue "/home/prevue/.config"
-  success "Openbox configuration created"
+  success "Kiosk autostart configured"
 }
 
 # Summary
@@ -528,7 +519,7 @@ installation_summary() {
   echo ""
   echo "Services Enabled:"
   echo "  ✓ prevue-docker (Prevue server)"
-  echo "  ✓ prevue-kiosk (Chromium display)"
+  echo "  ✓ prevue-kiosk (Epiphany autostart)"
   echo "  ✓ prevue-watchdog (Auto-recovery)"
   echo ""
 
@@ -564,7 +555,7 @@ main() {
   enable_services
   configure_autologin
   configure_docker
-  create_openbox_config
+  setup_autostart
 
   installation_summary
 

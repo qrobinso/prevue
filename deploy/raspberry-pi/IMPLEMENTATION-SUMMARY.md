@@ -133,7 +133,7 @@ curl -fsSL https://...install.sh | sudo bash -s -- \
 ## Deployment Checklist
 
 ### Pre-Installation
-- [ ] Fresh Raspberry Pi OS Lite 64-bit flashed to SD card
+- [ ] Fresh Raspberry Pi OS with Desktop 64-bit flashed to SD card
 - [ ] SSH enabled (if needed) and WiFi configured
 - [ ] Jellyfin server URL known and accessible
 - [ ] Jellyfin user credentials ready
@@ -160,14 +160,10 @@ curl -fsSL https://...install.sh | sudo bash -s -- \
 ## Technical Highlights
 
 ### Hardware Acceleration
-**Epiphany Kiosk Flags:**
-```bash
---enable-features=VaapiVideoDecoder    # Hardware video decode
---use-gl=egl                            # GPU rendering
---ignore-gpu-blocklist                  # Enable on Pi
---enable-zero-copy                      # Reduce memory usage
---enable-hardware-overlays              # Optimal performance
-```
+Epiphany (GNOME Web) uses the Pi OS Desktop GPU stack directly:
+- Hardware video decode via GStreamer/V4L2
+- GPU compositing handled by the desktop compositor
+- No manual flags needed - Pi OS Desktop configures this automatically
 
 ### System Integration
 - **Boot Order:** Network → Docker → Kiosk → Watchdog

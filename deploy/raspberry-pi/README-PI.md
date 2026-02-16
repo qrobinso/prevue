@@ -72,7 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/user/prevue/master/deploy/raspberry
 ## Features
 
 ### Appliance Mode
-- **Fullscreen Kiosk**: No desktop, no UI chrome
+- **Fullscreen Kiosk**: Browser launches fullscreen on Pi OS Desktop
 - **Auto-Login**: Boots directly to Prevue
 - **Persistent**: Survives power loss gracefully
 
@@ -95,7 +95,7 @@ curl -fsSL https://raw.githubusercontent.com/user/prevue/master/deploy/raspberry
 
 ### Prerequisites
 
-Freshly flashed Raspberry Pi OS Lite (64-bit recommended):
+Freshly flashed Raspberry Pi OS with Desktop (64-bit recommended):
 
 ```bash
 # Flash with Raspberry Pi Imager
