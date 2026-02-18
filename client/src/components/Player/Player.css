@@ -63,7 +63,7 @@
   z-index: 10;
   overflow: hidden;
   opacity: 1;
-  transition: opacity 2s ease-out;
+  transition: opacity 0.6s ease-out;
   animation: player-artwork-fade-in 0.5s ease-out;
   will-change: opacity;
 }
@@ -1528,102 +1528,23 @@
 
 /* Landscape phones */
 @media (orientation: landscape) and (max-height: 500px) {
+  /* Back button: compact, top-left */
   .player-back-btn {
     top: 8px;
     left: 8px;
-    padding: 10px 14px;
+    padding: 8px 12px;
     font-size: 9px;
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 40px;
+    min-height: 40px;
   }
 
-  .info-overlay {
-    bottom: 6px;
-    padding: 0 10px;
-  }
-
-  .info-overlay-content {
-    padding: 10px 14px;
-    gap: 4px;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  .info-channel {
-    gap: 8px;
-  }
-
-  .info-channel-num {
-    font-size: 11px;
-  }
-
-  .info-channel-name {
-    font-size: 8px;
-  }
-
-  .info-program {
-    flex: 1;
-    min-width: 150px;
-    gap: 2px;
-  }
-
-  .info-title {
-    font-size: 11px;
-  }
-
-  .info-subtitle {
-    font-size: 10px;
-  }
-
-  .info-meta {
-    margin-top: 0;
-    gap: 6px;
-  }
-
-  .info-year,
-  .info-runtime {
-    font-size: 9px;
-  }
-
-  .info-rating {
-    font-size: 8px;
-    padding: 2px 6px;
-  }
-
-  .info-description {
-    -webkit-line-clamp: 2;
-    font-size: 9px;
-    max-width: 100%;
-  }
-
-  .info-time {
-    font-size: 8px;
-    gap: 10px;
-  }
-
-  .info-next {
-    padding-top: 6px;
-    gap: 6px;
-  }
-
-  .info-next-label {
-    font-size: 7px;
-  }
-
-  .info-next-title {
-    font-size: 10px;
-  }
-
-  .info-next-time {
-    font-size: 7px;
-  }
-
-  /* Controls container compact in landscape */
+  /* Controls: move to top-right so the video is unobstructed */
   .player-controls-right {
-    bottom: 85px;
-    right: 38px;
+    bottom: auto;
+    top: 8px;
+    right: 8px;
     gap: 6px;
+    flex-direction: row;
   }
 
   .player-control-btn {
@@ -1633,55 +1554,144 @@
   }
 
   .player-btn-icon {
-    font-size: 10px;
-  }
-
-  .player-volume-btn .player-btn-icon {
-    font-size: 14px;
-  }
-
-  .player-volume-slider-container {
-    padding: 10px 6px;
-    margin-bottom: 6px;
-  }
-
-  .player-volume-slider {
-    width: 80px;
-  }
-
-  .player-quality-btn {
-    padding: 6px 10px;
-    font-size: 9px;
-  }
-
-  .player-hint {
-    bottom: 52px;
-    font-size: 6px;
-  }
-
-  .player-quality-menu {
-    bottom: 52px;
-    right: 8px;
-    left: auto;
-    min-width: 180px;
-  }
-
-  .player-quality-menu-title {
-    font-size: 9px;
-    padding: 6px 12px;
-  }
-
-  .player-quality-option {
-    padding: 10px 12px;
-    min-height: 42px;
-  }
-
-  .player-quality-option-label {
     font-size: 11px;
   }
 
-  .player-quality-option-desc {
+  /* Hint & progress */
+  .player-hint {
+    bottom: 44px;
+    font-size: 6px;
+    padding: 4px 10px;
+  }
+
+  .player-progress {
+    height: 4px;
+  }
+
+  /* ─── Info overlay: single-line bar ────────────────── */
+  .info-overlay {
+    bottom: 4px;
+    padding: 0 8px;
+  }
+
+  .info-overlay-content {
+    padding: 7px 12px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 10px;
+    border-radius: 8px;
+  }
+
+  /* Channel: compact column on the left */
+  .info-channel {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    flex-shrink: 0;
+  }
+
+  .info-channel-num {
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  .info-channel-name {
+    font-size: 7px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* Program: grows to fill remaining horizontal space,
+     title + meta on a single row */
+  .info-program {
+    flex: 1;
+    min-width: 0;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    gap: 0 6px;
+  }
+
+  .info-title {
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  /* Hide episode subtitle and description — no vertical space */
+  .info-subtitle {
+    display: none;
+  }
+
+  .info-description {
+    display: none;
+  }
+
+  .info-meta {
+    margin-top: 0;
+    gap: 5px;
+    flex-shrink: 0;
+    align-items: center;
+  }
+
+  .info-year,
+  .info-runtime {
     font-size: 8px;
+  }
+
+  .info-rating {
+    font-size: 7px;
+    padding: 1px 5px;
+  }
+
+  /* Time: compact right column */
+  .info-time {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    flex-shrink: 0;
+    font-size: 8px;
+    line-height: 1.2;
+  }
+
+  .info-remaining {
+    white-space: nowrap;
+  }
+
+  /* Up Next: inline, no border-top (already in row) */
+  .info-next {
+    border-top: none;
+    padding-top: 0;
+    padding-left: 10px;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    gap: 4px;
+  }
+
+  .info-next-label {
+    font-size: 6px;
+    white-space: nowrap;
+  }
+
+  .info-next-title {
+    font-size: 9px;
+    max-width: 80px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .info-next-time {
+    font-size: 7px;
+    white-space: nowrap;
+    margin-left: 0;
   }
 
   /* Next Up Card - compact in landscape */
@@ -1708,9 +1718,63 @@
     margin-top: 8px;
   }
 
-  /* Progress bar slightly thicker for visibility */
-  .player-progress {
-    height: 4px;
+  /* ─── Settings: side sheet instead of bottom sheet ─── */
+  .player-settings-backdrop {
+    align-items: stretch;
+    justify-content: flex-end;
+  }
+
+  .player-settings-panel {
+    max-width: 300px;
+    max-height: 100%;
+    height: 100%;
+    border-radius: 0;
+    margin: 0;
+    border-top: none;
+    border-bottom: none;
+    border-right: none;
+    animation: player-settings-landscape-in 0.25s ease-out;
+  }
+
+  @keyframes player-settings-landscape-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+
+  .player-settings-drag-handle {
+    display: none;
+  }
+
+  .player-settings-inner {
+    padding: 8px 16px 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  .player-settings-option {
+    padding: 10px 12px;
+    min-height: 40px;
+    font-size: 12px;
+  }
+
+  .player-settings-section {
+    padding-bottom: 12px;
+  }
+
+  .player-settings-mute {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 16px;
+  }
+
+  .player-settings-options-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+
+  .player-settings-fit-row .player-settings-option {
+    min-height: 40px;
   }
 }
 
@@ -1980,15 +2044,31 @@
   @media (orientation: landscape) {
     .player-back-btn {
       left: max(8px, calc(env(safe-area-inset-left) + 4px));
+      top: max(8px, calc(env(safe-area-inset-top) + 4px));
     }
 
     .info-overlay {
       padding-left: max(10px, env(safe-area-inset-left));
       padding-right: max(10px, env(safe-area-inset-right));
+      padding-bottom: max(4px, env(safe-area-inset-bottom));
     }
 
     .player-controls-right {
-      right: max(38px, calc(env(safe-area-inset-right) + 34px));
+      right: max(8px, calc(env(safe-area-inset-right) + 4px));
+    }
+  }
+
+  /* Landscape phone: controls moved to top-right */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .player-controls-right {
+      bottom: auto;
+      top: max(8px, calc(env(safe-area-inset-top) + 4px));
+      right: max(8px, calc(env(safe-area-inset-right) + 4px));
+    }
+
+    /* Settings side panel: respect notch on the right */
+    .player-settings-panel {
+      padding-right: max(0px, env(safe-area-inset-right));
     }
   }
 }

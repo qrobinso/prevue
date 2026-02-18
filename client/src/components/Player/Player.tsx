@@ -404,15 +404,15 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         
         const hls = new Hls({
           startPosition: startPosition,  // Start at the scheduled position
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
-          maxBufferSize: 30 * 1000 * 1000, // 30MB buffer
-          fragLoadingMaxRetry: 6,
-          manifestLoadingMaxRetry: 6,
-          levelLoadingMaxRetry: 6,
-          fragLoadingRetryDelay: 1000,
-          manifestLoadingRetryDelay: 1000,
-          levelLoadingRetryDelay: 1000,
+          maxBufferLength: 15,
+          maxMaxBufferLength: 30,
+          // Limit retries to avoid hammering the server
+          fragLoadingMaxRetry: 2,
+          manifestLoadingMaxRetry: 2,
+          levelLoadingMaxRetry: 2,
+          fragLoadingRetryDelay: 2000,
+          manifestLoadingRetryDelay: 2000,
+          levelLoadingRetryDelay: 2000,
         });
 
         hlsRef.current = hls;
@@ -928,8 +928,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   // When fade-out starts, hide loading overlay after the transition duration.
   useEffect(() => {
     if (!loadingFadeOut) return;
-    // Match transition duration (2s) + small buffer so overlay is fully faded before removal.
-    const t = setTimeout(() => setLoadingFadeOut(false), 2100);
+    // Match transition duration (0.6s) + small buffer so overlay is fully faded before removal.
+    const t = setTimeout(() => setLoadingFadeOut(false), 700);
     return () => clearTimeout(t);
   }, [loadingFadeOut]);
 

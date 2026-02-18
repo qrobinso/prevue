@@ -47,6 +47,7 @@ interface PreviewPanelProps {
   onSwipeUp?: () => void;
   onSwipeDown?: () => void;
   guideHours?: number;
+  previewStyle?: 'modern' | 'classic';
 }
 
 const PREVIEW_BASE_SIZES = {
@@ -59,7 +60,8 @@ const PREVIEW_BASE_SIZES = {
   time: 10,
 } as const;
 
-export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4 }: PreviewPanelProps) {
+export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4, previewStyle = 'modern' }: PreviewPanelProps) {
+  const isClassic = previewStyle === 'classic';
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
   const previewFontSizes = {
     channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
@@ -226,12 +228,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     if (Hls.isSupported()) {
       const hls = new Hls({
         startPosition,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 20,
-        maxBufferSize: 10 * 1000 * 1000,
-        fragLoadingMaxRetry: 4,
-        manifestLoadingMaxRetry: 4,
-        levelLoadingMaxRetry: 4,
+        maxBufferLength: 3,
+        maxMaxBufferLength: 8,
+        maxBufferSize: 4 * 1000 * 1000,
+        fragLoadingMaxRetry: 2,
+        manifestLoadingMaxRetry: 2,
+        levelLoadingMaxRetry: 2,
       });
       hlsRef.current = hls;
       hls.loadSource(info.stream_url);
@@ -601,7 +603,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
 
   return (
     <div 
-      className={`preview-panel ${onTune ? 'preview-panel-clickable' : ''} ${showAudioMoreMenu ? 'preview-panel-audio-open' : ''}`}
+      className={`preview-panel ${onTune ? 'preview-panel-clickable' : ''} ${showAudioMoreMenu ? 'preview-panel-audio-open' : ''} ${isClassic ? 'preview-panel-classic' : ''}`}
       onClick={handlePreviewTap}
       role={onTune ? 'button' : undefined}
       tabIndex={onTune ? 0 : undefined}
@@ -684,8 +686,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       </div>
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}
       <div
-        className={`preview-overlay ${overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}
-        aria-hidden={!overlayVisible}
+        className={`preview-overlay ${isClassic || overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}
+        aria-hidden={isClassic ? false : !overlayVisible}
       >
         <div className="preview-info">
           <div className="preview-channel-badge">
@@ -703,6 +705,11 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
                 {program.rating && <span className="preview-rating" style={{ fontSize: previewFontSizes.rating }}>{program.rating}</span>}
                 {program.duration_ms > 0 && <span className="preview-runtime" style={{ fontSize: previewFontSizes.year }}>{formatRuntime(program.duration_ms)}</span>}
               </div>
+              {isClassic && (
+                <div className="preview-day" style={{ fontSize: previewFontSizes.time }}>
+                  {new Date(program.start_time).toLocaleDateString([], { weekday: 'long' }).toUpperCase()}
+                </div>
+              )}
               <div className="preview-time" style={{ fontSize: previewFontSizes.time }}>
                 {formatTime(program.start_time)} - {formatTime(program.end_time)}
               </div>

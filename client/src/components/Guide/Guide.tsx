@@ -4,7 +4,8 @@ import { useKeyboard } from '../../hooks/useKeyboard';
 import GuideGrid from './GuideGrid';
 import PreviewPanel from './PreviewPanel';
 import ProgramInfoModal from './ProgramInfoModal';
-import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours } from '../Settings/DisplaySettings';
+import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle } from '../Settings/DisplaySettings';
+import type { PreviewStyle } from '../Settings/DisplaySettings';
 import { isIOSPWA } from '../../utils/platform';
 import {
   getFullscreenElement,
@@ -37,6 +38,7 @@ export default function Guide({
   const { channels, scheduleByChannel, loading, error, refresh } = useSchedule();
   const visibleChannels = getVisibleChannels();
   const [guideHours, setGuideHoursState] = useState(getGuideHours);
+  const [previewStyle, setPreviewStyleState] = useState<PreviewStyle>(getPreviewStyle);
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0);
   const [focusedProgramIdx, setFocusedProgramIdx] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -77,15 +79,20 @@ export default function Guide({
     const handleGuideHoursChange = (e: CustomEvent<{ hours: number }>) => {
       setGuideHoursState(e.detail.hours);
     };
+    const handlePreviewStyleChange = (e: CustomEvent<{ style: PreviewStyle }>) => {
+      setPreviewStyleState(e.detail.style);
+    };
 
     window.addEventListener('autoscrollchange', handleAutoScrollChange as EventListener);
     window.addEventListener('autoscrollspeedchange', handleSpeedChange as EventListener);
     window.addEventListener('guidehourschange', handleGuideHoursChange as EventListener);
+    window.addEventListener('previewstylechange', handlePreviewStyleChange as EventListener);
 
     return () => {
       window.removeEventListener('autoscrollchange', handleAutoScrollChange as EventListener);
       window.removeEventListener('autoscrollspeedchange', handleSpeedChange as EventListener);
       window.removeEventListener('guidehourschange', handleGuideHoursChange as EventListener);
+      window.removeEventListener('previewstylechange', handlePreviewStyleChange as EventListener);
     };
   }, []);
 
@@ -435,6 +442,7 @@ export default function Guide({
         onSwipeUp={handleUp}
         onSwipeDown={handleDown}
         guideHours={guideHours}
+        previewStyle={previewStyle}
       />
       {programInfoModal && (
         <ProgramInfoModal
@@ -472,11 +480,13 @@ export default function Guide({
           if (progStart > now) {
             // Future program: only show info modal, don't change channel/preview
             setProgramInfoModal({ channel: ch, program: prog });
+          } else if (chIdx === focusedChannelIdx && progIdx === focusedProgramIdx) {
+            // Already focused: navigate to player
+            onTune(ch, prog, { fromFullscreen: isFullscreen });
           } else {
-            // Current/past program: change selection and tune
+            // Not focused yet: focus the program (preview it)
             setFocusedChannelIdx(chIdx);
             setFocusedProgramIdx(progIdx);
-            onTune(ch, prog, { fromFullscreen: isFullscreen });
           }
         }}
       />

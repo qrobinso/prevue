@@ -30,8 +30,10 @@ const GUIDE_COLOR_EPISODE_KEY = 'prevue_guide_color_episode';
 const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
 const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
 const GUIDE_RATINGS_KEY = 'prevue_guide_ratings';
+const PREVIEW_STYLE_KEY = 'prevue_preview_style';
 
 export type PreviewBgOption = 'theme' | 'black' | 'white';
+export type PreviewStyle = 'modern' | 'classic';
 
 export function applyPreviewBg(value: PreviewBgOption): void {
   document.documentElement.setAttribute('data-preview-bg', value);
@@ -140,6 +142,20 @@ export function getGuideRatings(): boolean {
 export function setGuideRatings(enabled: boolean): void {
   localStorage.setItem(GUIDE_RATINGS_KEY, String(enabled));
   window.dispatchEvent(new CustomEvent('guideratingschange'));
+}
+
+// Preview style helpers
+export function getPreviewStyle(): PreviewStyle {
+  try {
+    const stored = localStorage.getItem(PREVIEW_STYLE_KEY);
+    if (stored === 'modern' || stored === 'classic') return stored;
+  } catch {}
+  return 'modern';
+}
+
+export function setPreviewStyle(style: PreviewStyle): void {
+  localStorage.setItem(PREVIEW_STYLE_KEY, style);
+  window.dispatchEvent(new CustomEvent('previewstylechange', { detail: { style } }));
 }
 
 // Color theme presets
@@ -340,6 +356,7 @@ export default function DisplaySettings() {
   const [videoQuality, setVideoQualityState] = useState(getVideoQuality);
   const [colorTheme, setColorThemeState] = useState(getColorTheme);
   const [previewBg, setPreviewBgState] = useState<PreviewBgOption>('theme');
+  const [previewStyle, setPreviewStyleState] = useState<PreviewStyle>(getPreviewStyle);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(getAutoScroll);
   const [autoScrollSpeed, setAutoScrollSpeedState] = useState(getAutoScrollSpeed);
   const [sharePlaybackProgress, setSharePlaybackProgress] = useState(false);
@@ -399,6 +416,11 @@ export default function DisplaySettings() {
     } catch {
       // Keep applied locally even if save fails
     }
+  };
+
+  const handlePreviewStyleChange = (style: PreviewStyle) => {
+    setPreviewStyleState(style);
+    setPreviewStyle(style);
   };
 
   const handleSharePlaybackToggle = async () => {
@@ -599,6 +621,27 @@ export default function DisplaySettings() {
               <span className="settings-preview-bg-swatch" />
               <span className="settings-preview-bg-label">
                 {opt === 'theme' ? 'Theme' : opt === 'black' ? 'Black' : 'White'}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-subsection">
+        <h4>PREVIEW STYLE</h4>
+        <p className="settings-field-hint">
+          Layout style for the channel preview area. Classic shows a split-panel
+          inspired by the 90s Prevue Channel.
+        </p>
+        <div className="settings-preview-bg-options">
+          {(['modern', 'classic'] as const).map((opt) => (
+            <button
+              key={opt}
+              className={`settings-preview-bg-btn ${previewStyle === opt ? 'active' : ''}`}
+              onClick={() => handlePreviewStyleChange(opt)}
+            >
+              <span className="settings-preview-bg-label">
+                {opt === 'modern' ? 'Modern' : 'Classic'}
               </span>
             </button>
           ))}

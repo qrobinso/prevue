@@ -137,7 +137,12 @@ export default function GuideGrid({
 
   // Time header sizing - scales with visible channels (e.g. 3 rows = Extra Large)
   const timeHeaderHeight = Math.max(28, Math.min(48, Math.round(32 * Math.min(scale, 1.5))));
-  const timeHeaderClockFontSize = Math.max(Math.round(11 * baseFontScale), isMobile ? 9 : 10);
+  // Clock font must fit "HH:MM:SS AM" (~11 chars) within the channel column with padding
+  const clockMaxForCol = Math.floor((channelColWidth - 16) / 8);
+  const timeHeaderClockFontSize = Math.min(
+    Math.max(Math.round(10 * baseFontScale), isMobile ? 8 : 9),
+    clockMaxForCol
+  );
   const timeSlotFontSize = Math.max(Math.round(9 * baseFontScale), isMobile ? 8 : 9);
 
   // Calculate time range: rolling 8-hour window starting from the current 30-min slot
@@ -277,11 +282,10 @@ export default function GuideGrid({
     return () => cancelAnimationFrame(rafId);
   }, [timeRange, timeSlotWidth, availableWidth, timeSlots.length, maxScroll]);
 
-  const showSeconds = visibleChannels !== 3;
   const currentTimeStr = currentTime.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
-    ...(showSeconds && { second: '2-digit' }),
+    second: '2-digit',
     hour12: true,
   });
 
@@ -316,8 +320,9 @@ export default function GuideGrid({
           const isFocusedRow = chIdx === focusedChannelIdx;
           const isScrollTarget = chIdx === effectiveScrollIdx;
 
-          // Determine which ref to attach (scroll target takes priority for auto-scroll)
-          const rowRef = isScrollTarget ? scrollTargetRef : (isFocusedRow ? focusedRowRef : undefined);
+          // Determine which ref to attach (scroll target only used during active auto-scroll;
+          // otherwise focused row ref drives scrollIntoView for keyboard navigation)
+          const rowRef = (isScrollTarget && isAutoScrolling) ? scrollTargetRef : (isFocusedRow ? focusedRowRef : undefined);
 
           return (
             <div
