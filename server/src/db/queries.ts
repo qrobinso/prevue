@@ -102,6 +102,11 @@ export function getChannelById(db: Database.Database, id: number): ChannelParsed
   return row ? parseChannel(row) : undefined;
 }
 
+export function getChannelByNumber(db: Database.Database, number: number): ChannelParsed | undefined {
+  const row = db.prepare('SELECT * FROM channels WHERE number = ?').get(number) as Channel | undefined;
+  return row ? parseChannel(row) : undefined;
+}
+
 export function getChannelNames(db: Database.Database): string[] {
   const rows = db.prepare('SELECT name FROM channels').all() as { name: string }[];
   return rows.map((r) => r.name);

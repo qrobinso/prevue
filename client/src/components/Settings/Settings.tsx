@@ -3,6 +3,7 @@ import ServerSettings from './ServerSettings';
 import FilterSettings from './FilterSettings';
 import ChannelSettings from './ChannelSettings';
 import DisplaySettings from './DisplaySettings';
+import IPTVSettings from './IPTVSettings';
 import MetricsSettings from './MetricsSettings';
 import { wsClient } from '../../services/websocket';
 import './Settings.css';
@@ -11,7 +12,7 @@ interface SettingsProps {
   onClose: () => void;
 }
 
-type SettingsTab = 'servers' | 'filters' | 'channels' | 'display' | 'metrics';
+type SettingsTab = 'servers' | 'filters' | 'channels' | 'display' | 'iptv' | 'metrics';
 
 interface SyncProgress {
   step: string;
@@ -113,6 +114,12 @@ export default function Settings({ onClose }: SettingsProps) {
             DISPLAY
           </button>
           <button
+            className={`settings-tab ${activeTab === 'iptv' ? 'settings-tab-active' : ''}`}
+            onClick={() => setActiveTab('iptv')}
+          >
+            IPTV
+          </button>
+          <button
             className={`settings-tab ${activeTab === 'metrics' ? 'settings-tab-active' : ''}`}
             onClick={() => setActiveTab('metrics')}
           >
@@ -125,6 +132,7 @@ export default function Settings({ onClose }: SettingsProps) {
           {activeTab === 'filters' && <FilterSettings />}
           {activeTab === 'channels' && <ChannelSettings />}
           {activeTab === 'display' && <DisplaySettings />}
+          {activeTab === 'iptv' && <IPTVSettings />}
           {activeTab === 'metrics' && <MetricsSettings />}
         </div>
       </div>

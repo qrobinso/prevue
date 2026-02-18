@@ -51,7 +51,7 @@ app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 app.use(express.json({ limit: '1mb' }));
 
 function isRateLimitExemptPath(pathname: string): boolean {
-  return pathname.startsWith('/stream') || pathname.startsWith('/images');
+  return pathname.startsWith('/stream') || pathname.startsWith('/images') || pathname.startsWith('/iptv/channel/');
 }
 
 // Global rate limiter: 600 requests per 15 minutes per IP
@@ -122,7 +122,9 @@ app.use('/api/metrics', metricsRoutes);
 
 // Proxy routes for Jellyfin streams and images (mounted at /api root)
 import { streamRoutes, startTranscodeIdleCleanup } from './routes/stream.js';
+import { iptvRoutes } from './routes/iptv.js';
 app.use('/api', streamRoutes);
+app.use('/api/iptv', iptvRoutes);
 startTranscodeIdleCleanup(app);
 
 // Serve static client build in production

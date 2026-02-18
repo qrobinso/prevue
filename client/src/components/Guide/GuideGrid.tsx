@@ -6,8 +6,75 @@ import {
   getGuideColorMovie,
   getGuideColorEpisode,
   getGuideRatings,
+  getGuideArtwork,
+  getClockFormat,
+  type ClockFormat,
 } from '../Settings/DisplaySettings';
 import './Guide.css';
+
+// ── Artwork thumbnail cache (module-level, survives re-renders) ──
+// Maps jellyfin_item_id → blob object URL. Cleared on GuideGrid mount
+// (which happens via key={guideRefreshKey} after server add/remove).
+let artworkCache = new Map<string, string>();
+let artworkPending = new Set<string>();
+let artworkFailed = new Set<string>();
+
+function clearArtworkCache(): void {
+  for (const url of artworkCache.values()) {
+    URL.revokeObjectURL(url);
+  }
+  artworkCache = new Map();
+  artworkPending = new Set();
+  artworkFailed = new Set();
+}
+
+function ArtworkThumbnail({ itemId, size }: { itemId: string; size: number }) {
+  const [src, setSrc] = useState<string | null>(artworkCache.get(itemId) || null);
+  const [failed, setFailed] = useState(artworkFailed.has(itemId));
+
+  useEffect(() => {
+    if (artworkCache.has(itemId)) {
+      setSrc(artworkCache.get(itemId)!);
+      return;
+    }
+    if (artworkFailed.has(itemId)) {
+      setFailed(true);
+      return;
+    }
+    if (artworkPending.has(itemId)) return;
+
+    artworkPending.add(itemId);
+    fetch(`/api/images/${itemId}/Primary?maxWidth=80`)
+      .then(res => {
+        if (!res.ok) throw new Error('not found');
+        return res.blob();
+      })
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        artworkCache.set(itemId, url);
+        artworkPending.delete(itemId);
+        setSrc(url);
+      })
+      .catch(() => {
+        artworkPending.delete(itemId);
+        artworkFailed.add(itemId);
+        setFailed(true);
+      });
+  }, [itemId]);
+
+  if (failed || !src) return null;
+
+  return (
+    <img
+      className="guide-program-artwork"
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      draggable={false}
+    />
+  );
+}
 
 interface GuideGridProps {
   channels: ChannelWithProgram[];
@@ -81,6 +148,30 @@ export default function GuideGrid({
     return () => window.removeEventListener('guideratingschange', refresh);
   }, []);
 
+  // Guide artwork thumbnail setting
+  const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
+
+  useEffect(() => {
+    const refresh = () => setShowArtwork(getGuideArtwork());
+    window.addEventListener('guideartworkchange', refresh);
+    return () => window.removeEventListener('guideartworkchange', refresh);
+  }, []);
+
+  // Clock format setting (12h / 24h)
+  const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
+
+  useEffect(() => {
+    const refresh = () => setClockFormatState(getClockFormat());
+    window.addEventListener('clockformatchange', refresh);
+    return () => window.removeEventListener('clockformatchange', refresh);
+  }, []);
+
+  // Clear artwork cache on mount (handles server add/remove via guideRefreshKey remount)
+  useEffect(() => {
+    clearArtworkCache();
+    return () => clearArtworkCache();
+  }, []);
+
   // Measure the container to compute dynamic sizes
   useEffect(() => {
     const container = containerRef.current;
@@ -134,6 +225,10 @@ export default function GuideGrid({
   // Program metadata scales with guide zoom: 1h = largest, 4h = smallest
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
   const programTitleFontSize = Math.max(Math.round(12 * baseFontScale * zoomFontScale), isMobile ? 11 : 12);
+
+  // Artwork thumbnail sizing
+  const artworkSize = Math.max(Math.round(rowHeight - 12), 24);
+  const artworkThreshold = isMobile ? 100 : 120;
 
   // Time header sizing - scales with visible channels (e.g. 3 rows = Extra Large)
   const timeHeaderHeight = Math.max(28, Math.min(48, Math.round(32 * Math.min(scale, 1.5))));
@@ -286,7 +381,7 @@ export default function GuideGrid({
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: true,
+    hour12: clockFormat === '12h',
   });
 
   return (
@@ -307,7 +402,7 @@ export default function GuideGrid({
               className="guide-time-slot"
               style={{ width: timeSlotWidth, fontSize: timeSlotFontSize }}
             >
-              {slot.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {slot.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: clockFormat === '12h' })}
             </div>
           ))}
         </div>
@@ -369,6 +464,10 @@ export default function GuideGrid({
                   const subtitleThreshold = isMobile ? 120 : 150;
                   const showSubtitle = width > subtitleThreshold && prog.subtitle && prog.type !== 'interstitial';
                   
+                  // Determine if artwork should show for this cell
+                  const cellShowArtwork = showArtwork && prog.type !== 'interstitial' && prog.thumbnail_url && width > artworkThreshold;
+                  const artworkSpace = cellShowArtwork ? artworkSize + 6 : 0; // image + margin
+
                   // Calculate sticky title offset - title slides within cell bounds as time scrolls
                   const padding = 8; // Match CSS padding
                   // How far has the grid scrolled past this cell's left edge?
@@ -376,7 +475,7 @@ export default function GuideGrid({
                   // Reserve space for title text (estimate ~150px for title, but at least show something)
                   const reservedForText = Math.min(150, width * 0.4);
                   // Clamp the offset: 0 if not scrolled past, or capped so title stays within cell
-                  const maxOffset = Math.max(0, width - padding * 2 - reservedForText);
+                  const maxOffset = Math.max(0, width - padding * 2 - reservedForText - artworkSpace);
                   const titleOffset = Math.max(0, Math.min(scrollPastCell, maxOffset));
                   
                   // Color-coded background based on content type
@@ -408,18 +507,23 @@ export default function GuideGrid({
                         className="guide-program-content"
                         style={{ transform: `translateX(${titleOffset}px)` }}
                       >
-                        <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
-                          {continuationArrow && <span className="guide-continuation-arrow">{continuationArrow}</span>}
-                          {prog.title}
-                          {showRatings && prog.rating && prog.type !== 'interstitial' && (
-                            <span className="guide-rating-badge">{prog.rating}</span>
-                          )}
-                        </span>
-                        {showSubtitle && (
-                          <span className="guide-program-subtitle" style={{ fontSize: Math.max(programTitleFontSize - 3, 9) }}>
-                            {prog.subtitle}
-                          </span>
+                        {continuationArrow && <span className="guide-continuation-arrow">{continuationArrow}</span>}
+                        {cellShowArtwork && (
+                          <ArtworkThumbnail itemId={prog.jellyfin_item_id} size={artworkSize} />
                         )}
+                        <div className="guide-program-text">
+                          <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
+                            {prog.title}
+                            {showRatings && prog.rating && prog.type !== 'interstitial' && (
+                              <span className="guide-rating-badge">{prog.rating}</span>
+                            )}
+                          </span>
+                          {showSubtitle && (
+                            <span className="guide-program-subtitle" style={{ fontSize: Math.max(programTitleFontSize - 3, 9) }}>
+                              {prog.subtitle}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

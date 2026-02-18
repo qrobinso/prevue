@@ -30,10 +30,26 @@ const GUIDE_COLOR_EPISODE_KEY = 'prevue_guide_color_episode';
 const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
 const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
 const GUIDE_RATINGS_KEY = 'prevue_guide_ratings';
+const GUIDE_ARTWORK_KEY = 'prevue_guide_artwork';
 const PREVIEW_STYLE_KEY = 'prevue_preview_style';
+const CLOCK_FORMAT_KEY = 'prevue_clock_format';
 
 export type PreviewBgOption = 'theme' | 'black' | 'white';
 export type PreviewStyle = 'modern' | 'classic';
+export type ClockFormat = '12h' | '24h';
+
+export function getClockFormat(): ClockFormat {
+  try {
+    const stored = localStorage.getItem(CLOCK_FORMAT_KEY);
+    if (stored === '12h' || stored === '24h') return stored;
+  } catch {}
+  return '12h';
+}
+
+export function setClockFormat(format: ClockFormat): void {
+  localStorage.setItem(CLOCK_FORMAT_KEY, format);
+  window.dispatchEvent(new CustomEvent('clockformatchange', { detail: { format } }));
+}
 
 export function applyPreviewBg(value: PreviewBgOption): void {
   document.documentElement.setAttribute('data-preview-bg', value);
@@ -142,6 +158,19 @@ export function getGuideRatings(): boolean {
 export function setGuideRatings(enabled: boolean): void {
   localStorage.setItem(GUIDE_RATINGS_KEY, String(enabled));
   window.dispatchEvent(new CustomEvent('guideratingschange'));
+}
+
+// Guide artwork thumbnail helpers
+export function getGuideArtwork(): boolean {
+  try {
+    return localStorage.getItem(GUIDE_ARTWORK_KEY) === 'true';
+  } catch {}
+  return false;
+}
+
+export function setGuideArtwork(enabled: boolean): void {
+  localStorage.setItem(GUIDE_ARTWORK_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('guideartworkchange'));
 }
 
 // Preview style helpers
@@ -369,6 +398,8 @@ export default function DisplaySettings() {
   const [guideColorMovie, setGuideColorMovieState] = useState(getGuideColorMovie);
   const [guideColorEpisode, setGuideColorEpisodeState] = useState(getGuideColorEpisode);
   const [guideRatingsEnabled, setGuideRatingsEnabledState] = useState(getGuideRatings);
+  const [guideArtworkEnabled, setGuideArtworkEnabledState] = useState(getGuideArtwork);
+  const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
   const closeAbout = useCallback(() => setShowAbout(false), []);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
@@ -473,6 +504,17 @@ export default function DisplaySettings() {
     const newValue = !guideRatingsEnabled;
     setGuideRatingsEnabledState(newValue);
     setGuideRatings(newValue);
+  };
+
+  const handleGuideArtworkToggle = () => {
+    const newValue = !guideArtworkEnabled;
+    setGuideArtworkEnabledState(newValue);
+    setGuideArtwork(newValue);
+  };
+
+  const handleClockFormatChange = (format: ClockFormat) => {
+    setClockFormatState(format);
+    setClockFormat(format);
   };
 
   const handleVisibleChannelsChange = (value: number) => {
@@ -695,6 +737,24 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection">
+        <h4>CLOCK FORMAT</h4>
+        <p className="settings-field-hint">
+          Display times in 12-hour (AM/PM) or 24-hour format.
+        </p>
+        <div className="settings-channel-count-options">
+          {(['12h', '24h'] as const).map((fmt) => (
+            <button
+              key={fmt}
+              className={`settings-channel-count-btn ${clockFormat === fmt ? 'active' : ''}`}
+              onClick={() => handleClockFormatChange(fmt)}
+            >
+              {fmt === '12h' ? '12H' : '24H'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-subsection">
         <h4>BLOCK COLORS</h4>
         <p className="settings-field-hint">
           Color-code schedule blocks by content type.
@@ -759,6 +819,26 @@ export default function DisplaySettings() {
           </label>
           <span className="settings-toggle-label">
             {guideRatingsEnabled ? 'ON' : 'OFF'}
+          </span>
+        </div>
+      </div>
+
+      <div className="settings-subsection">
+        <h4>ARTWORK</h4>
+        <p className="settings-field-hint">
+          Show program artwork thumbnails in guide schedule blocks.
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={guideArtworkEnabled}
+              onChange={handleGuideArtworkToggle}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {guideArtworkEnabled ? 'ON' : 'OFF'}
           </span>
         </div>
       </div>

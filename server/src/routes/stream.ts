@@ -8,11 +8,82 @@ export const streamRoutes = Router();
 
 // Track active play sessions so we can stop them when user leaves
 // Maps itemId -> { playSessionId, mediaSourceId }
-const activeSessions = new Map<string, { playSessionId: string; mediaSourceId: string }>();
+export const activeSessions = new Map<string, { playSessionId: string; mediaSourceId: string }>();
 const progressStartedSessions = new Set<string>(); // playSessionId set when PlaybackStart has been reported
 
 // Last proxy activity (segment/playlist request) per itemId — used to stop idle transcodes
-const lastActivityByItemId = new Map<string, number>();
+export const lastActivityByItemId = new Map<string, number>();
+
+// IPTV session timing — used to build a sliding-window "live" playlist.
+// Key = playSessionId, value = epoch ms when the IPTV channel was first requested + seekMs.
+export const iptvSessionInfo = new Map<string, { startTime: number; seekMs: number }>();
+
+/**
+ * Trim a media playlist to a sliding window around the current "live" position,
+ * turning a static VOD playlist into something IPTV players treat as live TV.
+ *
+ * Given `elapsedSeconds` since the session started, we keep only the 3 segments
+ * closest to that position and strip VOD markers (#EXT-X-ENDLIST, PLAYLIST-TYPE).
+ * The player sees a tiny window it can't scrub beyond, and re-fetches periodically
+ * to get the next segments — exactly like a real live HLS stream.
+ */
+export function applyLiveWindow(playlist: string, elapsedSeconds: number): string {
+  const lines = playlist.split('\n');
+
+  // Parse segments and collect headers
+  const segments: { extinf: string; url: string }[] = [];
+  let targetDuration = 6;
+  let mediaSequenceBase = 0;
+  let version = 3;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('#EXTINF:')) {
+      if (i + 1 < lines.length) {
+        segments.push({ extinf: line, url: lines[i + 1].trim() });
+        i++;
+      }
+    } else if (line.startsWith('#EXT-X-TARGETDURATION:')) {
+      targetDuration = parseInt(line.split(':')[1], 10) || 6;
+    } else if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
+      mediaSequenceBase = parseInt(line.split(':')[1], 10) || 0;
+    } else if (line.startsWith('#EXT-X-VERSION:')) {
+      version = parseInt(line.split(':')[1], 10) || 3;
+    }
+  }
+
+  if (segments.length === 0) return playlist; // not a media playlist
+
+  // Walk segments to find the one at the current live position
+  let cumDuration = 0;
+  let nowIndex = segments.length - 1;
+  for (let i = 0; i < segments.length; i++) {
+    const dur = parseFloat(segments[i].extinf.match(/([\d.]+)/)?.[1] || '6');
+    cumDuration += dur;
+    if (cumDuration >= elapsedSeconds) {
+      nowIndex = i;
+      break;
+    }
+  }
+
+  // Window: 3 segments ending at nowIndex (standard live HLS window ≈ 3× target duration)
+  const windowSize = 3;
+  const startIdx = Math.max(0, nowIndex - windowSize + 1);
+  const windowSegs = segments.slice(startIdx, nowIndex + 1);
+
+  // Rebuild as a live playlist (no ENDLIST, no PLAYLIST-TYPE)
+  let result = '#EXTM3U\n';
+  result += `#EXT-X-VERSION:${version}\n`;
+  result += `#EXT-X-TARGETDURATION:${targetDuration}\n`;
+  result += `#EXT-X-MEDIA-SEQUENCE:${mediaSequenceBase + startIdx}\n`;
+
+  for (const seg of windowSegs) {
+    result += seg.extinf + '\n';
+    result += seg.url + '\n';
+  }
+
+  return result;
+}
 
 const IDLE_CLEANUP_INTERVAL_MS = 2 * 60 * 1000;  // 2 minutes
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000;         // stop if no activity for 5 minutes
@@ -179,7 +250,7 @@ export function getSessionInfo(itemId: string): { playSessionId: string; mediaSo
 }
 
 // Helper: rewrite M3U8 URLs to route through our proxy
-function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: string, deviceId: string): string {
+export function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: string, deviceId: string): string {
   return body.replace(
     /^(?!#)(.*\.(m3u8|ts|vtt).*)$/gm,
     (match) => {
@@ -353,7 +424,27 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
     // If it's an M3U8 playlist, rewrite internal URLs to go through proxy
     if (isPlaylist && responseData.text) {
       const baseDir = jellyfinPath.substring(0, jellyfinPath.lastIndexOf('/') + 1);
-      res.send(rewriteM3u8Urls(responseData.text, baseDir, playSessionId, deviceId));
+      let playlist = rewriteM3u8Urls(responseData.text, baseDir, playSessionId, deviceId);
+
+      // IPTV live-stream treatment: present the playlist as a sliding-window
+      // live stream so players can't scrub and start at the current position.
+      if (req.query.iptv === '1') {
+        const session = iptvSessionInfo.get(playSessionId);
+        if (session) {
+          // seekMs = where in the movie the schedule says "now" is.
+          // elapsed = time since the IPTV player tuned in.
+          // Together they give the absolute file position for the live edge.
+          const positionSec = (session.seekMs / 1000) + (Date.now() - session.startTime) / 1000;
+          playlist = applyLiveWindow(playlist, positionSec);
+        }
+        // Propagate iptv=1 to any sub-playlist URLs
+        playlist = playlist.replace(
+          /^(\/api\/stream\/proxy\/.*\.m3u8[^\n]*)/gm,
+          (match) => match.includes('iptv=1') ? match : (match.includes('?') ? `${match}&iptv=1` : `${match}?iptv=1`)
+        );
+      }
+
+      res.send(playlist);
     } else if (responseData.buffer) {
       // Binary content (TS segments) — stream directly
       res.send(Buffer.from(responseData.buffer));

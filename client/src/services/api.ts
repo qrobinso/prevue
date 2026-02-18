@@ -475,6 +475,19 @@ export async function clearMetricsData(): Promise<{ success: boolean }> {
   return request('/metrics/data', { method: 'DELETE' });
 }
 
+// ─── IPTV ─────────────────────────────────────────
+
+export interface IPTVStatus {
+  enabled: boolean;
+  playlistUrl: string;
+  epgUrl: string;
+  channelCount: number;
+}
+
+export async function getIPTVStatus(): Promise<IPTVStatus> {
+  return request('/iptv/status');
+}
+
 // ─── Health ───────────────────────────────────────────
 
 export async function healthCheck(): Promise<{ status: string }> {

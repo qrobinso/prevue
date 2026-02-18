@@ -24,6 +24,8 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'openrouter_api_key',
   'openrouter_model',
   'unwatched_only',
+  'iptv_enabled',
+  'iptv_base_url',
 ]);
 
 // GET /api/settings - Get all settings

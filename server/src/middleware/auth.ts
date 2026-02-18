@@ -27,14 +27,16 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   }
 
   // Public endpoints that never require auth
-  if (req.path === '/health' || req.path === '/auth/status') {
+  // IPTV endpoints handle their own token-based auth internally
+  if (req.path === '/health' || req.path === '/auth/status' || req.path.startsWith('/iptv/')) {
     next();
     return;
   }
 
   const providedKey =
     (req.headers['x-api-key'] as string) ||
-    (req.query.api_key as string);
+    (req.query.api_key as string) ||
+    (req.query.token as string);
 
   if (providedKey && providedKey === API_KEY) {
     next();
