@@ -635,6 +635,8 @@ html[data-preview-bg="white"] .preview-video-container {
   .preview-panel-classic {
     display: flex;
     flex-direction: row;
+    /* Size panel so the video area (60% of width) maintains ~16:9 */
+    height: min(60%, calc(60vw * 9 / 16));
   }
 
   /* Video container becomes a flex child on the right instead of absolute */
@@ -804,6 +806,10 @@ html[data-preview-bg="white"] .preview-video-container {
 
 /* ── Classic tablet: tighten the split ─────────────────── */
 @media (min-width: 768px) and (max-width: 1023px) {
+  .preview-panel-classic {
+    /* Tablet: video is 65% width → target 16:9 for that portion */
+    height: min(60%, calc(65vw * 9 / 16));
+  }
   .preview-panel-classic .preview-overlay {
     width: 35%;
     padding: 12px 14px;
@@ -884,11 +890,42 @@ html[data-preview-bg="white"] .preview-video-container {
 }
 
 .guide-fullscreen-btn,
-.guide-settings-btn {
+.guide-settings-btn,
+.guide-search-btn {
   width: 48px;
   height: 48px;
   min-width: 48px;
   min-height: 48px;
+  transition: all 0.2s, opacity 0.4s ease;
+}
+
+/* On mobile, fade guide buttons with the preview overlay */
+@media (max-width: 1023px) {
+  .guide-btn-hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.guide-search-btn {
+  position: absolute;
+  top: 16px;
+  right: 128px; /* fullscreen (72) + 48 + 8px gap */
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--border-grid);
+  color: var(--text-secondary);
+  font-size: 22px;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.guide-search-btn:hover {
+  background: var(--bg-cell-hover);
+  color: var(--text-gold);
 }
 
 .guide-fullscreen-btn {
@@ -905,7 +942,6 @@ html[data-preview-bg="white"] .preview-video-container {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
 }
 
 .guide-fullscreen-btn:hover {
@@ -927,7 +963,6 @@ html[data-preview-bg="white"] .preview-video-container {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
 }
 
 .guide-settings-btn:hover {
@@ -954,7 +989,7 @@ html[data-preview-bg="white"] .preview-video-container {
 .guide-auto-scroll-indicator {
   position: absolute;
   top: 16px;
-  right: 136px;
+  right: 192px; /* search (128) + 48 + 16px gap */
   z-index: 20;
   width: 36px;
   height: 36px;
@@ -1310,13 +1345,18 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn {
+  .guide-settings-btn,
+  .guide-search-btn {
     width: 48px;
     height: 48px;
     min-width: 48px;
     min-height: 48px;
     font-size: 20px;
     top: 12px;
+  }
+
+  .guide-search-btn {
+    right: 128px; /* 72 + 48 + 8 */
   }
 
   .guide-fullscreen-btn {
@@ -1332,7 +1372,7 @@ html[data-preview-bg="white"] .preview-video-container {
     width: 44px;
     height: 44px;
     font-size: 16px;
-    right: 132px;
+    right: 188px; /* 128 + 48 + 12 */
   }
 
   /* Time header - more readable */
@@ -1551,13 +1591,18 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn {
+  .guide-settings-btn,
+  .guide-search-btn {
     width: 48px;
     height: 48px;
     min-width: 48px;
     min-height: 48px;
     font-size: 20px;
     top: 8px;
+  }
+
+  .guide-search-btn {
+    right: 120px; /* 64 + 48 + 8 */
   }
 
   .guide-fullscreen-btn {
@@ -1629,7 +1674,7 @@ html[data-preview-bg="white"] .preview-video-container {
     width: 40px;
     height: 40px;
     font-size: 14px;
-    right: 120px;
+    right: 176px; /* 120 + 48 + 8 */
     top: 8px;
   }
 }
@@ -1740,13 +1785,18 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn {
+  .guide-settings-btn,
+  .guide-search-btn {
     width: 44px;
     height: 44px;
     min-width: 44px;
     min-height: 44px;
     font-size: 18px;
     top: 6px;
+  }
+
+  .guide-search-btn {
+    right: 112px; /* 60 + 44 + 8 */
   }
 
   .guide-fullscreen-btn {
@@ -1800,7 +1850,7 @@ html[data-preview-bg="white"] .preview-video-container {
     width: 36px;
     height: 36px;
     font-size: 12px;
-    right: 56px;
+    right: 164px; /* 112 + 44 + 8 */
     top: 6px;
   }
 }
@@ -1866,7 +1916,8 @@ html[data-preview-bg="white"] .preview-video-container {
     background: var(--bg-cell-hover);
   }
 
-  .guide-settings-btn:hover {
+  .guide-settings-btn:hover,
+  .guide-search-btn:hover {
     background: rgba(0, 0, 0, 0.6);
     color: var(--text-secondary);
   }
@@ -1998,13 +2049,18 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn {
+  .guide-settings-btn,
+  .guide-search-btn {
     width: 44px;
     height: 44px;
     min-width: 44px;
     min-height: 44px;
     font-size: 18px;
     top: 4px;
+  }
+
+  .guide-search-btn {
+    right: 112px; /* 60 + 44 + 8 */
   }
 
   .guide-fullscreen-btn {
@@ -2072,7 +2128,7 @@ html[data-preview-bg="white"] .preview-video-container {
     width: 36px;
     height: 36px;
     font-size: 12px;
-    right: 104px;
+    right: 164px; /* 112 + 44 + 8 */
     top: 4px;
   }
 }
@@ -2147,7 +2203,8 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn {
+  .guide-settings-btn,
+  .guide-search-btn {
     width: 48px;
     height: 48px;
     min-width: 48px;
@@ -2156,8 +2213,12 @@ html[data-preview-bg="white"] .preview-video-container {
     top: 8px;
   }
 
+  .guide-search-btn {
+    right: 120px; /* 64 + 48 + 8 */
+  }
+
   .guide-fullscreen-btn {
-    right: 72px; /* 8 + 48 + 8 */
+    right: 64px; /* 8 + 48 + 8 */
   }
 
   .guide-settings-btn {
@@ -2207,13 +2268,18 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn {
+  .guide-settings-btn,
+  .guide-search-btn {
     width: 48px;
     height: 48px;
     min-width: 48px;
     min-height: 48px;
     font-size: 22px;
     top: 16px;
+  }
+
+  .guide-search-btn {
+    right: 128px; /* 72 + 48 + 8 */
   }
 
   .guide-fullscreen-btn {
@@ -2226,7 +2292,7 @@ html[data-preview-bg="white"] .preview-video-container {
 
   /* Auto-scroll indicator */
   .guide-auto-scroll-indicator {
-    right: 148px;
+    right: 192px; /* 128 + 48 + 16 */
   }
 
   /* Time header larger */
@@ -2283,7 +2349,7 @@ html[data-preview-bg="white"] .preview-video-container {
     width: 48px;
     height: 48px;
     font-size: 18px;
-    right: 148px;
+    right: 192px; /* 128 + 48 + 16 */
   }
 }
 
@@ -2299,6 +2365,10 @@ html[data-preview-bg="white"] .preview-video-container {
   .preview-overlay {
     padding-left: max(16px, env(safe-area-inset-left));
     padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  .guide-search-btn {
+    right: max(128px, calc(env(safe-area-inset-right) + 120px));
   }
 
   .guide-fullscreen-btn {
@@ -2487,6 +2557,149 @@ html[data-preview-bg="white"] .preview-video-container {
 
   .program-info-body {
     padding: 12px 16px max(20px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ── Channel search modal ───────────────────────────────── */
+.channel-search-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 1000;
+  padding: 80px 16px 16px;
+  box-sizing: border-box;
+}
+
+.channel-search-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-grid);
+  border-radius: 8px;
+  max-width: 420px;
+  width: 100%;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.channel-search-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 0;
+  flex-shrink: 0;
+}
+
+.channel-search-input {
+  flex: 1;
+  font-family: var(--font-retro);
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--bg-cell);
+  border: 1px solid var(--border-cell);
+  border-radius: 6px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.channel-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.channel-search-input:focus {
+  border-color: var(--accent-cyan);
+}
+
+.channel-search-close {
+  font-size: 24px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.channel-search-close:hover {
+  color: var(--text-primary);
+}
+
+.channel-search-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  min-height: 0;
+}
+
+.channel-search-empty {
+  font-family: var(--font-retro);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 24px 16px;
+}
+
+.channel-search-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.channel-search-result:hover,
+.channel-search-result-focused {
+  background: var(--bg-cell-hover);
+}
+
+.channel-search-result-num {
+  font-family: var(--font-retro);
+  font-size: 12px;
+  color: var(--text-gold);
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.channel-search-result-name {
+  font-family: var(--font-retro);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Mobile: full-screen channel search */
+@media (max-width: 767px) {
+  .channel-search-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .channel-search-modal {
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+  }
+
+  .channel-search-header {
+    padding: max(16px, env(safe-area-inset-top)) 16px 0;
+  }
+
+  .channel-search-results {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 }
 

@@ -4,6 +4,7 @@ import { useKeyboard } from '../../hooks/useKeyboard';
 import GuideGrid from './GuideGrid';
 import PreviewPanel from './PreviewPanel';
 import ProgramInfoModal from './ProgramInfoModal';
+import ChannelSearch from './ChannelSearch';
 import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle } from '../Settings/DisplaySettings';
 import type { PreviewStyle } from '../Settings/DisplaySettings';
 import { isIOSPWA } from '../../utils/platform';
@@ -236,6 +237,8 @@ export default function Guide({
 
   /** When set, show program info modal (future program click). */
   const [programInfoModal, setProgramInfoModal] = useState<{ channel: Channel; program: ScheduleProgram } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(true);
 
   // Fullscreen support
   const guideRef = useRef<HTMLDivElement>(null);
@@ -419,7 +422,15 @@ export default function Guide({
       ref={guideRef}
     >
       <button
-        className="guide-fullscreen-btn"
+        className={`guide-search-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+        onClick={() => setSearchOpen(true)}
+        title="Search channels"
+        aria-label="Search channels"
+      >
+        ⌕
+      </button>
+      <button
+        className={`guide-fullscreen-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
         onClick={toggleFullscreen}
         title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
@@ -427,7 +438,7 @@ export default function Guide({
         {isFullscreen ? '⊡' : '⛶'}
       </button>
       <button
-        className="guide-settings-btn"
+        className={`guide-settings-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
         onClick={onOpenSettings}
         title="Settings"
       >
@@ -443,12 +454,26 @@ export default function Guide({
         onSwipeDown={handleDown}
         guideHours={guideHours}
         previewStyle={previewStyle}
+        onOverlayVisibilityChange={setOverlayVisible}
       />
       {programInfoModal && (
         <ProgramInfoModal
           channel={programInfoModal.channel}
           program={programInfoModal.program}
           onClose={() => setProgramInfoModal(null)}
+        />
+      )}
+      {searchOpen && (
+        <ChannelSearch
+          channels={channels}
+          onSelect={(idx) => {
+            pauseAutoScroll();
+            setFocusedChannelIdx(idx);
+            setFocusedProgramIdx(findCurrentProgramIdx(channels[idx].id));
+            setScrollToChannelIdxOnce(idx);
+            setSearchOpen(false);
+          }}
+          onClose={() => setSearchOpen(false)}
         />
       )}
       <GuideGrid

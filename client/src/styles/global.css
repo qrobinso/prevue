@@ -358,8 +358,9 @@ body {
   overscroll-behavior-y: contain;
   /* Smooth scrolling for iOS */
   -webkit-overflow-scrolling: touch;
-  /* Safe area padding for notched devices */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  /* Safe area: only pad top (status bar) and sides; bottom is handled by
+     individual components so the app background extends behind the home indicator */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
 
 /* iOS landscape: extend content edge-to-edge to eliminate side bars */

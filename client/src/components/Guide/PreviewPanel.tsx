@@ -48,6 +48,7 @@ interface PreviewPanelProps {
   onSwipeDown?: () => void;
   guideHours?: number;
   previewStyle?: 'modern' | 'classic';
+  onOverlayVisibilityChange?: (visible: boolean) => void;
 }
 
 const PREVIEW_BASE_SIZES = {
@@ -60,7 +61,7 @@ const PREVIEW_BASE_SIZES = {
   time: 10,
 } as const;
 
-export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4, previewStyle = 'modern' }: PreviewPanelProps) {
+export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4, previewStyle = 'modern', onOverlayVisibilityChange }: PreviewPanelProps) {
   const isClassic = previewStyle === 'classic';
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
   const previewFontSizes = {
@@ -93,6 +94,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [isBuffering, setIsBuffering] = useState(false);
   const [bufferingMessage, setBufferingMessage] = useState('BUFFERING...');
   const [overlayVisible, setOverlayVisible] = useState(true);
+
+  // Notify parent when overlay visibility changes
+  useEffect(() => {
+    onOverlayVisibilityChange?.(isClassic || overlayVisible);
+  }, [overlayVisible, isClassic, onOverlayVisibilityChange]);
+
   const { volume, muted, setVolume, toggleMute } = useVolume();
   const mutedRef = useRef(muted);
   const volumeRef = useRef(volume);

@@ -2595,7 +2595,9 @@
   }
 
   .settings-header {
-    padding: 16px;
+    /* Push below status bar / Dynamic Island on modern iPhones.
+       The overlay uses position:fixed so body padding doesn't help here. */
+    padding: max(16px, env(safe-area-inset-top, 16px)) 16px 16px;
   }
 
   .settings-title {
