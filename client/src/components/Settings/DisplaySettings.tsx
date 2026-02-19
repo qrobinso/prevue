@@ -35,7 +35,7 @@ const PREVIEW_STYLE_KEY = 'prevue_preview_style';
 const CLOCK_FORMAT_KEY = 'prevue_clock_format';
 
 export type PreviewBgOption = 'theme' | 'black' | 'white';
-export type PreviewStyle = 'modern' | 'classic';
+export type PreviewStyle = 'modern' | 'classic-left' | 'classic-right';
 export type ClockFormat = '12h' | '24h';
 
 export function getClockFormat(): ClockFormat {
@@ -177,7 +177,9 @@ export function setGuideArtwork(enabled: boolean): void {
 export function getPreviewStyle(): PreviewStyle {
   try {
     const stored = localStorage.getItem(PREVIEW_STYLE_KEY);
-    if (stored === 'modern' || stored === 'classic') return stored;
+    if (stored === 'modern' || stored === 'classic-left' || stored === 'classic-right') return stored;
+    // Migrate legacy 'classic' value to 'classic-right'
+    if (stored === 'classic') return 'classic-right';
   } catch {}
   return 'modern';
 }
@@ -673,17 +675,17 @@ export default function DisplaySettings() {
         <h4>PREVIEW STYLE</h4>
         <p className="settings-field-hint">
           Layout style for the channel preview area. Classic shows a split-panel
-          inspired by the 90s Prevue Channel.
+          inspired by the 90s Prevue Channel. Left/Right controls which side the video appears on.
         </p>
         <div className="settings-preview-bg-options">
-          {(['modern', 'classic'] as const).map((opt) => (
+          {(['modern', 'classic-left', 'classic-right'] as const).map((opt) => (
             <button
               key={opt}
               className={`settings-preview-bg-btn ${previewStyle === opt ? 'active' : ''}`}
               onClick={() => handlePreviewStyleChange(opt)}
             >
               <span className="settings-preview-bg-label">
-                {opt === 'modern' ? 'Modern' : 'Classic'}
+                {opt === 'modern' ? 'Modern' : opt === 'classic-left' ? 'Classic Left' : 'Classic Right'}
               </span>
             </button>
           ))}

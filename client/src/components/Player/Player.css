@@ -1181,9 +1181,20 @@
 }
 
 .player-nerd-stats-body {
-  padding: 12px 16px;
+  padding: 8px 16px 16px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+.player-nerd-stats-section-title {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-gold);
+  text-transform: uppercase;
+  padding: 12px 0 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 2px;
 }
 
 .player-nerd-stats-table {
@@ -1191,33 +1202,41 @@
   border-collapse: collapse;
   font-size: 12px;
   font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+  margin-bottom: 2px;
 }
 
 .player-nerd-stats-table td {
-  padding: 6px 8px 6px 0;
+  padding: 5px 8px 5px 0;
   vertical-align: top;
   color: var(--text-secondary);
 }
 
 .player-nerd-stats-table tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .player-nerd-stats-label {
   color: var(--text-muted);
   white-space: nowrap;
   padding-right: 12px;
+  width: 40%;
 }
 
 .player-nerd-stats-table td:last-child {
   color: var(--accent-cyan);
+  word-break: break-word;
+}
+
+.player-nerd-stats-url {
   word-break: break-all;
+  font-size: 10px;
+  opacity: 0.75;
 }
 
 .player-nerd-stats-empty {
   font-size: 12px;
   color: var(--text-muted);
-  padding: 16px 0;
+  padding: 8px 0 4px;
 }
 
 /* ── Desktop: floating panel (bottom-right) ─────────────── */

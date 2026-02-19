@@ -86,6 +86,14 @@ export function shouldPreservePlaybackOnUnmount(
   );
 }
 
+/** Read the active session's playback info without consuming the handoff. */
+export function getActiveSessionInfo(
+  channelId: number
+): { info: PlaybackInfoWithInterstitial; positionSec: number } | null {
+  if (!activeSession || activeSession.channelId !== channelId) return null;
+  return { info: activeSession.info, positionSec: activeSession.positionSec };
+}
+
 export function consumePlaybackHandoff(
   to: ViewOwner,
   channelId: number,

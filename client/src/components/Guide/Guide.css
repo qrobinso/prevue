@@ -809,6 +809,18 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 }
 
+/* ── Classic Left: video on left, metadata on right ────── */
+@media (min-width: 768px) {
+  .preview-panel-classic-left .preview-video-container {
+    order: 1;
+    border-left: none;
+    border-right: 3px solid var(--accent-cyan);
+  }
+  .preview-panel-classic-left .preview-overlay {
+    order: 2;
+  }
+}
+
 /* ── Classic tablet: tighten the split ─────────────────── */
 @media (min-width: 768px) and (max-width: 1023px) {
   .preview-panel-classic {

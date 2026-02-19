@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run build:*)",
+      "WebFetch(domain:www.amp-what.com)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(find:*)",
+      "Read(//c/Users/qrobi/OneDrive/Documents/**)",
+      "Bash(npx vite build)"
+    ]
+  }
+}
