@@ -13,9 +13,9 @@ export default function IPTVSettings() {
   const [saving, setSaving] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
 
-  const timezones = useMemo(() => {
+  const timezones = useMemo((): string[] => {
     try {
-      return Intl.supportedValuesOf('timeZone');
+      return (Intl as unknown as { supportedValuesOf(key: string): string[] }).supportedValuesOf('timeZone');
     } catch {
       return [
         'UTC',
@@ -211,9 +211,9 @@ export default function IPTVSettings() {
                 }}
               >
                 <option value="">UTC (default)</option>
-                {timezones.map((tz) => (
-                  <option key={tz} value={tz}>
-                    {tz.replace(/_/g, ' ')}
+                {timezones.map((tzName: string) => (
+                  <option key={tzName} value={tzName}>
+                    {tzName.replace(/_/g, ' ')}
                   </option>
                 ))}
               </select>
