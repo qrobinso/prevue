@@ -16,10 +16,17 @@ import {
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from './audioTrackUtils';
 import { formatPlaybackError } from '../../utils/playbackError';
+import {
+  getVideoElement, reparentVideo, getSharedHls, setSharedHls,
+  setSharedItemId, setSharedOwner,
+  isStreamActive, destroySharedStream, reconfigureBuffers,
+} from '../../services/sharedVideo';
 import './Guide.css';
 
-/** Delay before starting preview stream (user may be browsing) */
-const PREVIEW_STREAM_DELAY_MS = 1000;
+/** Small debounce so rapid browsing does not start a stream for every focus move. */
+const PREVIEW_STREAM_DELAY_MS = 250;
+/** Reveal video shortly after first rendered frames are available. */
+const PREVIEW_REVEAL_DELAY_MS = 120;
 
 const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
 const VIDEO_FIT_KEY = 'prevue_video_fit';
@@ -74,7 +81,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     time: Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale),
   };
 
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(getVideoElement());
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const currentItemIdRef = useRef<string | null>(null);
   const currentChannelIdRef = useRef<number | null>(null);
@@ -129,32 +137,33 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       removePlayingListenersRef.current();
       removePlayingListenersRef.current = null;
     }
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
+
+    const itemId = currentItemIdRef.current;
+    const channelId = currentChannelIdRef.current;
+    const preserveForHandoff = itemId != null && channelId != null &&
+      shouldPreservePlaybackOnUnmount('guide', channelId, itemId);
+
+    if (preserveForHandoff) {
+      // Handoff pending: keep shared stream alive for Player to take over.
+      // Release our local ref but don't destroy the HLS instance.
+      const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
+      updatePlaybackPosition('guide', itemId, (positionMs ?? 0) / 1000);
       hlsRef.current = null;
+    } else {
+      hlsRef.current = null;
+      destroySharedStream();
+      if (itemId) {
+        const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
+        stopPlayback(itemId, undefined, positionMs).catch(() => {});
+        metricsStop(getClientId()).catch(() => {});
+      }
     }
-    // Release browser media buffers so memory is freed immediately
-    const vid = videoRef.current;
-    if (vid) {
-      vid.removeAttribute('src');
-      vid.load();
-    }
+
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     }
-    if (currentItemIdRef.current) {
-      const itemId = currentItemIdRef.current;
-      const channelId = currentChannelIdRef.current;
-      const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
-      if (channelId != null && shouldPreservePlaybackOnUnmount('guide', channelId, itemId)) {
-        updatePlaybackPosition('guide', itemId, (positionMs ?? 0) / 1000);
-      } else {
-        stopPlayback(itemId, undefined, positionMs).catch(() => {});
-        metricsStop(getClientId()).catch(() => {});
-      }
-      currentItemIdRef.current = null;
-    }
+    currentItemIdRef.current = null;
     loadingItemIdRef.current = null;
     progressActivatedRef.current = false;
     setVideoReady(false);
@@ -214,12 +223,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       // Restore user's volume/muted (we start muted for iOS autoplay compat)
       video.muted = mutedRef.current;
       video.volume = volumeRef.current;
-      // Wait 0.5s of actual video playback before revealing (so video plays behind the static briefly)
+      // Wait briefly so the first frame is painted before we reveal it.
       setTimeout(() => {
         if (!cancelled.current) {
           setVideoReady(true);
         }
-      }, 500);
+      }, PREVIEW_REVEAL_DELAY_MS);
     };
 
     if (removePlayingListenersRef.current) {
@@ -243,6 +252,9 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         levelLoadingMaxRetry: 2,
       });
       hlsRef.current = hls;
+      setSharedHls(hls);
+      setSharedItemId(info.program.jellyfin_item_id);
+      setSharedOwner('guide');
       hls.loadSource(info.stream_url);
       hls.attachMedia(video);
       // Only use 'playing' — 'loadeddata' can fire before frames render,
@@ -333,6 +345,34 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       return; // load already in progress, avoid duplicate request
     }
 
+    // Check if the shared stream is already playing this item
+    // (happens when returning from player with handoff — instant transition)
+    if (isStreamActive(itemId)) {
+      const container = videoContainerRef.current;
+      if (container) {
+        const video = getVideoElement();
+        videoRef.current = video;
+        reparentVideo(container);
+        video.className = `preview-video ready ${videoFit === 'contain' ? 'preview-video-letterbox' : ''}`;
+      }
+      setSharedOwner('guide');
+      hlsRef.current = getSharedHls();
+      currentItemIdRef.current = itemId;
+      reconfigureBuffers(3, 8);
+      setVideoReady(true);
+      setVideoError(null);
+      loadingItemIdRef.current = null;
+      // Consume handoff so it's not re-processed
+      consumePlaybackHandoff('guide', channel.id, itemId);
+      // Restore volume
+      const vid = videoRef.current;
+      if (vid) {
+        vid.muted = mutedRef.current;
+        vid.volume = volumeRef.current;
+      }
+      return;
+    }
+
     cleanup();
     const cancelled = { current: false };
 
@@ -396,7 +436,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       loadingItemIdRef.current = null;
       clearTimeout(timer);
     };
-  }, [channel?.id, program?.jellyfin_item_id, cleanup, streamingPaused, loadStreamWithInfo]);
+  }, [channel?.id, program?.jellyfin_item_id, cleanup, streamingPaused, loadStreamWithInfo, videoFit]);
 
   // Playback progress reporting to Jellyfin (after 5 min watch threshold)
   useEffect(() => {
@@ -516,12 +556,38 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     };
   }, [cleanup]);
 
-  // Pause/stop streaming when settings is open
+  // Reparent shared video into this panel's container and update classes
+  useEffect(() => {
+    const container = videoContainerRef.current;
+    if (!container || streamingPaused) return;
+    const video = getVideoElement();
+    videoRef.current = video;
+    reparentVideo(container);
+    video.className = `preview-video ${videoReady ? 'ready' : ''} ${videoFit === 'contain' ? 'preview-video-letterbox' : ''}`;
+  }, [streamingPaused, videoReady, videoFit]);
+
+  // When streaming is paused (player opens or settings opens), release local refs
+  // but keep the shared stream alive so Player can take it over instantly.
   useEffect(() => {
     if (streamingPaused) {
-      cleanup();
+      if (removePlayingListenersRef.current) {
+        removePlayingListenersRef.current();
+        removePlayingListenersRef.current = null;
+      }
+      hlsRef.current = null;
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      currentItemIdRef.current = null;
+      loadingItemIdRef.current = null;
+      progressActivatedRef.current = false;
+      setVideoReady(false);
+      setVideoError(null);
+      setIsBuffering(false);
+      setBufferingMessage('BUFFERING...');
     }
-  }, [streamingPaused, cleanup]);
+  }, [streamingPaused]);
 
   if (!channel) {
     return (
@@ -618,14 +684,10 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       onTouchStart={swipe.onTouchStart}
       onTouchEnd={swipe.onTouchEnd}
     >
-      {/* Video fills entire panel */}
+      {/* Video fills entire panel — shared video element is reparented here */}
       <div className="preview-video-container">
         {showVideo && (
-          <video
-            ref={videoRef}
-            className={`preview-video ${videoReady ? 'ready' : ''} ${videoFit === 'contain' ? 'preview-video-letterbox' : ''}`}
-            playsInline
-          />
+          <div ref={videoContainerRef} className="preview-video-host" />
         )}
         {/* Loading overlay (same as full-screen player): banner in background + TUNING text */}
         {!videoReady && !videoError && program && program.type !== 'interstitial' && (

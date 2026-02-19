@@ -148,6 +148,11 @@ html[data-preview-bg="white"] .preview-video-container {
   background: var(--bg-secondary);
 }
 
+.preview-video-host {
+  width: 100%;
+  height: 100%;
+}
+
 .preview-video {
   width: 100%;
   height: 100%;

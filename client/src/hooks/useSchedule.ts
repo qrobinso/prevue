@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getChannels, getSchedule, type ChannelWithProgram } from '../services/api';
-import type { Channel, ScheduleProgram, ScheduleBlock } from '../types';
+import { getSchedule, type ChannelWithProgram } from '../services/api';
+import type { ScheduleProgram, ScheduleBlock } from '../types';
 
 interface ScheduleData {
   channels: ChannelWithProgram[];
@@ -27,23 +27,41 @@ export function useSchedule(): ScheduleData {
     }
     setError(null);
     try {
-      const [channelsData, scheduleData] = await Promise.all([
-        getChannels(),
-        getSchedule(),
-      ]);
-
-      setChannels(channelsData);
+      const scheduleData = await getSchedule();
 
       const schedMap = new Map<number, ScheduleProgram[]>();
+      const nextChannels: ChannelWithProgram[] = [];
+      const nowMs = Date.now();
       for (const [channelId, data] of Object.entries(scheduleData)) {
+        const channelIdNum = parseInt(channelId, 10);
         const programs: ScheduleProgram[] = [];
         for (const block of (data as { blocks: ScheduleBlock[] }).blocks) {
           programs.push(...block.programs);
         }
         // Sort by start time
         programs.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
-        schedMap.set(parseInt(channelId, 10), programs);
+        schedMap.set(channelIdNum, programs);
+
+        const currentIdx = programs.findIndex((prog) => {
+          const start = new Date(prog.start_time).getTime();
+          const end = new Date(prog.end_time).getTime();
+          return nowMs >= start && nowMs < end;
+        });
+
+        const currentProgram = currentIdx >= 0 ? programs[currentIdx] : null;
+        const nextProgram = currentIdx >= 0 ? (programs[currentIdx + 1] ?? null) : null;
+        const channel = (data as { channel: Omit<ChannelWithProgram, 'current_program' | 'next_program' | 'schedule_generated_at' | 'schedule_updated_at'> }).channel;
+        nextChannels.push({
+          ...channel,
+          current_program: currentProgram,
+          next_program: nextProgram,
+          schedule_generated_at: null,
+          schedule_updated_at: null,
+        });
       }
+
+      nextChannels.sort((a, b) => (a.sort_order - b.sort_order) || (a.number - b.number));
+      setChannels(nextChannels);
       setScheduleByChannel(schedMap);
       setError(null);
       hasLoadedOnce.current = true;

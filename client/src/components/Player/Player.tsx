@@ -22,6 +22,11 @@ import { safeBgImage, sanitizeImageUrl } from '../../utils/sanitize';
 import { formatPlaybackError } from '../../utils/playbackError';
 import { isIOSPWA } from '../../utils/platform';
 import {
+  getVideoElement, reparentVideo, getSharedHls, getSharedItemId, setSharedHls,
+  setSharedItemId, setSharedOwner,
+  isStreamActive, destroySharedStream, reconfigureBuffers,
+} from '../../services/sharedVideo';
+import {
   getFullscreenElement,
   isFullscreenElement,
   enterFullscreen,
@@ -41,6 +46,9 @@ interface PlayerProps {
 
 const MAX_RETRIES = 2;
 const DOUBLE_TAP_DELAY = 300; // ms to detect double tap
+const PLAYER_REVEAL_DELAY_MS = 120;
+const NETWORK_RETRY_DELAY_MS = 1000;
+const NETWORK_RELOAD_DELAY_MS = 750;
 
 // Local storage keys for player preferences
 const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
@@ -225,7 +233,8 @@ function collectNerdStats(video: HTMLVideoElement | null, hls: Hls | null): Nerd
 
 export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, enterFullscreenOnMount }: PlayerProps) {
   const playerContainerRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(getVideoElement());
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -389,7 +398,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
       // Destroy previous HLS instance
       if (hlsRef.current) {
-        hlsRef.current.destroy();
+        destroySharedStream();
         hlsRef.current = null;
       }
 
@@ -410,12 +419,15 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           fragLoadingMaxRetry: 2,
           manifestLoadingMaxRetry: 2,
           levelLoadingMaxRetry: 2,
-          fragLoadingRetryDelay: 2000,
-          manifestLoadingRetryDelay: 2000,
-          levelLoadingRetryDelay: 2000,
+          fragLoadingRetryDelay: NETWORK_RETRY_DELAY_MS,
+          manifestLoadingRetryDelay: NETWORK_RETRY_DELAY_MS,
+          levelLoadingRetryDelay: NETWORK_RETRY_DELAY_MS,
         });
 
         hlsRef.current = hls;
+        setSharedHls(hls);
+        setSharedItemId(info.program?.jellyfin_item_id || null);
+        setSharedOwner('player');
         hls.loadSource(info.stream_url);
         hls.attachMedia(video);
 
@@ -428,12 +440,12 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
           video.volume = volumeRef.current;
-          // Wait a brief moment for video to actually render frames before fading in
+          // Wait briefly so the first frame is painted before fading in.
           setTimeout(() => {
             if (cancelledRef?.current) return;
             setVideoReady(true);
             setLoadingFadeOut(true);
-          }, 300);
+          }, PLAYER_REVEAL_DELAY_MS);
         };
         const removePlayingListeners = () => {
           video.removeEventListener('playing', onFirstPlaying);
@@ -515,7 +527,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
               if (errorCountRef.current === 1) {
                 setBufferingMessage('Connection interrupted. Buffering...');
                 setIsBuffering(true);
-                setTimeout(() => hls.startLoad(), 2000);
+                setTimeout(() => hls.startLoad(), NETWORK_RETRY_DELAY_MS);
                 return;
               }
               // Second NETWORK_ERROR (e.g. segment 500 after Jellyfin/FFmpeg transcoding switch):
@@ -528,8 +540,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                 const currentPositionSec = video.currentTime || 0;
                 hls.destroy();
                 hlsRef.current = null;
-                loadPlayback(currentQuality, selectedAudioStreamIndexRef.current ?? undefined, true, undefined,
-                  currentPositionSec > 0 ? { info: null, startPositionSec: currentPositionSec } : undefined);
+                setTimeout(() => {
+                  loadPlayback(currentQuality, selectedAudioStreamIndexRef.current ?? undefined, true, undefined,
+                    currentPositionSec > 0 ? { info: null, startPositionSec: currentPositionSec } : undefined);
+                }, NETWORK_RELOAD_DELAY_MS);
                 return;
               }
             }
@@ -632,9 +646,118 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     const cancelled = { current: false };
     const handoffItemId = program?.jellyfin_item_id ?? null;
     const handoff = handoffItemId ? consumePlaybackHandoff('player', channel.id, handoffItemId) : null;
-    if (handoff) {
+
+    // INSTANT TRANSITION: shared video is already playing from the guide.
+    // Works for both double-tap (with handoff) and Enter key (no handoff).
+    // Check if ANY shared stream is alive (don't require item ID match since
+    // the program prop may be stale or null while the stream is valid).
+    if (isStreamActive()) {
+      const sharedItemId = getSharedItemId();
+      hlsRef.current = getSharedHls();
+      setSharedOwner('player');
+      currentItemIdRef.current = sharedItemId;
+
+      // Reparent video into player container
+      const container = videoContainerRef.current;
+      if (container) {
+        const video = getVideoElement();
+        videoRef.current = video;
+        reparentVideo(container);
+        video.className = `player-video ${getVideoFit() === 'cover' ? 'player-video-fill' : ''} player-video-ready`;
+      }
+
+      reconfigureBuffers(15, 30);
+      setVideoReady(true);
+      setLoading(false);
+      setLoadingFadeOut(false);
+      setAutoplayMutedLock(false);
+
+      // Restore user volume preferences
+      const video = videoRef.current;
+      if (video) {
+        video.muted = mutedRef.current;
+        video.volume = volumeRef.current;
+      }
+
+      showOverlayBriefly();
+      watchStartRef.current = Date.now();
+      progressActivatedRef.current = false;
+
+      if (handoff) {
+        // Have handoff metadata — use it directly (double-tap path)
+        setCurrentProgram(handoff.info.program);
+        setNextProgram(handoff.info.next_program);
+        setIsInterstitial(handoff.info.is_interstitial);
+        setServerAudioTracks(handoff.info.audio_tracks ?? []);
+        const audioIdx = handoff.info.audio_stream_index ?? null;
+        setSelectedAudioStreamIndex(audioIdx);
+        selectedAudioStreamIndexRef.current = audioIdx;
+        const subtitleTracks = handoff.info.subtitle_tracks ?? [];
+        setServerSubtitleTracks(subtitleTracks);
+        const preferredSub =
+          handoff.info.subtitle_index !== undefined ? handoff.info.subtitle_index : getStoredSubtitleIndex();
+        const initialSub =
+          preferredSub !== null && preferredSub >= 0 && preferredSub < subtitleTracks.length
+            ? preferredSub : null;
+        setSelectedSubtitleIndex(initialSub);
+        selectedSubtitleIndexRef.current = initialSub;
+        updateActivePlaybackSession('player', channel.id, handoff.info, handoff.positionSec);
+
+        const isEpisode = handoff.info.program?.content_type === 'episode';
+        metricsStart({
+          client_id: getClientId(),
+          channel_id: channel.id,
+          channel_name: channel.name,
+          item_id: handoff.info.program?.jellyfin_item_id,
+          title: isEpisode ? (handoff.info.program?.subtitle || handoff.info.program?.title) : handoff.info.program?.title,
+          series_name: isEpisode ? handoff.info.program?.title : undefined,
+          content_type: handoff.info.program?.content_type ?? undefined,
+        }).catch(() => {});
+      } else {
+        // No handoff metadata (Enter key path) — fetch playback info asynchronously.
+        // Video keeps playing instantly while we load program details.
+        getPlaybackInfo(channel.id).then(info => {
+          if (cancelled.current) return;
+          currentItemIdRef.current = info.program?.jellyfin_item_id || null;
+          setSharedItemId(info.program?.jellyfin_item_id || null);
+          setCurrentProgram(info.program);
+          setNextProgram(info.next_program);
+          setIsInterstitial(info.is_interstitial);
+          setServerAudioTracks(info.audio_tracks ?? []);
+          const audioIdx = info.audio_stream_index ?? null;
+          setSelectedAudioStreamIndex(audioIdx);
+          selectedAudioStreamIndexRef.current = audioIdx;
+          const subtitleTracks = info.subtitle_tracks ?? [];
+          setServerSubtitleTracks(subtitleTracks);
+          const preferredSub =
+            info.subtitle_index !== undefined ? info.subtitle_index : getStoredSubtitleIndex();
+          const initialSub =
+            preferredSub !== null && preferredSub >= 0 && preferredSub < subtitleTracks.length
+              ? preferredSub : null;
+          setSelectedSubtitleIndex(initialSub);
+          selectedSubtitleIndexRef.current = initialSub;
+          const positionSec = videoRef.current?.currentTime ?? 0;
+          updateActivePlaybackSession('player', channel.id, info, positionSec);
+
+          const isEpisode = info.program?.content_type === 'episode';
+          metricsStart({
+            client_id: getClientId(),
+            channel_id: channel.id,
+            channel_name: channel.name,
+            item_id: info.program?.jellyfin_item_id,
+            title: isEpisode ? (info.program?.subtitle || info.program?.title) : info.program?.title,
+            series_name: isEpisode ? info.program?.title : undefined,
+            content_type: info.program?.content_type ?? undefined,
+          }).catch(() => {});
+        }).catch(() => {});
+      }
+    } else if (handoff) {
+      // Handoff exists but stream is not active (expired or different item)
+      destroySharedStream();
       loadPlayback(undefined, undefined, undefined, cancelled, { info: handoff.info, startPositionSec: handoff.positionSec });
     } else {
+      // No handoff — fresh load (direct URL, channel change)
+      destroySharedStream();
       loadPlayback(undefined, undefined, undefined, cancelled);
     }
 
@@ -657,28 +780,28 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         removePlayingListeners();
         removePlayingListenersRef.current = null;
       }
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
+
+      const itemId = currentItemIdRef.current;
+      const preserveForHandoff = itemId != null &&
+        shouldPreservePlaybackOnUnmount('player', channel.id, itemId);
+
+      if (preserveForHandoff) {
+        // Handoff pending: keep shared stream alive for PreviewPanel to take over.
+        const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
+        updatePlaybackPosition('player', itemId, (positionMs ?? 0) / 1000);
         hlsRef.current = null;
+      } else {
+        hlsRef.current = null;
+        destroySharedStream();
       }
-      // Release browser media buffers so memory is freed immediately
-      const vid = videoRef.current;
-      if (vid) {
-        vid.removeAttribute('src');
-        vid.load();
-      }
+
       if (overlayTimer.current) clearTimeout(overlayTimer.current);
       if (checkTimer.current) clearInterval(checkTimer.current);
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       // Defer stopPlayback: if effect re-runs for SAME channel (Strict Mode), we cancel and never stop.
       // When channel changes or unmount, the stop will run.
-      const itemId = currentItemIdRef.current;
-      if (itemId) {
+      if (itemId && !preserveForHandoff) {
         const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
-        if (shouldPreservePlaybackOnUnmount('player', channel.id, itemId)) {
-          updatePlaybackPosition('player', itemId, (positionMs ?? 0) / 1000);
-          return;
-        }
         stopPlaybackChannelIdRef.current = channel.id;
         stopPlaybackTimeoutRef.current = setTimeout(() => {
           stopPlaybackTimeoutRef.current = null;
@@ -688,7 +811,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         }, 0);
       }
     };
-  }, [loadPlayback, channel.id, program?.jellyfin_item_id]);
+  }, [loadPlayback, channel.id]);
 
   // Sync loading artwork URL when program changes
   useEffect(() => {
@@ -914,6 +1037,16 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     return () => cancelAnimationFrame(id);
   }, [enterFullscreenOnMount]);
 
+  // Reparent shared video into player container and update classes
+  useEffect(() => {
+    const container = videoContainerRef.current;
+    if (!container || isInterstitial) return;
+    const video = getVideoElement();
+    videoRef.current = video;
+    reparentVideo(container);
+    video.className = `player-video ${videoFit === 'cover' ? 'player-video-fill' : ''} ${videoReady ? 'player-video-ready' : ''}`;
+  }, [isInterstitial, videoFit, videoReady]);
+
   // Poll nerd stats in real time when overlay is open
   useEffect(() => {
     if (!showNerdStats) return;
@@ -1021,15 +1154,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       onTouchStart={swipe.onTouchStart}
       onTouchEnd={swipe.onTouchEnd}
     >
-      {/* Video element */}
+      {/* Video element — shared video is reparented here */}
       {!isInterstitial && (
-        <video
-          ref={videoRef}
-          className={`player-video ${videoFit === 'cover' ? 'player-video-fill' : ''} ${videoReady ? 'player-video-ready' : ''}`}
-          autoPlay
-          playsInline
-          muted={autoplayMutedLock ? true : muted}
-        />
+        <div ref={videoContainerRef} className="player-video-host" />
       )}
 
       {/* Interstitial "Next Up" card */}

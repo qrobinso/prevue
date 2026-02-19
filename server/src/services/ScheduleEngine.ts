@@ -87,14 +87,17 @@ export class ScheduleEngine {
   }
 
   /**
-   * Check if an item would conflict with existing schedules (playing at the same time on another channel)
+   * Check if an item would conflict with existing schedules (playing at the same time on another channel).
+   * When skipSeriesCheck is true, only the exact same episode/movie is blocked — different episodes
+   * of the same series are allowed.  Used as a fallback when strict series-level exclusion leaves gaps.
    */
   private wouldConflict(
     tracker: GlobalScheduleTracker,
     itemId: string,
     startMs: number,
     endMs: number,
-    seriesId?: string
+    seriesId?: string,
+    skipSeriesCheck = false
   ): boolean {
     // Item-level check (exact same episode/movie)
     const slots = tracker.itemSlots.get(itemId);
@@ -107,7 +110,7 @@ export class ScheduleEngine {
     }
 
     // Series-level check (different episodes of the same show)
-    if (seriesId) {
+    if (!skipSeriesCheck && seriesId) {
       const seriesSlotsList = tracker.seriesSlots.get(seriesId);
       if (seriesSlotsList) {
         for (const [existingStart, existingEnd] of seriesSlotsList) {
@@ -499,6 +502,9 @@ export class ScheduleEngine {
         failedAttempts++;
         // Last resort: try scheduling with fully relaxed constraints (any rating, allow cooldown)
         if (failedAttempts >= MAX_FAILED_ATTEMPTS / 2) {
+          // After 75% of max attempts, also skip series-level conflict checks so different
+          // episodes of the same show can air on multiple channels simultaneously
+          const desperateMode = failedAttempts >= Math.floor(MAX_FAILED_ATTEMPTS * 0.75);
           const allItemsForRelaxed = [...standaloneItems, ...items.filter(i => i.Type === 'Episode')];
           const relaxedCandidates = allItemsForRelaxed
             .map(i => {
@@ -507,12 +513,16 @@ export class ScheduleEngine {
               return {
                 item: i,
                 duration: dur,
-                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId),
+                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId, desperateMode),
                 tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS
               };
             })
-            .filter(x => x.duration > 0 && x.duration <= remainingMs && !x.conflicts && !x.tooSoon)
-            .sort((a, b) => b.duration - a.duration);
+            .filter(x => x.duration > 0 && x.duration <= remainingMs && !x.conflicts)
+            .sort((a, b) => {
+              // Prefer items that aren't too-soon repeats, but allow them as fallback
+              if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
+              return b.duration - a.duration;
+            });
           const relaxed = relaxedCandidates.length > 0
             ? relaxedCandidates[Math.floor(rng() * Math.min(MOVIE_POOL_SIZE, relaxedCandidates.length))]
             : null;
@@ -539,6 +549,8 @@ export class ScheduleEngine {
               programs.push(this.createInterstitial(currentTime, skipEnd, null));
               currentTime = skipEnd;
               lastScheduledBucket = null;
+              // Reset so the loop gets a fresh budget to find content at the new time position
+              failedAttempts = Math.floor(MAX_FAILED_ATTEMPTS / 2);
             } else {
               break;
             }
@@ -598,7 +610,7 @@ export class ScheduleEngine {
         if (candidates.length === 0) {
           candidates = buildGapCandidates(true);
         }
-        // Last resort: try all items (any rating) with cooldown allowed, still no cross-channel conflict
+        // Second resort: try all items (any rating) with cooldown allowed, still no cross-channel conflict
         if (candidates.length === 0 && itemsForGap.length < allItems.length) {
           candidates = allItems
             .map(i => {
@@ -616,6 +628,29 @@ export class ScheduleEngine {
             .filter(x => x.duration > 0 && x.duration <= remainingGap && !x.conflicts)
             .sort((a, b) => {
               if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
+              return b.duration - a.duration;
+            });
+        }
+        // Final resort: skip series-level conflict check — a duplicate series across channels
+        // is far better than dead air / interstitial gaps
+        if (candidates.length === 0) {
+          candidates = allItems
+            .map(i => {
+              const dur = this.jellyfin.getItemDurationMs(i);
+              const prevEnd = lastScheduledEndMs.get(i.Id);
+              return {
+                item: i,
+                duration: dur,
+                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId, true),
+                usedInBlock: usedInBlock.has(i.Id),
+                tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS,
+                inCooldown: scheduledInCooldown.has(i.Id)
+              };
+            })
+            .filter(x => x.duration > 0 && x.duration <= remainingGap && !x.conflicts)
+            .sort((a, b) => {
+              if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
+              if (a.usedInBlock !== b.usedInBlock) return a.usedInBlock ? 1 : -1;
               return b.duration - a.duration;
             });
         }
