@@ -87,6 +87,8 @@ export function applyLiveWindow(playlist: string, elapsedSeconds: number): strin
 
 const IDLE_CLEANUP_INTERVAL_MS = 2 * 60 * 1000;  // 2 minutes
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000;         // stop if no activity for 5 minutes
+const STARTUP_SEGMENT_LENGTH_SECONDS = 2;
+const STARTUP_MIN_SEGMENTS = 1;
 
 // Request deduplication: coalesce concurrent requests for the same URL
 // This prevents multiple FFmpeg processes from starting when hls.js retries
@@ -100,6 +102,16 @@ function isProgressSharingEnabled(rawSetting: unknown): boolean {
   }
   if (typeof rawSetting === 'number') return rawSetting !== 0;
   return false;
+}
+
+function extractFirstChildPlaylistPath(masterPlaylist: string): string | null {
+  const lines = masterPlaylist.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (trimmed.includes('.m3u8')) return trimmed;
+  }
+  return null;
 }
 
 // POST /api/stream/stop - Stop playback and release server resources
@@ -118,20 +130,24 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
       // Report playback stopped to Jellyfin if progress sharing is enabled and we have position data
       let reportedStop = false;
       if (positionMs != null && session) {
+        const numericPositionMs = typeof positionMs === 'number' ? positionMs : Number(positionMs);
+        const hasMeaningfulProgress = Number.isFinite(numericPositionMs) && numericPositionMs >= 1000;
         const { db } = req.app.locals;
         const enabled = isProgressSharingEnabled(queries.getSetting(db, 'share_playback_progress'));
-        if (enabled) {
+        if (enabled && hasMeaningfulProgress) {
           // Jellyfin requires PlaybackStart before PlaybackStopped to persist position.
           // If the user watched less than 5 minutes, the progress endpoint never fired,
           // so we send PlaybackStart here first.
           if (!progressStartedSessions.has(sessionId)) {
-            console.log(`[Stream Progress] Sending PlaybackStart (on stop) item=${itemId} session=${sessionId} positionMs=${positionMs}`);
-            await jf.reportPlaybackStart(itemId, sessionId, session.mediaSourceId, positionMs).catch(() => {});
+            console.log(`[Stream Progress] Sending PlaybackStart (on stop) item=${itemId} session=${sessionId} positionMs=${numericPositionMs}`);
+            await jf.reportPlaybackStart(itemId, sessionId, session.mediaSourceId, numericPositionMs).catch(() => {});
             progressStartedSessions.add(sessionId);
           }
-          console.log(`[Stream Progress] Sending PlaybackStopped item=${itemId} session=${sessionId} positionMs=${positionMs}`);
-          await jf.reportPlaybackStopped(itemId, sessionId, session.mediaSourceId, positionMs).catch(() => {});
+          console.log(`[Stream Progress] Sending PlaybackStopped item=${itemId} session=${sessionId} positionMs=${numericPositionMs}`);
+          await jf.reportPlaybackStopped(itemId, sessionId, session.mediaSourceId, numericPositionMs).catch(() => {});
           reportedStop = true;
+        } else if (enabled && !hasMeaningfulProgress) {
+          console.log(`[Stream Progress] Skipping stop progress report (position too small) item=${itemId} session=${sessionId} positionMs=${numericPositionMs}`);
         }
       }
       // Only send a bare session stop if reportPlaybackStopped didn't already hit
@@ -251,47 +267,58 @@ export function getSessionInfo(itemId: string): { playSessionId: string; mediaSo
 
 // Helper: rewrite M3U8 URLs to route through our proxy
 export function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: string, deviceId: string): string {
-  return body.replace(
-    /^(?!#)(.*\.(m3u8|ts|vtt).*)$/gm,
-    (match) => {
-      // If already absolute URL, extract just the path+query portion
-      let path: string;
-      let query: string;
-      
-      if (match.startsWith('http')) {
-        try {
-          const url = new URL(match);
-          path = url.pathname;
-          query = url.search;
-        } catch {
-          return match;
-        }
-      } else {
-        // Split into path and query
-        const qIdx = match.indexOf('?');
-        const matchPath = qIdx >= 0 ? match.substring(0, qIdx) : match;
-        query = qIdx >= 0 ? match.substring(qIdx) : '';
-        path = matchPath.startsWith('/') ? matchPath : `${baseDir}${matchPath}`;
-      }
+  const rewriteResourceUrl = (resourceUrl: string): string => {
+    // If already absolute URL, extract just the path+query portion
+    let path: string;
+    let query: string;
 
-      // Ensure PlaySessionId and DeviceId are in the query string
-      const params = new URLSearchParams(query);
-      if (!params.has('PlaySessionId')) {
-        params.set('PlaySessionId', playSessionId);
+    if (resourceUrl.startsWith('http')) {
+      try {
+        const url = new URL(resourceUrl);
+        path = url.pathname;
+        query = url.search;
+      } catch {
+        return resourceUrl;
       }
-      if (!params.has('DeviceId')) {
-        params.set('DeviceId', deviceId);
-      }
-      
-      // IMPORTANT: Strip StartTimeTicks from segment (.ts) URLs at rewrite time
-      // Jellyfin only allows StartTimeTicks on the master playlist, not segments
-      const isSegment = path.endsWith('.ts');
-      if (isSegment) {
-        params.delete('StartTimeTicks');
-      }
-
-      return `/api/stream/proxy${path}?${params.toString()}`;
+    } else {
+      // Split into path and query
+      const qIdx = resourceUrl.indexOf('?');
+      const relativePath = qIdx >= 0 ? resourceUrl.substring(0, qIdx) : resourceUrl;
+      query = qIdx >= 0 ? resourceUrl.substring(qIdx) : '';
+      path = relativePath.startsWith('/') ? relativePath : `${baseDir}${relativePath}`;
     }
+
+    // Ensure PlaySessionId and DeviceId are in the query string
+    const params = new URLSearchParams(query);
+    if (!params.has('PlaySessionId')) {
+      params.set('PlaySessionId', playSessionId);
+    }
+    if (!params.has('DeviceId')) {
+      params.set('DeviceId', deviceId);
+    }
+
+    // IMPORTANT: Strip StartTimeTicks from segment URLs at rewrite time.
+    // Jellyfin only allows StartTimeTicks on the master playlist, not segments.
+    const isSegment = path.endsWith('.ts') || path.endsWith('.mp4');
+    if (isSegment) {
+      params.delete('StartTimeTicks');
+    }
+
+    return `/api/stream/proxy${path}?${params.toString()}`;
+  };
+
+  // Rewrite direct resource lines (variant playlists, media playlists, segments, vtt files).
+  // Also include mp4 for fMP4 segment streams.
+  const rewrittenDirectLines = body.replace(
+    /^(?!#)(.*\.(m3u8|ts|vtt|mp4).*)$/gm,
+    (match) => rewriteResourceUrl(match)
+  );
+
+  // Rewrite URI="..." attributes inside tag lines (e.g. #EXT-X-MEDIA subtitle URIs).
+  // Without this, subtitle playlists referenced in tags bypass our proxy and fail to load.
+  return rewrittenDirectLines.replace(
+    /URI="([^"]+\.(?:m3u8|vtt|mp4|ts)[^"]*)"/g,
+    (_whole, uri: string) => `URI="${rewriteResourceUrl(uri)}"`
   );
 }
 
@@ -530,7 +557,8 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
       VideoBitrate: String(bitrate),
       TranscodingMaxAudioChannels: '2',
       SegmentContainer: segmentContainer,
-      MinSegments: '2',
+      SegmentLength: String(STARTUP_SEGMENT_LENGTH_SECONDS),
+      MinSegments: String(STARTUP_MIN_SEGMENTS),
       BreakOnNonKeyFrames: 'true',
     });
 
@@ -550,6 +578,9 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     }
     if (subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex)) {
       params.set('SubtitleStreamIndex', String(subtitleStreamIndex));
+      // Ask Jellyfin to expose subtitles as HLS text tracks instead of only burning/embedding.
+      params.set('SubtitleMethod', 'Hls');
+      params.set('EnableSubtitlesInManifest', 'true');
     }
 
     const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
@@ -577,7 +608,28 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     // Rewrite internal URLs to route through our proxy with session info
     const body = await response.text();
     const baseDir = `/Videos/${itemId}/`;
-    res.send(rewriteM3u8Urls(body, baseDir, playSessionId, deviceId));
+    const rewrittenMaster = rewriteM3u8Urls(body, baseDir, playSessionId, deviceId);
+
+    // Prewarm first child playlist request in the background so the first segment
+    // can be ready by the time the client asks for it.
+    const firstChild = extractFirstChildPlaylistPath(body);
+    if (firstChild) {
+      try {
+        const qIndex = firstChild.indexOf('?');
+        const rawPath = qIndex >= 0 ? firstChild.substring(0, qIndex) : firstChild;
+        const rawQuery = qIndex >= 0 ? firstChild.substring(qIndex + 1) : '';
+        const childPath = rawPath.startsWith('/') ? rawPath : `${baseDir}${rawPath}`;
+        const childParams = new URLSearchParams(rawQuery);
+        if (!childParams.has('PlaySessionId')) childParams.set('PlaySessionId', playSessionId);
+        if (!childParams.has('DeviceId')) childParams.set('DeviceId', deviceId);
+        const childUrl = `${baseUrl}${childPath}?${childParams.toString()}`;
+        void fetch(childUrl, { headers }).catch(() => {});
+      } catch {
+        // best-effort warmup only
+      }
+    }
+
+    res.send(rewrittenMaster);
   } catch (err) {
     console.error(`[Stream Master] Error:`, err);
     res.status(500).json({ error: (err as Error).message });

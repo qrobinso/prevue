@@ -7,6 +7,7 @@ import { useSwipe } from '../../hooks/useSwipe';
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
 import {
   consumePlaybackHandoff,
+  getActiveSessionInfo,
   requestPlaybackHandoff,
   shouldPreservePlaybackOnUnmount,
   updateActivePlaybackSession,
@@ -49,6 +50,10 @@ const DOUBLE_TAP_DELAY = 300; // ms to detect double tap
 const PLAYER_REVEAL_DELAY_MS = 120;
 const NETWORK_RETRY_DELAY_MS = 1000;
 const NETWORK_RELOAD_DELAY_MS = 750;
+const PLAYER_STARTUP_MAX_BUFFER_LENGTH = 2;
+const PLAYER_STARTUP_MAX_MAX_BUFFER_LENGTH = 4;
+const PLAYER_STEADY_MAX_BUFFER_LENGTH = 15;
+const PLAYER_STEADY_MAX_MAX_BUFFER_LENGTH = 30;
 
 // Local storage keys for player preferences
 const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
@@ -76,41 +81,27 @@ function setVideoFitSetting(fit: 'contain' | 'cover'): void {
 
 // Nerd stats: video/stream info for the stats overlay
 interface NerdStatsData {
-  // Video element
-  resolution: string;
+  // Video
+  decodedResolution: string;
   displaySize: string;
-  currentTime: string;
-  duration: string;
-  bufferAhead: string;
-  playbackRate: string;
-  readyState: string;
-  networkState: string;
-  // HLS / stream (when available)
-  streamType: string;
-  currentLevel: string;
-  levelBitrate: string;
-  levelResolution: string;
-  bandwidthEstimate: string;
-  levelsCount: string;
-  streamUrl: string;
   videoCodec: string;
   audioCodec: string;
-  fragmentDuration: string;
-  liveLatency: string;
-  realBitrate: string;
   droppedFrames: string;
   totalFrames: string;
-  bytesLoaded: string;
-}
-
-const READY_STATE_LABELS = ['Nothing', 'Metadata', 'Current data', 'Future data', 'Enough data'];
-const NETWORK_STATE_LABELS = ['Empty', 'Idle', 'Loading', 'No source'];
-
-function formatTime(s: number): string {
-  if (!Number.isFinite(s) || s < 0) return '0:00';
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, '0')}`;
+  // Playback position
+  position: string;
+  duration: string;
+  bufferAhead: string;
+  // Stream / network
+  streamRenderer: string;
+  targetBitrate: string;
+  realBitrate: string;
+  bandwidthEstimate: string;
+  qualityLevel: string;
+  qualityLevels: string;
+  streamResolution: string;
+  liveLatency: string;
+  streamUrl: string;
 }
 
 function formatMbps(bps: number): string {
@@ -118,78 +109,68 @@ function formatMbps(bps: number): string {
   return `${(bps / 1e6).toFixed(2)} Mbps`;
 }
 
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '—';
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(2)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(2)} KB`;
-  return `${bytes} B`;
-}
-
 function truncateUrl(url: string, maxLen = 60): string {
   if (!url || url.length <= maxLen) return url || '—';
   return url.slice(0, maxLen - 3) + '...';
 }
 
+function fmtSec(s: number): string {
+  if (!Number.isFinite(s) || s < 0) return '0:00';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
 function collectNerdStats(video: HTMLVideoElement | null, hls: Hls | null): NerdStatsData | null {
   if (!video) return null;
+
   const buffered = video.buffered;
   let bufferEnd = 0;
-  if (buffered.length > 0) {
-    bufferEnd = buffered.end(buffered.length - 1);
-  }
+  if (buffered.length > 0) bufferEnd = buffered.end(buffered.length - 1);
   const bufferAheadSec = bufferEnd - video.currentTime;
 
-  const resolution = video.videoWidth && video.videoHeight
+  const decodedResolution = video.videoWidth && video.videoHeight
     ? `${video.videoWidth}×${video.videoHeight}`
     : '—';
   const displaySize = video.clientWidth && video.clientHeight
     ? `${video.clientWidth}×${video.clientHeight}`
     : '—';
 
-  let streamType = 'Native';
-  let currentLevel = '—';
-  let levelBitrate = '—';
-  let levelResolution = '—';
+  let streamRenderer = 'Native HLS';
+  let targetBitrate = '—';
+  let realBitrate = '—';
   let bandwidthEstimate = '—';
-  let levelsCount = '—';
+  let qualityLevel = '—';
+  let qualityLevels = '—';
+  let streamResolution = '—';
+  let liveLatency = '—';
   let streamUrl = '—';
   let videoCodec = '—';
   let audioCodec = '—';
-  let fragmentDuration = '—';
-  let liveLatency = '—';
-  let realBitrate = '—';
-  let bytesLoaded = '—';
 
   if (hls) {
-    streamType = 'HLS.js';
+    streamRenderer = 'HLS.js';
     streamUrl = truncateUrl(hls.url || '');
     const levels = hls.levels || [];
-    levelsCount = String(levels.length);
+    qualityLevels = String(levels.length);
     const h = hls as { bandwidthEstimate?: number; getBandwidthEstimate?: () => number };
     const bw = typeof h.getBandwidthEstimate === 'function' ? h.getBandwidthEstimate() : h.bandwidthEstimate;
-    if (typeof bw === 'number' && Number.isFinite(bw)) {
-      bandwidthEstimate = formatMbps(bw);
-    }
+    if (typeof bw === 'number' && Number.isFinite(bw)) bandwidthEstimate = formatMbps(bw);
     const levelIndex = hls.currentLevel;
     if (levelIndex >= 0 && levels[levelIndex]) {
       const level = levels[levelIndex];
-      currentLevel = `${levelIndex} (${levels.length} total)`;
-      levelBitrate = level.bitrate ? formatMbps(level.bitrate) : '—';
-      levelResolution = (level.width && level.height) ? `${level.width}×${level.height}` : (level.height ? `${level.height}p` : '—');
+      qualityLevel = levelIndex === -1 ? 'Auto' : `${levelIndex + 1} of ${levels.length}`;
+      targetBitrate = level.bitrate ? formatMbps(level.bitrate) : '—';
+      streamResolution = (level.width && level.height)
+        ? `${level.width}×${level.height}`
+        : (level.height ? `${level.height}p` : '—');
       videoCodec = level.videoCodec || '—';
       audioCodec = level.audioCodec || '—';
-      if (level.details?.targetduration != null) {
-        fragmentDuration = `${level.details.targetduration.toFixed(1)} s`;
-      }
-      if (level.realBitrate && level.realBitrate > 0) {
-        realBitrate = formatMbps(level.realBitrate);
-      }
-      if (level.loaded?.bytes != null) {
-        bytesLoaded = formatBytes(level.loaded.bytes);
-      }
+      if (level.realBitrate && level.realBitrate > 0) realBitrate = formatMbps(level.realBitrate);
     } else if (levels.length > 0) {
-      currentLevel = `Auto (${levels.length} levels)`;
+      qualityLevel = `Auto (${levels.length} levels)`;
     }
     if (typeof hls.latency === 'number' && Number.isFinite(hls.latency)) {
       liveLatency = `${hls.latency.toFixed(2)} s`;
@@ -205,29 +186,24 @@ function collectNerdStats(video: HTMLVideoElement | null, hls: Hls | null): Nerd
   }
 
   return {
-    resolution,
+    decodedResolution,
     displaySize,
-    currentTime: formatTime(video.currentTime),
-    duration: formatTime(video.duration),
-    bufferAhead: Number.isFinite(bufferAheadSec) ? `${bufferAheadSec.toFixed(1)} s` : '—',
-    playbackRate: `${video.playbackRate}x`,
-    readyState: READY_STATE_LABELS[video.readyState] ?? String(video.readyState),
-    networkState: NETWORK_STATE_LABELS[video.networkState] ?? String(video.networkState),
-    streamType,
-    currentLevel,
-    levelBitrate,
-    levelResolution,
-    bandwidthEstimate,
-    levelsCount,
-    streamUrl,
     videoCodec,
     audioCodec,
-    fragmentDuration,
-    liveLatency,
-    realBitrate,
     droppedFrames,
     totalFrames,
-    bytesLoaded,
+    position: fmtSec(video.currentTime),
+    duration: fmtSec(video.duration),
+    bufferAhead: Number.isFinite(bufferAheadSec) ? `${bufferAheadSec.toFixed(1)} s` : '—',
+    streamRenderer,
+    targetBitrate,
+    realBitrate,
+    bandwidthEstimate,
+    qualityLevel,
+    qualityLevels,
+    streamResolution,
+    liveLatency,
+    streamUrl,
   };
 }
 
@@ -241,7 +217,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [currentProgram, setCurrentProgram] = useState<ScheduleProgram | null>(program);
   const [nextProgram, setNextProgram] = useState<ScheduleProgram | null>(null);
   const [isInterstitial, setIsInterstitial] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // If a shared stream is already active (guide → player transition), start in the ready state
+  // immediately so the TUNING screen never flashes for even one frame.
+  const hasSharedStream = isStreamActive();
+  const [loading, setLoading] = useState(!hasSharedStream);
   const [error, setError] = useState<string | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
   const [bufferingMessage, setBufferingMessage] = useState('BUFFERING...');
@@ -250,13 +229,13 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [showNerdStats, setShowNerdStats] = useState(false);
   const [nerdStats, setNerdStats] = useState<NerdStatsData | null>(null);
   const [loadingFadeOut, setLoadingFadeOut] = useState(false);
-  const [videoReady, setVideoReady] = useState(false);
+  const [videoReady, setVideoReady] = useState(hasSharedStream);
   const [loadingArtworkUrl, setLoadingArtworkUrl] = useState<string | null>(null);
   const [currentQuality, setCurrentQuality] = useState<QualityPreset>(getVideoQuality);
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getVideoFit);
-  const [autoplayMutedLock, setAutoplayMutedLock] = useState(true);
+  const [autoplayMutedLock, setAutoplayMutedLock] = useState(!hasSharedStream);
   const { volume, muted, setVolume, toggleMute } = useVolume();
   const mutedRef = useRef(muted);
   const volumeRef = useRef(volume);
@@ -277,6 +256,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const stopPlaybackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopPlaybackChannelIdRef = useRef<number | null>(null);
   const autoAdvanceDisabledRef = useRef(false);
+  // Set to true once we have confirmed program info from the server/session.
+  // Prevents stale program prop from triggering premature auto-advance on mount.
+  const programConfirmedRef = useRef(false);
 
   // ─── Playback progress tracking ──────────────────────
   const watchStartRef = useRef<number>(0);           // wall-clock when this item started playing
@@ -370,6 +352,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       }
 
       currentItemIdRef.current = info.program?.jellyfin_item_id || null;
+      programConfirmedRef.current = true;
       updateActivePlaybackSession('player', channel.id, info, reuseInfo?.startPositionSec ?? (info.seek_position_seconds || 0));
 
       // Report metrics for this playback
@@ -413,8 +396,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         
         const hls = new Hls({
           startPosition: startPosition,  // Start at the scheduled position
-          maxBufferLength: 15,
-          maxMaxBufferLength: 30,
+          // Fast-start profile: keep startup buffer small so first frame appears sooner.
+          // We raise these back to steady-state values after playback begins.
+          maxBufferLength: PLAYER_STARTUP_MAX_BUFFER_LENGTH,
+          maxMaxBufferLength: PLAYER_STARTUP_MAX_MAX_BUFFER_LENGTH,
           // Limit retries to avoid hammering the server
           fragLoadingMaxRetry: 2,
           manifestLoadingMaxRetry: 2,
@@ -440,6 +425,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
           video.volume = volumeRef.current;
+          // After first frame, switch to larger steady-state buffers.
+          reconfigureBuffers(PLAYER_STEADY_MAX_BUFFER_LENGTH, PLAYER_STEADY_MAX_MAX_BUFFER_LENGTH);
           // Wait briefly so the first frame is painted before fading in.
           setTimeout(() => {
             if (cancelledRef?.current) return;
@@ -476,10 +463,24 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         // Helper to set native text track mode
         const setNativeSubtitleMode = (posIdx: number | null) => {
           if (video.textTracks) {
+            let subtitleTrackCount = 0;
+            for (let i = 0; i < video.textTracks.length; i++) {
+              const kind = video.textTracks[i]?.kind;
+              if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
+            }
+            const wantedSubtitleOrdinal =
+              posIdx !== null && posIdx >= 0
+                ? Math.min(
+                    posIdx,
+                    Math.max(0, subtitleTrackCount - 1)
+                  )
+                : null;
+            let subtitleOrdinal = 0;
             for (let i = 0; i < video.textTracks.length; i++) {
               const track = video.textTracks[i];
               if (track.kind === 'subtitles' || track.kind === 'captions') {
-                track.mode = (posIdx !== null && i === posIdx) ? 'showing' : 'hidden';
+                track.mode = wantedSubtitleOrdinal !== null && subtitleOrdinal === wantedSubtitleOrdinal ? 'showing' : 'hidden';
+                subtitleOrdinal += 1;
               }
             }
           }
@@ -646,12 +647,13 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     const cancelled = { current: false };
     const handoffItemId = program?.jellyfin_item_id ?? null;
     const handoff = handoffItemId ? consumePlaybackHandoff('player', channel.id, handoffItemId) : null;
+    const sessionForChannel = getActiveSessionInfo(channel.id);
 
     // INSTANT TRANSITION: shared video is already playing from the guide.
     // Works for both double-tap (with handoff) and Enter key (no handoff).
-    // Check if ANY shared stream is alive (don't require item ID match since
-    // the program prop may be stale or null while the stream is valid).
-    if (isStreamActive()) {
+    // Only reuse when we have metadata for this channel (handoff/session).
+    // This prevents adopting a stale shared stream from another channel.
+    if (isStreamActive() && (handoff != null || sessionForChannel != null)) {
       const sharedItemId = getSharedItemId();
       hlsRef.current = getSharedHls();
       setSharedOwner('player');
@@ -701,6 +703,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             ? preferredSub : null;
         setSelectedSubtitleIndex(initialSub);
         selectedSubtitleIndexRef.current = initialSub;
+        programConfirmedRef.current = true;
         updateActivePlaybackSession('player', channel.id, handoff.info, handoff.positionSec);
 
         const isEpisode = handoff.info.program?.content_type === 'episode';
@@ -714,10 +717,12 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           content_type: handoff.info.program?.content_type ?? undefined,
         }).catch(() => {});
       } else {
-        // No handoff metadata (Enter key path) — fetch playback info asynchronously.
-        // Video keeps playing instantly while we load program details.
-        getPlaybackInfo(channel.id).then(info => {
-          if (cancelled.current) return;
+        // No handoff token (e.g. Enter key, or single-tap on guide preview) — but the
+        // stream is already playing. Use the active session info from the guide so we
+        // don't start a new Jellyfin transcode session.
+        const session = sessionForChannel;
+        if (session) {
+          const { info } = session;
           currentItemIdRef.current = info.program?.jellyfin_item_id || null;
           setSharedItemId(info.program?.jellyfin_item_id || null);
           setCurrentProgram(info.program);
@@ -737,6 +742,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           setSelectedSubtitleIndex(initialSub);
           selectedSubtitleIndexRef.current = initialSub;
           const positionSec = videoRef.current?.currentTime ?? 0;
+          programConfirmedRef.current = true;
           updateActivePlaybackSession('player', channel.id, info, positionSec);
 
           const isEpisode = info.program?.content_type === 'episode';
@@ -749,7 +755,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             series_name: isEpisode ? info.program?.title : undefined,
             content_type: info.program?.content_type ?? undefined,
           }).catch(() => {});
-        }).catch(() => {});
+        }
       }
     } else if (handoff) {
       // Handoff exists but stream is not active (expired or different item)
@@ -774,6 +780,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
     return () => {
       cancelled.current = true;
+      programConfirmedRef.current = false;
       window.removeEventListener('beforeunload', handleBeforeUnload);
       const removePlayingListeners = removePlayingListenersRef.current;
       if (removePlayingListeners) {
@@ -792,7 +799,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         hlsRef.current = null;
       } else {
         hlsRef.current = null;
-        destroySharedStream();
       }
 
       if (overlayTimer.current) clearTimeout(overlayTimer.current);
@@ -800,14 +806,21 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       // Defer stopPlayback: if effect re-runs for SAME channel (Strict Mode), we cancel and never stop.
       // When channel changes or unmount, the stop will run.
-      if (itemId && !preserveForHandoff) {
+      if (!preserveForHandoff) {
         const positionMs = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : undefined;
         stopPlaybackChannelIdRef.current = channel.id;
         stopPlaybackTimeoutRef.current = setTimeout(() => {
           stopPlaybackTimeoutRef.current = null;
           stopPlaybackChannelIdRef.current = null;
-          stopPlayback(itemId, undefined, positionMs).catch(() => {});
-          metricsStop(getClientId()).catch(() => {});
+          // Destroy only if this item still owns the shared stream so we don't
+          // tear down a newer stream from a rapid transition.
+          if (!itemId || getSharedItemId() === itemId) {
+            destroySharedStream();
+          }
+          if (itemId) {
+            stopPlayback(itemId, undefined, positionMs).catch(() => {});
+            metricsStop(getClientId()).catch(() => {});
+          }
         }, 0);
       }
     };
@@ -832,8 +845,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           progressBarRef.current.style.width = `${prog}%`;
         }
 
-        // Auto-advance when program ends (disabled if user restarted - they stay until manual switch)
-        if (now >= end && !autoAdvanceDisabledRef.current) {
+        // Auto-advance when program ends. Guard with programConfirmedRef so a stale
+        // program prop passed in on mount doesn't trigger an immediate reload before
+        // the real session info has been applied.
+        if (now >= end && !autoAdvanceDisabledRef.current && programConfirmedRef.current) {
           loadPlayback();
         }
       }
@@ -1077,11 +1092,21 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     }
     // Also set native text track mode for browser rendering
     if (video && video.textTracks) {
-      const trackIdx = positionIndex !== null && positionIndex >= 0 ? Math.min(positionIndex, video.textTracks.length - 1) : null;
+      let subtitleTrackCount = 0;
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const kind = video.textTracks[i]?.kind;
+        if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
+      }
+      const wantedSubtitleOrdinal =
+        positionIndex !== null && positionIndex >= 0 && subtitleTrackCount > 0
+          ? Math.min(positionIndex, subtitleTrackCount - 1)
+          : null;
+      let subtitleOrdinal = 0;
       for (let i = 0; i < video.textTracks.length; i++) {
         const track = video.textTracks[i];
         if (track.kind === 'subtitles' || track.kind === 'captions') {
-          track.mode = (trackIdx !== null && i === trackIdx) ? 'showing' : 'hidden';
+          track.mode = wantedSubtitleOrdinal !== null && subtitleOrdinal === wantedSubtitleOrdinal ? 'showing' : 'hidden';
+          subtitleOrdinal += 1;
         }
       }
     }
@@ -1283,7 +1308,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           onClick={() => setShowSettingsOpen(false)}
           aria-hidden="true"
         >
-          <div className="player-settings-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Playback settings">
+          <div className="player-settings-panel" onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()} role="dialog" aria-label="Playback settings">
             <div className="player-settings-drag-handle" aria-hidden="true" />
             <div className="player-settings-inner">
               <div className="player-settings-header">
@@ -1429,48 +1454,107 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       )}
 
       {/* Nerd stats overlay (realtime video/stream info) */}
-      {showNerdStats && (
-        <div className="player-nerd-stats-overlay" onClick={() => setShowNerdStats(false)}>
-          <div className="player-nerd-stats-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="player-nerd-stats-header">
-              <span className="player-nerd-stats-title">STREAM & VIDEO INFO</span>
-              <button type="button" className="player-nerd-stats-close" onClick={() => setShowNerdStats(false)} aria-label="Close">✕</button>
-            </div>
-            <div className="player-nerd-stats-body">
-              {nerdStats ? (
+      {showNerdStats && (() => {
+        const prog = currentProgram ?? program;
+        const activeAudio = selectedAudioStreamIndex != null
+          ? serverAudioTracks.find(t => t.index === selectedAudioStreamIndex)
+          : serverAudioTracks[0];
+        const activeSubtitle = selectedSubtitleIndex != null
+          ? serverSubtitleTracks[selectedSubtitleIndex]
+          : null;
+        const contentType = prog?.content_type === 'episode'
+          ? 'TV Episode'
+          : prog?.content_type === 'movie'
+          ? 'Movie'
+          : prog?.type === 'interstitial'
+          ? 'Interstitial'
+          : '—';
+        const programTitle = prog
+          ? (prog.content_type === 'episode' && prog.subtitle
+              ? `${prog.title} — ${prog.subtitle}`
+              : prog.title)
+          : '—';
+        const airTime = prog
+          ? `${new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          : '—';
+
+        return (
+          <div className="player-nerd-stats-overlay" onClick={() => setShowNerdStats(false)}>
+            <div className="player-nerd-stats-panel" onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+              <div className="player-nerd-stats-header">
+                <span className="player-nerd-stats-title">STREAM & VIDEO INFO</span>
+                <button type="button" className="player-nerd-stats-close" onClick={() => setShowNerdStats(false)} aria-label="Close">✕</button>
+              </div>
+              <div className="player-nerd-stats-body">
+                {/* ── Now Playing ── */}
+                <div className="player-nerd-stats-section-title">Now Playing</div>
                 <table className="player-nerd-stats-table">
                   <tbody>
-                    <tr><td className="player-nerd-stats-label">Stream</td><td>{nerdStats.streamType}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Stream URL</td><td title={nerdStats.streamUrl}>{nerdStats.streamUrl}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Video codec</td><td>{nerdStats.videoCodec}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Audio codec</td><td>{nerdStats.audioCodec}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Resolution (decoded)</td><td>{nerdStats.resolution}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Display size</td><td>{nerdStats.displaySize}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Current time</td><td>{nerdStats.currentTime} / {nerdStats.duration}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Buffer ahead</td><td>{nerdStats.bufferAhead}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Fragment duration</td><td>{nerdStats.fragmentDuration}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Playback rate</td><td>{nerdStats.playbackRate}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Ready state</td><td>{nerdStats.readyState}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Network state</td><td>{nerdStats.networkState}</td></tr>
-                    <tr><td className="player-nerd-stats-label">HLS level</td><td>{nerdStats.currentLevel}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Level resolution</td><td>{nerdStats.levelResolution}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Level bitrate</td><td>{nerdStats.levelBitrate}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Real bitrate</td><td>{nerdStats.realBitrate}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Bandwidth estimate</td><td>{nerdStats.bandwidthEstimate}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Bytes loaded</td><td>{nerdStats.bytesLoaded}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Levels available</td><td>{nerdStats.levelsCount}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Live latency</td><td>{nerdStats.liveLatency}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Dropped frames</td><td>{nerdStats.droppedFrames}</td></tr>
-                    <tr><td className="player-nerd-stats-label">Total frames</td><td>{nerdStats.totalFrames}</td></tr>
+                    <tr><td className="player-nerd-stats-label">Channel</td><td>CH {channel.number} — {channel.name}</td></tr>
+                    <tr><td className="player-nerd-stats-label">Title</td><td>{programTitle}</td></tr>
+                    <tr><td className="player-nerd-stats-label">Type</td><td>{contentType}</td></tr>
+                    {prog?.year && <tr><td className="player-nerd-stats-label">Year</td><td>{prog.year}{prog.rating ? ` · ${prog.rating}` : ''}</td></tr>}
+                    <tr><td className="player-nerd-stats-label">Air time</td><td>{airTime}</td></tr>
                   </tbody>
                 </table>
-              ) : (
-                <div className="player-nerd-stats-empty">No video element — start playback to see stats.</div>
-              )}
+
+                {/* ── Playback ── */}
+                <div className="player-nerd-stats-section-title">Playback</div>
+                <table className="player-nerd-stats-table">
+                  <tbody>
+                    {nerdStats && <tr><td className="player-nerd-stats-label">Position</td><td>{nerdStats.position} / {nerdStats.duration}</td></tr>}
+                    {nerdStats && <tr><td className="player-nerd-stats-label">Buffer ahead</td><td>{nerdStats.bufferAhead}</td></tr>}
+                    <tr>
+                      <td className="player-nerd-stats-label">Audio track</td>
+                      <td>{activeAudio ? `${activeAudio.name || activeAudio.language} (${(activeAudio.language || 'und').toUpperCase()})` : 'Default'}</td>
+                    </tr>
+                    <tr>
+                      <td className="player-nerd-stats-label">Subtitles</td>
+                      <td>{activeSubtitle ? `${activeSubtitle.name || activeSubtitle.language} (${(activeSubtitle.language || 'und').toUpperCase()})` : 'Off'}</td>
+                    </tr>
+                    <tr><td className="player-nerd-stats-label">Video fit</td><td>{videoFit === 'cover' ? 'Fill (crop)' : 'Letterbox (fit)'}</td></tr>
+                  </tbody>
+                </table>
+
+                {/* ── Video ── */}
+                <div className="player-nerd-stats-section-title">Video</div>
+                {nerdStats ? (
+                  <table className="player-nerd-stats-table">
+                    <tbody>
+                      <tr><td className="player-nerd-stats-label">Decoded resolution</td><td>{nerdStats.decodedResolution}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Display size</td><td>{nerdStats.displaySize}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Video codec</td><td>{nerdStats.videoCodec}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Audio codec</td><td>{nerdStats.audioCodec}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Dropped frames</td><td>{nerdStats.droppedFrames} / {nerdStats.totalFrames}</td></tr>
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="player-nerd-stats-empty">No video data available.</div>
+                )}
+
+                {/* ── Stream & Network ── */}
+                <div className="player-nerd-stats-section-title">Stream & Network</div>
+                {nerdStats ? (
+                  <table className="player-nerd-stats-table">
+                    <tbody>
+                      <tr><td className="player-nerd-stats-label">Renderer</td><td>{nerdStats.streamRenderer}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Quality level</td><td>{nerdStats.qualityLevel} {nerdStats.qualityLevels !== '—' ? `(${nerdStats.qualityLevels} available)` : ''}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Stream resolution</td><td>{nerdStats.streamResolution}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Target bitrate</td><td>{nerdStats.targetBitrate}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Measured bitrate</td><td>{nerdStats.realBitrate}</td></tr>
+                      <tr><td className="player-nerd-stats-label">Bandwidth estimate</td><td>{nerdStats.bandwidthEstimate}</td></tr>
+                      {nerdStats.liveLatency !== '—' && <tr><td className="player-nerd-stats-label">Live latency</td><td>{nerdStats.liveLatency}</td></tr>}
+                      <tr><td className="player-nerd-stats-label">Stream URL</td><td title={nerdStats.streamUrl} className="player-nerd-stats-url">{nerdStats.streamUrl}</td></tr>
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="player-nerd-stats-empty">Start playback to see stream info.</div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Double-tap hint (shown briefly on first use) */}
       {showOverlay && (

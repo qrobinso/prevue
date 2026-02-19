@@ -32,6 +32,8 @@ const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
 const VIDEO_FIT_KEY = 'prevue_video_fit';
 const OVERLAY_VISIBLE_MS = 5000;
 const DOUBLE_TAP_MS = 300;
+const PREVIEW_STARTUP_MAX_BUFFER_LENGTH = 2;
+const PREVIEW_STARTUP_MAX_MAX_BUFFER_LENGTH = 4;
 
 function getStoredVideoFit(): 'contain' | 'cover' {
   const stored = localStorage.getItem(VIDEO_FIT_KEY);
@@ -54,7 +56,7 @@ interface PreviewPanelProps {
   onSwipeUp?: () => void;
   onSwipeDown?: () => void;
   guideHours?: number;
-  previewStyle?: 'modern' | 'classic';
+  previewStyle?: 'modern' | 'classic-left' | 'classic-right';
   onOverlayVisibilityChange?: (visible: boolean) => void;
 }
 
@@ -69,7 +71,7 @@ const PREVIEW_BASE_SIZES = {
 } as const;
 
 export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4, previewStyle = 'modern', onOverlayVisibilityChange }: PreviewPanelProps) {
-  const isClassic = previewStyle === 'classic';
+  const isClassic = previewStyle === 'classic-left' || previewStyle === 'classic-right';
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
   const previewFontSizes = {
     channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
@@ -244,8 +246,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     if (Hls.isSupported()) {
       const hls = new Hls({
         startPosition,
-        maxBufferLength: 3,
-        maxMaxBufferLength: 8,
+        maxBufferLength: PREVIEW_STARTUP_MAX_BUFFER_LENGTH,
+        maxMaxBufferLength: PREVIEW_STARTUP_MAX_MAX_BUFFER_LENGTH,
         maxBufferSize: 4 * 1000 * 1000,
         fragLoadingMaxRetry: 2,
         manifestLoadingMaxRetry: 2,
@@ -265,10 +267,24 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       // Helper to set native text track mode
       const setNativeSubtitleMode = (posIdx: number | null) => {
         if (video.textTracks) {
+          let subtitleTrackCount = 0;
+          for (let i = 0; i < video.textTracks.length; i++) {
+            const kind = video.textTracks[i]?.kind;
+            if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
+          }
+          const wantedSubtitleOrdinal =
+            posIdx !== null && posIdx >= 0
+              ? Math.min(
+                  posIdx,
+                  Math.max(0, subtitleTrackCount - 1)
+                )
+              : null;
+          let subtitleOrdinal = 0;
           for (let i = 0; i < video.textTracks.length; i++) {
             const track = video.textTracks[i];
             if (track.kind === 'subtitles' || track.kind === 'captions') {
-              track.mode = (posIdx !== null && i === posIdx) ? 'showing' : 'hidden';
+              track.mode = wantedSubtitleOrdinal !== null && subtitleOrdinal === wantedSubtitleOrdinal ? 'showing' : 'hidden';
+              subtitleOrdinal += 1;
             }
           }
         }
@@ -369,6 +385,17 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       if (vid) {
         vid.muted = mutedRef.current;
         vid.volume = volumeRef.current;
+        // Some browsers may pause media when it is reparented between views.
+        // Ensure guide handoff resumes playback instead of showing a frozen frame.
+        if (vid.paused) {
+          void vid.play().catch(() => {
+            vid.muted = true;
+            void vid.play().then(() => {
+              vid.muted = mutedRef.current;
+              vid.volume = volumeRef.current;
+            }).catch(() => {});
+          });
+        }
       }
       return;
     }
@@ -499,10 +526,21 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     }
     // Also set native text track mode for browser rendering
     if (video && video.textTracks) {
+      let subtitleTrackCount = 0;
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const kind = video.textTracks[i]?.kind;
+        if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
+      }
+      const wantedSubtitleOrdinal =
+        positionIndex !== null && positionIndex >= 0 && subtitleTrackCount > 0
+          ? Math.min(positionIndex, subtitleTrackCount - 1)
+          : null;
+      let subtitleOrdinal = 0;
       for (let i = 0; i < video.textTracks.length; i++) {
         const track = video.textTracks[i];
         if (track.kind === 'subtitles' || track.kind === 'captions') {
-          track.mode = (positionIndex !== null && i === positionIndex) ? 'showing' : 'hidden';
+          track.mode = wantedSubtitleOrdinal !== null && subtitleOrdinal === wantedSubtitleOrdinal ? 'showing' : 'hidden';
+          subtitleOrdinal += 1;
         }
       }
     }
@@ -603,7 +641,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const showVideo = program && program.type !== 'interstitial';
   const artworkSources = program ? getPreviewArtworkSources(program) : [];
 
-  const swipe = useSwipe({ onSwipeUp, onSwipeDown });
+  const swipe = useSwipe({ onSwipeUp, onSwipeDown, enabled: !showAudioMoreMenu });
 
   const scheduleOverlayHide = useCallback(() => {
     if (overlayHideTimerRef.current) {
@@ -676,7 +714,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
 
   return (
     <div 
-      className={`preview-panel ${onTune ? 'preview-panel-clickable' : ''} ${showAudioMoreMenu ? 'preview-panel-audio-open' : ''} ${isClassic ? 'preview-panel-classic' : ''}`}
+      className={`preview-panel ${onTune ? 'preview-panel-clickable' : ''} ${showAudioMoreMenu ? 'preview-panel-audio-open' : ''} ${isClassic ? 'preview-panel-classic' : ''} ${previewStyle === 'classic-left' ? 'preview-panel-classic-left' : ''}`}
       onClick={handlePreviewTap}
       role={onTune ? 'button' : undefined}
       tabIndex={onTune ? 0 : undefined}
@@ -813,7 +851,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
               {muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊'}
             </button>
             {showAudioMoreMenu && (
-              <div className="preview-audio-more-menu">
+              <div className="preview-audio-more-menu" onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
                 <div className="preview-audio-more-section">
                   <div className="preview-audio-more-section-title">VOLUME</div>
                   <div className="preview-audio-more-volume-row">

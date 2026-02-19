@@ -638,7 +638,8 @@ export class JellyfinClient {
       MaxStreamingBitrate: '20000000',
       TranscodingMaxAudioChannels: '2',
       SegmentContainer: 'ts',
-      MinSegments: '2',
+      SegmentLength: '2',
+      MinSegments: '1',
       BreakOnNonKeyFrames: 'true',
     });
 
