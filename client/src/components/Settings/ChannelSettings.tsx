@@ -23,6 +23,20 @@ import { wsClient } from '../../services/websocket';
 
 type ViewMode = 'presets' | 'list' | 'ai';
 
+function formatRelativeTime(isoDate: string): string {
+  const date = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 const PRESET_MULTIPLIER_STORAGE_KEY = 'prevue_preset_multipliers';
 const MULTIPLIER_OPTIONS = [1, 2, 3, 4] as const;
 
@@ -742,6 +756,18 @@ export default function ChannelSettings() {
                     {ch.item_ids.length} items
                     {ch.ai_prompt && ` · Prompt: "${ch.ai_prompt}"`}
                     {ch.current_program && ` · Now: ${ch.current_program.title}`}
+                  </span>
+                  <span className="settings-list-schedule-meta">
+                    {ch.schedule_generated_at ? (
+                      <>
+                        Generated {formatRelativeTime(ch.schedule_generated_at)}
+                        {ch.schedule_updated_at && ch.schedule_updated_at !== ch.schedule_generated_at && (
+                          <> · Updated {formatRelativeTime(ch.schedule_updated_at)}</>
+                        )}
+                      </>
+                    ) : (
+                      'No schedule generated'
+                    )}
                   </span>
                 </div>
                 <div className="settings-list-actions settings-list-actions-channel">

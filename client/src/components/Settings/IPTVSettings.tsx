@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getSettings, updateSettings, getIPTVStatus } from '../../services/api';
 import type { IPTVStatus } from '../../services/api';
 import './Settings.css';
@@ -8,9 +8,23 @@ export default function IPTVSettings() {
   const [baseUrl, setBaseUrl] = useState('');
   const [status, setStatus] = useState<IPTVStatus | null>(null);
   const [copied, setCopied] = useState<'playlist' | 'epg' | null>(null);
+  const [timezone, setTimezone] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
+
+  const timezones = useMemo(() => {
+    try {
+      return Intl.supportedValuesOf('timeZone');
+    } catch {
+      return [
+        'UTC',
+        'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+        'America/Anchorage', 'Pacific/Honolulu', 'Europe/London', 'Europe/Paris',
+        'Europe/Berlin', 'Asia/Tokyo', 'Asia/Shanghai', 'Australia/Sydney',
+      ];
+    }
+  }, []);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -28,6 +42,9 @@ export default function IPTVSettings() {
         setEnabled(s['iptv_enabled'] === true || s['iptv_enabled'] === 'true');
         if (s['iptv_base_url'] && typeof s['iptv_base_url'] === 'string') {
           setBaseUrl(s['iptv_base_url'] as string);
+        }
+        if (s['iptv_timezone'] && typeof s['iptv_timezone'] === 'string') {
+          setTimezone(s['iptv_timezone'] as string);
         }
       }),
       fetchStatus(),
@@ -60,15 +77,48 @@ export default function IPTVSettings() {
     }
   };
 
+  const handleTimezoneSave = async (value: string) => {
+    setTimezone(value);
+    setSaving(true);
+    try {
+      await updateSettings({ iptv_timezone: value });
+    } catch {
+      // Keep local value
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCopy = async (type: 'playlist' | 'epg') => {
     if (!status) return;
     const url = type === 'playlist' ? status.playlistUrl : status.epgUrl;
-    try {
-      await navigator.clipboard.writeText(url);
+    let success = false;
+    // Try modern clipboard API first
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(url);
+        success = true;
+      } catch {
+        // Falls through to fallback
+      }
+    }
+    // Fallback for iOS Safari and non-HTTPS contexts
+    if (!success) {
+      const textarea = document.createElement('textarea');
+      textarea.value = url;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.setSelectionRange(0, url.length);
+      success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    if (success) {
       setCopied(type);
       setTimeout(() => setCopied(null), 2000);
-    } catch {
-      // Fallback: select text for manual copy
     }
   };
 
@@ -135,6 +185,38 @@ export default function IPTVSettings() {
                 onBlur={handleBaseUrlSave}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleBaseUrlSave(); }}
               />
+            </div>
+          </div>
+
+          <div className="settings-subsection">
+            <h4>EPG TIMEZONE</h4>
+            <p className="settings-field-hint">
+              Timezone for program times in the XMLTV guide. Your IPTV player will
+              display schedule times in this timezone.
+            </p>
+            <div className="settings-field">
+              <select
+                value={timezone}
+                onChange={(e) => handleTimezoneSave(e.target.value)}
+                disabled={saving}
+                style={{
+                  padding: '8px 12px',
+                  background: 'var(--bg-cell)',
+                  border: '1px solid var(--border-grid)',
+                  borderRadius: '4px',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-system)',
+                  fontSize: '13px',
+                  width: '100%',
+                }}
+              >
+                <option value="">UTC (default)</option>
+                {timezones.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

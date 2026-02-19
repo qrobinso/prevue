@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import os from 'os';
+import { gzipSync } from 'zlib';
 import * as queries from '../db/queries.js';
 import { isAuthEnabled, getApiKey } from '../middleware/auth.js';
 import { rewriteM3u8Urls, activeSessions, lastActivityByItemId, iptvSessionInfo } from './stream.js';
@@ -68,10 +69,68 @@ function requireIptvAuth(req: Request, res: Response): boolean {
   return false;
 }
 
-function toXmltvDate(isoString: string): string {
+function toXmltvDate(isoString: string, timeZone?: string): string {
   const d = new Date(isoString);
   const pad = (n: number, w: number = 2) => String(n).padStart(w, '0');
-  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())} +0000`;
+
+  if (!timeZone) {
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())} +0000`;
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+
+    const get = (type: string) => parts.find(p => p.type === type)?.value || '00';
+    const year = get('year');
+    const month = get('month');
+    const day = get('day');
+    const hourRaw = get('hour');
+    const hour = hourRaw === '24' ? '00' : hourRaw;
+    const minute = get('minute');
+    const second = get('second');
+
+    // Get UTC offset string (e.g. "GMT-5", "GMT+5:30", "GMT")
+    const offsetParts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      timeZoneName: 'shortOffset',
+    }).formatToParts(d);
+    const gmtStr = offsetParts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
+    const offsetStr = parseGmtOffset(gmtStr);
+
+    return `${year}${month}${day}${hour}${minute}${second} ${offsetStr}`;
+  } catch {
+    // Invalid timezone — fall back to UTC
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())} +0000`;
+  }
+}
+
+/** Parse "GMT+5:30" / "GMT-10" / "GMT" into "+0530" / "-1000" / "+0000" */
+function parseGmtOffset(gmtStr: string): string {
+  const raw = gmtStr.replace(/^GMT/, '').trim();
+  if (!raw) return '+0000';
+  const sign = raw.startsWith('-') ? '-' : '+';
+  const abs = raw.replace(/^[+-]/, '');
+  const colonParts = abs.split(':');
+  const hours = parseInt(colonParts[0], 10) || 0;
+  const minutes = parseInt(colonParts[1] || '0', 10);
+  return `${sign}${String(hours).padStart(2, '0')}${String(minutes).padStart(2, '0')}`;
+}
+
+const MPAA_RATINGS = new Set(['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'UR']);
+
+function getRatingSystem(rating: string): string | null {
+  if (rating.startsWith('TV-')) return 'VCHIP';
+  if (MPAA_RATINGS.has(rating)) return 'MPAA';
+  return null;
 }
 
 function escapeXml(str: string): string {
@@ -90,9 +149,21 @@ function getChannelLogo(channel: ChannelParsed, baseUrl: string, token: string |
   return appendToken(logoUrl, token);
 }
 
+function sendXml(req: Request, res: Response, xml: string): void {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  const acceptEncoding = req.headers['accept-encoding'] || '';
+  if (typeof acceptEncoding === 'string' && acceptEncoding.includes('gzip')) {
+    res.setHeader('Content-Encoding', 'gzip');
+    res.send(gzipSync(Buffer.from(xml, 'utf-8')));
+  } else {
+    res.send(xml);
+  }
+}
+
 // ─── EPG Cache ───────────────────────────────────────
 
-let epgCache: { xml: string; generatedAt: number; channelCount: number; hours: number; baseUrl: string } | null = null;
+let epgCache: { xml: string; generatedAt: number; channelCount: number; hours: number; baseUrl: string; timezone: string } | null = null;
 const EPG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // ─── Routes ──────────────────────────────────────────
@@ -112,7 +183,7 @@ iptvRoutes.get('/playlist.m3u', (req: Request, res: Response) => {
     const token = isAuthEnabled() ? (getTokenParam(req) || getApiKey()) : undefined;
     const epgUrl = appendToken(`${baseUrl}/api/iptv/epg.xml`, token);
 
-    let m3u = `#EXTM3U url-tvg="${epgUrl}"\n`;
+    let m3u = `#EXTM3U url-tvg="${epgUrl}" x-tvg-url="${epgUrl}"\n`;
 
     for (const ch of channels) {
       const logo = getChannelLogo(ch, baseUrl, token);
@@ -148,6 +219,8 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
     const channels = queries.getAllChannels(db);
     const baseUrl = getBaseUrl(req, db);
     const token = isAuthEnabled() ? (getTokenParam(req) || getApiKey()) : undefined;
+    const timezone = (queries.getSetting(db, 'iptv_timezone') as string | undefined) || undefined;
+    const tz = timezone || 'UTC';
 
     // Check cache validity
     if (
@@ -155,17 +228,20 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
       Date.now() - epgCache.generatedAt < EPG_CACHE_TTL_MS &&
       epgCache.channelCount === channels.length &&
       epgCache.hours === hours &&
-      epgCache.baseUrl === baseUrl
+      epgCache.baseUrl === baseUrl &&
+      epgCache.timezone === tz
     ) {
-      res.setHeader('Content-Type', 'application/xml');
-      res.setHeader('Content-Disposition', 'inline; filename="prevue-epg.xml"');
-      res.send(epgCache.xml);
+      sendXml(req, res, epgCache.xml);
       return;
     }
 
     const now = new Date();
+    // Include past programs so IPTV clients can show a complete day guide.
+    // Look back 12 hours to cover earlier-today programmes regardless of timezone.
+    const LOOKBACK_MS = 12 * 60 * 60 * 1000;
+    const rangeStart = new Date(now.getTime() - LOOKBACK_MS);
     const rangeEnd = new Date(now.getTime() + hours * 60 * 60 * 1000);
-    const blocks = queries.getAllScheduleBlocksInRange(db, now.toISOString(), rangeEnd.toISOString());
+    const blocks = queries.getAllScheduleBlocksInRange(db, rangeStart.toISOString(), rangeEnd.toISOString());
 
     // Group blocks by channel_id
     const blocksByChannel = new Map<number, typeof blocks>();
@@ -176,14 +252,13 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
     }
 
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += '<!DOCTYPE tv SYSTEM "xmltv.dtd">\n';
-    xml += '<tv source-info-name="Prevue" generator-info-name="Prevue IPTV">\n';
+    xml += `<tv date="${toXmltvDate(now.toISOString(), timezone)}" source-info-name="Prevue" generator-info-name="Prevue IPTV">\n`;
 
     // Channel definitions
     for (const ch of channels) {
       const logo = getChannelLogo(ch, baseUrl, token);
       xml += `  <channel id="ch-${ch.number}">\n`;
-      xml += `    <display-name>${escapeXml(`${ch.number} ${ch.name}`)}</display-name>\n`;
+      xml += `    <display-name lang="en">${escapeXml(`${ch.number} ${ch.name}`)}</display-name>\n`;
       if (logo) {
         xml += `    <icon src="${escapeXml(logo)}" />\n`;
       }
@@ -199,10 +274,14 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
 
           const progEnd = new Date(prog.end_time);
           const progStart = new Date(prog.start_time);
-          // Skip programs entirely outside our window
-          if (progEnd <= now || progStart >= rangeEnd) continue;
+          // Skip programs entirely outside our window (includes lookback)
+          if (progEnd <= rangeStart || progStart >= rangeEnd) continue;
 
-          xml += `  <programme start="${toXmltvDate(prog.start_time)}" stop="${toXmltvDate(prog.end_time)}" channel="ch-${ch.number}">\n`;
+          xml += `  <programme start="${toXmltvDate(prog.start_time, timezone)}" stop="${toXmltvDate(prog.end_time, timezone)}" channel="ch-${ch.number}">\n`;
+          // DTD order: title, sub-title, desc, credits, date, category,
+          //   keyword, language, orig-language, length, icon, url, country,
+          //   episode-num, video, audio, previously-shown, premiere,
+          //   last-chance, new, subtitles, rating, star-rating, review
           xml += `    <title lang="en">${escapeXml(prog.title)}</title>\n`;
 
           if (prog.subtitle) {
@@ -219,15 +298,37 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
           if (category) {
             xml += `    <category lang="en">${escapeXml(category)}</category>\n`;
           }
-          if (prog.rating) {
-            xml += `    <rating>\n`;
-            xml += `      <value>${escapeXml(prog.rating)}</value>\n`;
-            xml += '    </rating>\n';
+
+          // length (before icon per DTD)
+          if (prog.duration_ms > 0) {
+            xml += `    <length units="minutes">${Math.round(prog.duration_ms / 60000)}</length>\n`;
           }
 
+          // icon (before episode-num per DTD)
           if (prog.thumbnail_url) {
             const iconUrl = appendToken(`${baseUrl}${prog.thumbnail_url}`, token);
             xml += `    <icon src="${escapeXml(iconUrl)}" />\n`;
+          }
+
+          // episode-num (after icon, before rating per DTD)
+          if (prog.content_type === 'episode' && prog.subtitle) {
+            const seMatch = prog.subtitle.match(/^S(\d+)E(\d+)/);
+            if (seMatch) {
+              const seasonIdx = parseInt(seMatch[1], 10) - 1;
+              const episodeIdx = parseInt(seMatch[2], 10) - 1;
+              xml += `    <episode-num system="xmltv_ns">${seasonIdx >= 0 ? seasonIdx : 0}.${episodeIdx >= 0 ? episodeIdx : 0}.</episode-num>\n`;
+              xml += `    <episode-num system="onscreen">${seMatch[0]}</episode-num>\n`;
+            }
+          }
+
+          // rating (last content element per DTD)
+          if (prog.rating) {
+            const ratingSystem = getRatingSystem(prog.rating);
+            xml += ratingSystem
+              ? `    <rating system="${ratingSystem}">\n`
+              : '    <rating>\n';
+            xml += `      <value>${escapeXml(prog.rating)}</value>\n`;
+            xml += '    </rating>\n';
           }
 
           xml += '  </programme>\n';
@@ -238,11 +339,9 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
     xml += '</tv>\n';
 
     // Update cache
-    epgCache = { xml, generatedAt: Date.now(), channelCount: channels.length, hours, baseUrl };
+    epgCache = { xml, generatedAt: Date.now(), channelCount: channels.length, hours, baseUrl, timezone: tz };
 
-    res.setHeader('Content-Type', 'application/xml');
-    res.setHeader('Content-Disposition', 'inline; filename="prevue-epg.xml"');
-    res.send(xml);
+    sendXml(req, res, xml);
   } catch (err) {
     console.error('[IPTV] EPG generation error:', err);
     res.status(500).json({ error: (err as Error).message });

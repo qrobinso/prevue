@@ -32,13 +32,17 @@ channelRoutes.get('/', (req: Request, res: Response) => {
   try {
     const { db, scheduleEngine } = req.app.locals;
     const channels = queries.getAllChannels(db);
+    const scheduleMeta = queries.getScheduleMetaForAllChannels(db);
 
     const result = channels.map(ch => {
       const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(ch.id);
+      const meta = scheduleMeta.get(ch.id);
       return {
         ...ch,
         current_program: current?.program || null,
         next_program: current?.next || null,
+        schedule_generated_at: meta?.schedule_generated_at || null,
+        schedule_updated_at: meta?.schedule_updated_at || null,
       };
     });
 

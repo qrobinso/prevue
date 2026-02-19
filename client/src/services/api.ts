@@ -103,6 +103,8 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs: number 
 export type ChannelWithProgram = Channel & {
   current_program: import('../types').ScheduleProgram | null;
   next_program: import('../types').ScheduleProgram | null;
+  schedule_generated_at: string | null;
+  schedule_updated_at: string | null;
 };
 
 export async function getChannels(): Promise<ChannelWithProgram[]> {

@@ -505,6 +505,15 @@
   text-overflow: ellipsis;
 }
 
+.settings-list-schedule-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .settings-list-actions {
   display: flex;
   gap: 6px;

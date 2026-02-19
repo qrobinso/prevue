@@ -185,6 +185,38 @@ export function deleteAutoAndPresetChannels(db: Database.Database): void {
   db.prepare("DELETE FROM channels WHERE type IN ('auto', 'preset')").run();
 }
 
+// ─── Channel Schedule Metadata ────────────────────────────
+
+export interface ChannelScheduleMeta {
+  channel_id: number;
+  schedule_generated_at: string | null;
+  schedule_updated_at: string | null;
+  block_count: number;
+}
+
+/**
+ * Get schedule metadata for all channels: earliest and latest created_at
+ * from schedule_blocks. "generated_at" = earliest block created_at (first generation),
+ * "updated_at" = latest block created_at (most recent regeneration).
+ */
+export function getScheduleMetaForAllChannels(db: Database.Database): Map<number, ChannelScheduleMeta> {
+  const rows = db.prepare(
+    `SELECT
+       channel_id,
+       MIN(created_at) as schedule_generated_at,
+       MAX(created_at) as schedule_updated_at,
+       COUNT(*) as block_count
+     FROM schedule_blocks
+     GROUP BY channel_id`
+  ).all() as ChannelScheduleMeta[];
+
+  const map = new Map<number, ChannelScheduleMeta>();
+  for (const row of rows) {
+    map.set(row.channel_id, row);
+  }
+  return map;
+}
+
 // ─── Schedule Blocks ──────────────────────────────────────
 
 function parseScheduleBlock(block: ScheduleBlock): ScheduleBlockParsed {
