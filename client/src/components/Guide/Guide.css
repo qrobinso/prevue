@@ -1104,6 +1104,17 @@ html[data-preview-bg="white"] .preview-video-container {
   touch-action: pan-y;
 }
 
+.guide-rows-virtualizer {
+  position: relative;
+  width: 100%;
+}
+
+.guide-row-virtual-item {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
 /* ── Channel Rows ────────────────────────────────── */
 .guide-row {
   display: flex;

@@ -87,8 +87,6 @@ export function applyLiveWindow(playlist: string, elapsedSeconds: number): strin
 
 const IDLE_CLEANUP_INTERVAL_MS = 2 * 60 * 1000;  // 2 minutes
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000;         // stop if no activity for 5 minutes
-const STARTUP_SEGMENT_LENGTH_SECONDS = 2;
-const STARTUP_MIN_SEGMENTS = 1;
 
 // Request deduplication: coalesce concurrent requests for the same URL
 // This prevents multiple FFmpeg processes from starting when hls.js retries
@@ -557,8 +555,7 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
       VideoBitrate: String(bitrate),
       TranscodingMaxAudioChannels: '2',
       SegmentContainer: segmentContainer,
-      SegmentLength: String(STARTUP_SEGMENT_LENGTH_SECONDS),
-      MinSegments: String(STARTUP_MIN_SEGMENTS),
+      MinSegments: '2',
       BreakOnNonKeyFrames: 'true',
     });
 

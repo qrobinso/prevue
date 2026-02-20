@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import { memo, useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import type { ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
 import {
@@ -12,9 +12,6 @@ import {
 } from '../Settings/DisplaySettings';
 import './Guide.css';
 
-// ── Artwork thumbnail cache (module-level, survives re-renders) ──
-// Maps jellyfin_item_id → blob object URL. Cleared on GuideGrid mount
-// (which happens via key={guideRefreshKey} after server add/remove).
 let artworkCache = new Map<string, string>();
 let artworkPending = new Set<string>();
 let artworkFailed = new Set<string>();
@@ -28,13 +25,13 @@ function clearArtworkCache(): void {
   artworkFailed = new Set();
 }
 
-function ArtworkThumbnail({ itemId, size }: { itemId: string; size: number }) {
+const ArtworkThumbnail = memo(function ArtworkThumbnail({ itemId, size }: { itemId: string; size: number }) {
   const [src, setSrc] = useState<string | null>(artworkCache.get(itemId) || null);
   const [failed, setFailed] = useState(artworkFailed.has(itemId));
 
   useEffect(() => {
     if (artworkCache.has(itemId)) {
-      setSrc(artworkCache.get(itemId)!);
+      setSrc(artworkCache.get(itemId) || null);
       return;
     }
     if (artworkFailed.has(itemId)) {
@@ -74,34 +71,223 @@ function ArtworkThumbnail({ itemId, size }: { itemId: string; size: number }) {
       draggable={false}
     />
   );
-}
+});
 
 interface GuideGridProps {
   channels: ChannelWithProgram[];
   scheduleByChannel: Map<number, ScheduleProgram[]>;
   focusedChannelIdx: number;
   focusedProgramIdx: number;
-  currentTime: Date;
   visibleChannels: number;
   guideHours: number;
-  scrollToChannelIdx?: number; // For auto-scroll: which channel to scroll to (separate from focus)
-  smoothScroll?: boolean; // When true, animate scrolling (for auto-scroll); instant otherwise
+  scrollToChannelIdx?: number;
+  smoothScroll?: boolean;
   onChannelClick: (channelIdx: number) => void;
   onProgramClick: (channelIdx: number, programIdx: number) => void;
 }
 
 const BASE_ROW_HEIGHT = 52;
-const BASE_CHANNEL_COL_WIDTH = 144; /* ~20% larger for readable channel names */
+const BASE_CHANNEL_COL_WIDTH = 144;
 const MIN_CHANNEL_COL_WIDTH = 72;
-const MIN_ROW_HEIGHT = 44; // Touch-friendly minimum
-const PROGRAM_CELL_GAP = 6; // Horizontal spacing between schedule blocks
+const MIN_ROW_HEIGHT = 44;
+const PROGRAM_CELL_GAP = 6;
+const SLOT_MS = 30 * 60 * 1000;
+const TOTAL_SCHEDULE_HOURS = 8;
+const VIRTUAL_OVERSCAN_ROWS = 4;
 
-export default function GuideGrid({
+interface GuideProgramCellProps {
+  prog: ScheduleProgram;
+  progIdx: number;
+  chIdx: number;
+  isFocused: boolean;
+  nowMs: number;
+  rangeStartMs: number;
+  rangeEndMs: number;
+  timeSlotWidth: number;
+  isMobile: boolean;
+  showArtwork: boolean;
+  artworkThreshold: number;
+  artworkSize: number;
+  showRatings: boolean;
+  programTitleFontSize: number;
+  guideColors: { enabled: boolean; movie: string; episode: string };
+  scrollLeft: number;
+  onProgramClick: (channelIdx: number, programIdx: number) => void;
+}
+
+const GuideProgramCell = memo(function GuideProgramCell({
+  prog,
+  progIdx,
+  chIdx,
+  isFocused,
+  nowMs,
+  rangeStartMs,
+  rangeEndMs,
+  timeSlotWidth,
+  isMobile,
+  showArtwork,
+  artworkThreshold,
+  artworkSize,
+  showRatings,
+  programTitleFontSize,
+  guideColors,
+  scrollLeft,
+  onProgramClick,
+}: GuideProgramCellProps) {
+  const progStart = new Date(prog.start_time).getTime();
+  const progEnd = new Date(prog.end_time).getTime();
+
+  if (progEnd <= rangeStartMs || progStart >= rangeEndMs) return null;
+
+  const visibleStart = Math.max(progStart, rangeStartMs);
+  const visibleEnd = Math.min(progEnd, rangeEndMs);
+  const left = ((visibleStart - rangeStartMs) / SLOT_MS) * timeSlotWidth + PROGRAM_CELL_GAP / 2;
+  const width = Math.max(((visibleEnd - visibleStart) / SLOT_MS) * timeSlotWidth - PROGRAM_CELL_GAP, 2);
+
+  const isCurrentlyAiring = nowMs >= progStart && nowMs < progEnd;
+  const subtitleThreshold = isMobile ? 120 : 150;
+  const showSubtitle = width > subtitleThreshold && prog.subtitle && prog.type !== 'interstitial';
+  const cellShowArtwork = showArtwork && prog.type !== 'interstitial' && prog.thumbnail_url && width > artworkThreshold;
+  const artworkSpace = cellShowArtwork ? artworkSize + 6 : 0;
+
+  const padding = 8;
+  const scrollPastCell = scrollLeft - left;
+  const reservedForText = Math.min(150, width * 0.4);
+  const maxOffset = Math.max(0, width - padding * 2 - reservedForText - artworkSpace);
+  const titleOffset = Math.max(0, Math.min(scrollPastCell, maxOffset));
+
+  const cellBg = guideColors.enabled && prog.type !== 'interstitial'
+    ? prog.content_type === 'movie'
+      ? guideColors.movie
+      : prog.content_type === 'episode'
+        ? guideColors.episode
+        : undefined
+    : undefined;
+
+  const clippedMs = rangeStartMs - progStart;
+  const continuationArrow = clippedMs > SLOT_MS ? '\u25C2\u25C2 ' : clippedMs > 0 ? '\u25C2 ' : '';
+
+  return (
+    <div
+      className={`guide-program-cell ${isFocused ? 'guide-program-focused' : ''} ${isCurrentlyAiring ? 'guide-program-airing' : ''} ${prog.type === 'interstitial' ? 'guide-program-interstitial' : ''}`}
+      style={{ left, width, background: cellBg }}
+      onClick={() => onProgramClick(chIdx, progIdx)}
+      title={prog.title + (prog.subtitle ? ` - ${prog.subtitle}` : '')}
+    >
+      <div className="guide-program-content" style={{ transform: `translateX(${titleOffset}px)` }}>
+        {continuationArrow && <span className="guide-continuation-arrow">{continuationArrow}</span>}
+        {cellShowArtwork && (
+          <ArtworkThumbnail itemId={prog.jellyfin_item_id} size={artworkSize} />
+        )}
+        <div className="guide-program-text">
+          <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
+            {prog.title}
+            {showRatings && prog.rating && prog.type !== 'interstitial' && (
+              <span className="guide-rating-badge">{prog.rating}</span>
+            )}
+          </span>
+          {showSubtitle && (
+            <span className="guide-program-subtitle" style={{ fontSize: Math.max(programTitleFontSize - 3, 9) }}>
+              {prog.subtitle}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+interface GuideRowProps {
+  channel: ChannelWithProgram;
+  chIdx: number;
+  programs: ScheduleProgram[];
+  rowHeight: number;
+  isFocusedRow: boolean;
+  focusedProgramIdx: number;
+  nowMs: number;
+  rangeStartMs: number;
+  rangeEndMs: number;
+  timeSlotWidth: number;
+  totalSlotsWidth: number;
+  isMobile: boolean;
+  showArtwork: boolean;
+  artworkThreshold: number;
+  artworkSize: number;
+  showRatings: boolean;
+  programTitleFontSize: number;
+  guideColors: { enabled: boolean; movie: string; episode: string };
+  scrollLeft: number;
+  channelNumFontSize: number;
+  channelNameFontSize: number;
+  onChannelClick: (channelIdx: number) => void;
+  onProgramClick: (channelIdx: number, programIdx: number) => void;
+}
+
+const GuideRow = memo(function GuideRow({
+  channel,
+  chIdx,
+  programs,
+  rowHeight,
+  isFocusedRow,
+  focusedProgramIdx,
+  nowMs,
+  rangeStartMs,
+  rangeEndMs,
+  timeSlotWidth,
+  totalSlotsWidth,
+  isMobile,
+  showArtwork,
+  artworkThreshold,
+  artworkSize,
+  showRatings,
+  programTitleFontSize,
+  guideColors,
+  scrollLeft,
+  channelNumFontSize,
+  channelNameFontSize,
+  onChannelClick,
+  onProgramClick,
+}: GuideRowProps) {
+  return (
+    <div className={`guide-row ${isFocusedRow ? 'guide-row-focused' : ''}`} style={{ height: rowHeight }}>
+      <div className="guide-channel-col" onClick={() => onChannelClick(chIdx)}>
+        <span className="guide-channel-num" style={{ fontSize: channelNumFontSize }}>{channel.number}</span>
+        <span className="guide-channel-name" style={{ fontSize: channelNameFontSize }}>{channel.name}</span>
+      </div>
+
+      <div className="guide-programs-row" style={{ minWidth: totalSlotsWidth }}>
+        {programs.map((prog, progIdx) => (
+          <GuideProgramCell
+            key={`${prog.start_time}-${progIdx}`}
+            prog={prog}
+            progIdx={progIdx}
+            chIdx={chIdx}
+            isFocused={isFocusedRow && progIdx === focusedProgramIdx}
+            nowMs={nowMs}
+            rangeStartMs={rangeStartMs}
+            rangeEndMs={rangeEndMs}
+            timeSlotWidth={timeSlotWidth}
+            isMobile={isMobile}
+            showArtwork={showArtwork}
+            artworkThreshold={artworkThreshold}
+            artworkSize={artworkSize}
+            showRatings={showRatings}
+            programTitleFontSize={programTitleFontSize}
+            guideColors={guideColors}
+            scrollLeft={scrollLeft}
+            onProgramClick={onProgramClick}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
+
+function GuideGrid({
   channels,
   scheduleByChannel,
   focusedChannelIdx,
   focusedProgramIdx,
-  currentTime,
   visibleChannels,
   guideHours,
   scrollToChannelIdx,
@@ -112,148 +298,127 @@ export default function GuideGrid({
   const containerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const timeHeaderRef = useRef<HTMLDivElement>(null);
-  const focusedRowRef = useRef<HTMLDivElement>(null);
+  const clockRef = useRef<HTMLSpanElement>(null);
   const verticalScrollAnimRef = useRef<number | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
   const [gridHeight, setGridHeight] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
-  const scrollLeftRef = useRef(0); // Track horizontal scroll for sticky titles (ref to avoid per-frame re-renders)
-  const isScrollingSynced = useRef(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const scrollLeftRef = useRef(0);
 
-  // Guide color-coding settings
   const [guideColors, setGuideColors] = useState(() => ({
     enabled: getGuideColorsEnabled(),
     movie: getGuideColorMovie(),
     episode: getGuideColorEpisode(),
   }));
-
-  const refreshGuideColors = useCallback(() => {
-    setGuideColors({
-      enabled: getGuideColorsEnabled(),
-      movie: getGuideColorMovie(),
-      episode: getGuideColorEpisode(),
-    });
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('guidecolorschange', refreshGuideColors);
-    return () => window.removeEventListener('guidecolorschange', refreshGuideColors);
-  }, [refreshGuideColors]);
-
-  // Guide ratings badge setting
   const [showRatings, setShowRatings] = useState(getGuideRatings);
-
-  useEffect(() => {
-    const refresh = () => setShowRatings(getGuideRatings());
-    window.addEventListener('guideratingschange', refresh);
-    return () => window.removeEventListener('guideratingschange', refresh);
-  }, []);
-
-  // Guide artwork thumbnail setting
   const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
-
-  useEffect(() => {
-    const refresh = () => setShowArtwork(getGuideArtwork());
-    window.addEventListener('guideartworkchange', refresh);
-    return () => window.removeEventListener('guideartworkchange', refresh);
-  }, []);
-
-  // Clock format setting (12h / 24h)
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
 
   useEffect(() => {
-    const refresh = () => setClockFormatState(getClockFormat());
-    window.addEventListener('clockformatchange', refresh);
-    return () => window.removeEventListener('clockformatchange', refresh);
+    const refreshGuideColors = () => {
+      setGuideColors({
+        enabled: getGuideColorsEnabled(),
+        movie: getGuideColorMovie(),
+        episode: getGuideColorEpisode(),
+      });
+    };
+    const refreshRatings = () => setShowRatings(getGuideRatings());
+    const refreshArtwork = () => setShowArtwork(getGuideArtwork());
+    const refreshClockFormat = () => setClockFormatState(getClockFormat());
+
+    window.addEventListener('guidecolorschange', refreshGuideColors);
+    window.addEventListener('guideratingschange', refreshRatings);
+    window.addEventListener('guideartworkchange', refreshArtwork);
+    window.addEventListener('clockformatchange', refreshClockFormat);
+
+    return () => {
+      window.removeEventListener('guidecolorschange', refreshGuideColors);
+      window.removeEventListener('guideratingschange', refreshRatings);
+      window.removeEventListener('guideartworkchange', refreshArtwork);
+      window.removeEventListener('clockformatchange', refreshClockFormat);
+    };
   }, []);
 
-  // Clear artwork cache on mount (handles server add/remove via guideRefreshKey remount)
   useEffect(() => {
     clearArtworkCache();
     return () => clearArtworkCache();
   }, []);
 
-  // Measure the container to compute dynamic sizes
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const updateClock = () => {
+      if (!clockRef.current) return;
+      clockRef.current.textContent = new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: clockFormat === '12h',
+      });
+    };
+    updateClock();
+    const timer = setInterval(updateClock, 1000);
+    return () => clearInterval(timer);
+  }, [clockFormat]);
+
   useEffect(() => {
     const container = containerRef.current;
     const grid = gridRef.current;
     if (!container || !grid) return;
-    
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        if (entry.target === grid) {
-          setGridHeight(entry.contentRect.height);
-        }
-        if (entry.target === container) {
-          setContainerWidth(entry.contentRect.width);
-        }
+        if (entry.target === grid) setGridHeight(entry.contentRect.height);
+        if (entry.target === container) setContainerWidth(entry.contentRect.width);
       }
     });
+
     observer.observe(grid);
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
 
-  // Detect if mobile (for consistent sizing)
   const isMobile = containerWidth > 0 && containerWidth < 768;
   const isSmallMobile = containerWidth > 0 && containerWidth < 480;
 
-  // Compute dynamic sizes based on visible channels
-  const rawRowHeight = gridHeight > 0
-    ? Math.floor(gridHeight / visibleChannels)
-    : BASE_ROW_HEIGHT;
+  const rawRowHeight = gridHeight > 0 ? Math.floor(gridHeight / visibleChannels) : BASE_ROW_HEIGHT;
   const rowHeight = Math.max(rawRowHeight, MIN_ROW_HEIGHT);
   const scale = rowHeight / BASE_ROW_HEIGHT;
-  
-  // Channel column width - smaller on mobile, but with minimum (~20% larger for readability)
-  const baseColWidth = isMobile ? (isSmallMobile ? 78 : 96) : BASE_CHANNEL_COL_WIDTH;
-  const channelColWidth = Math.max(
-    Math.round(baseColWidth * Math.min(scale, 1.5)),
-    MIN_CHANNEL_COL_WIDTH
-  );
 
-  // Calculate time slot width to fill available space
-  // guideHours controls zoom (how many hours fit on screen), but we show full 8-hour schedule
-  const TOTAL_SCHEDULE_HOURS = 8;
-  const numVisibleTimeSlots = guideHours * 2; // Slots visible on screen at once
+  const baseColWidth = isMobile ? (isSmallMobile ? 78 : 96) : BASE_CHANNEL_COL_WIDTH;
+  const channelColWidth = Math.max(Math.round(baseColWidth * Math.min(scale, 1.5)), MIN_CHANNEL_COL_WIDTH);
+
+  const numVisibleTimeSlots = guideHours * 2;
   const availableWidth = containerWidth - channelColWidth;
   const timeSlotWidth = availableWidth > 0 ? Math.floor(availableWidth / numVisibleTimeSlots) : 200;
 
-  // Font sizes - consistent sizing with mobile-friendly minimums
   const baseFontScale = Math.min(scale, isMobile ? 1.5 : 2.5);
   const channelNumFontSize = Math.max(Math.round(12 * baseFontScale), isMobile ? 11 : 12);
   const channelNameFontSize = Math.max(Math.round(8 * baseFontScale), isMobile ? 8 : 7);
-  // Program metadata scales with guide zoom: 1h = largest, 4h = smallest
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
   const programTitleFontSize = Math.max(Math.round(12 * baseFontScale * zoomFontScale), isMobile ? 11 : 12);
 
-  // Artwork thumbnail sizing
   const artworkSize = Math.max(Math.round(rowHeight - 12), 24);
   const artworkThreshold = isMobile ? 100 : 120;
 
-  // Time header sizing - scales with visible channels (e.g. 3 rows = Extra Large)
   const timeHeaderHeight = Math.max(28, Math.min(48, Math.round(32 * Math.min(scale, 1.5))));
-  // Clock font must fit "HH:MM:SS AM" (~11 chars) within the channel column with padding
   const clockMaxForCol = Math.floor((channelColWidth - 16) / 8);
-  const timeHeaderClockFontSize = Math.min(
-    Math.max(Math.round(10 * baseFontScale), isMobile ? 8 : 9),
-    clockMaxForCol
-  );
+  const timeHeaderClockFontSize = Math.min(Math.max(Math.round(10 * baseFontScale), isMobile ? 8 : 9), clockMaxForCol);
   const timeSlotFontSize = Math.max(Math.round(9 * baseFontScale), isMobile ? 8 : 9);
 
-  // Calculate time range: rolling 8-hour window starting from the current 30-min slot
-  // This ensures you always see relevant content (now + 8 hours) rather than fixed blocks
   const timeRange = useMemo(() => {
-    const start = new Date(currentTime);
-    // Round down to current 30-min slot boundary (e.g. 11:35 -> 11:30)
+    const start = new Date(nowMs);
     start.setMinutes(Math.floor(start.getMinutes() / 30) * 30, 0, 0);
-
     const end = new Date(start);
     end.setHours(end.getHours() + TOTAL_SCHEDULE_HOURS);
-
     return { start, end };
-  }, [Math.floor(currentTime.getTime() / (30 * 60 * 1000))]); // Recalc every 30 minutes
+  }, [Math.floor(nowMs / SLOT_MS)]);
 
-  // Generate time slots (30-min intervals)
   const timeSlots = useMemo(() => {
     const slots: Date[] = [];
     const t = new Date(timeRange.start);
@@ -264,15 +429,12 @@ export default function GuideGrid({
     return slots;
   }, [timeRange]);
 
-  // Track the row we want to scroll to (for auto-scroll feature)
-  const scrollTargetRef = useRef<HTMLDivElement>(null);
-  
-  // Determine which channel index to scroll to
+  const totalSlotsWidth = timeSlots.length * timeSlotWidth;
+  const maxScroll = timeSlotWidth;
   const effectiveScrollIdx = scrollToChannelIdx ?? focusedChannelIdx;
   const isAutoScrolling = scrollToChannelIdx !== undefined;
 
-  // Scroll target row to top of view (return from player or auto-scroll)
-  const scrollRowToTop = (element: HTMLElement, smooth: boolean) => {
+  const animateVerticalScroll = useCallback((targetTop: number, smooth: boolean) => {
     const container = gridRef.current;
     if (!container) return;
 
@@ -281,76 +443,56 @@ export default function GuideGrid({
       verticalScrollAnimRef.current = null;
     }
 
-    const elementRect = element.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    const newScrollTop = container.scrollTop + (elementRect.top - containerRect.top);
-    if (smooth) {
-      const startTop = container.scrollTop;
-      const distance = newScrollTop - startTop;
-
-      // Avoid tiny animations that can look like jitter.
-      if (Math.abs(distance) < 1) {
-        container.scrollTop = newScrollTop;
-        return;
-      }
-
-      const durationMs = 420;
-      const startAt = performance.now();
-      const easeInOutCubic = (t: number) =>
-        t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-      const animate = (now: number) => {
-        const elapsed = now - startAt;
-        const progress = Math.min(elapsed / durationMs, 1);
-        const eased = easeInOutCubic(progress);
-        container.scrollTop = startTop + distance * eased;
-
-        if (progress < 1) {
-          verticalScrollAnimRef.current = requestAnimationFrame(animate);
-        } else {
-          verticalScrollAnimRef.current = null;
-        }
-      };
-
-      verticalScrollAnimRef.current = requestAnimationFrame(animate);
-    } else {
-      container.scrollTop = newScrollTop;
+    if (!smooth) {
+      container.scrollTop = targetTop;
+      return;
     }
-  };
 
-  // When scroll target is set, scroll that row to the top
-  useEffect(() => {
-    if (scrollTargetRef.current && isAutoScrolling) {
-      scrollRowToTop(scrollTargetRef.current, smoothScroll);
+    const startTop = container.scrollTop;
+    const distance = targetTop - startTop;
+    if (Math.abs(distance) < 1) {
+      container.scrollTop = targetTop;
+      return;
     }
-  }, [effectiveScrollIdx, isAutoScrolling, smoothScroll]);
 
-  useEffect(() => {
-    return () => {
-      if (verticalScrollAnimRef.current !== null) {
-        cancelAnimationFrame(verticalScrollAnimRef.current);
+    const durationMs = 420;
+    const startAt = performance.now();
+    const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+    const animate = (now: number) => {
+      const elapsed = now - startAt;
+      const progress = Math.min(elapsed / durationMs, 1);
+      container.scrollTop = startTop + distance * easeInOutCubic(progress);
+      if (progress < 1) {
+        verticalScrollAnimRef.current = requestAnimationFrame(animate);
+      } else {
         verticalScrollAnimRef.current = null;
       }
     };
-  }, []);
-  
-  // Scroll focused row into view when user navigates (centered so guide moves with user)
-  // Use inline: 'nearest' to avoid resetting horizontal time-based scroll
-  useEffect(() => {
-    if (scrollToChannelIdx === undefined) {
-      focusedRowRef.current?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
-    }
-  }, [focusedChannelIdx, scrollToChannelIdx]);
 
-  // Drive horizontal scroll by continuous time so the schedule slides left smoothly (classic TV guide strip).
-  // Uses direct DOM manipulation only — no React state updates per frame, so no re-render jank.
-  //
-  // With a rolling window that starts at the current 30-min slot, the scroll is always 0-1 slots
-  // (just the elapsed time within the current slot). The window shifts every 30 minutes.
-  const SLOT_MS = 30 * 60 * 1000;
-  const totalSlotsWidth = timeSlots.length * timeSlotWidth;
-  // Max scroll is one slot (the time within the current 30-min period before window shifts)
-  const maxScroll = timeSlotWidth;
+    verticalScrollAnimRef.current = requestAnimationFrame(animate);
+  }, []);
+
+  useEffect(() => {
+    if (!isAutoScrolling) return;
+    animateVerticalScroll(Math.max(0, effectiveScrollIdx * rowHeight), smoothScroll);
+  }, [isAutoScrolling, effectiveScrollIdx, rowHeight, smoothScroll, animateVerticalScroll]);
+
+  useEffect(() => {
+    if (scrollToChannelIdx !== undefined) return;
+    const container = gridRef.current;
+    if (!container) return;
+    const centeredTop = Math.max(0, focusedChannelIdx * rowHeight - (container.clientHeight - rowHeight) / 2);
+    animateVerticalScroll(centeredTop, true);
+  }, [focusedChannelIdx, rowHeight, scrollToChannelIdx, animateVerticalScroll]);
+
+  const handleGridScroll = useCallback(() => {
+    if (scrollRafRef.current != null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      setScrollTop(gridRef.current?.scrollTop ?? 0);
+    });
+  }, []);
 
   useEffect(() => {
     const grid = gridRef.current;
@@ -362,27 +504,32 @@ export default function GuideGrid({
     let rafId: number;
     const tick = () => {
       const elapsedMs = Date.now() - rangeStartMs;
-      // Continuous position — no Math.floor, so it moves every frame
       const scrollPosition = (elapsedMs / SLOT_MS) * timeSlotWidth;
       const scroll = Math.max(0, Math.min(maxScroll, scrollPosition));
-
-      // Direct DOM writes only — no setState to avoid re-render overhead
       grid.scrollLeft = scroll;
       timeHeader.scrollLeft = scroll;
       scrollLeftRef.current = scroll;
-
       rafId = requestAnimationFrame(tick);
     };
+
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [timeRange, timeSlotWidth, availableWidth, timeSlots.length, maxScroll]);
+  }, [timeRange, timeSlotWidth, availableWidth, maxScroll]);
 
-  const currentTimeStr = currentTime.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: clockFormat === '12h',
-  });
+  useEffect(() => {
+    return () => {
+      if (verticalScrollAnimRef.current !== null) cancelAnimationFrame(verticalScrollAnimRef.current);
+      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, []);
+
+  const visibleRowCount = Math.max(1, Math.ceil((gridHeight || 1) / rowHeight));
+  let virtualStart = Math.max(0, Math.floor(scrollTop / rowHeight) - VIRTUAL_OVERSCAN_ROWS);
+  let virtualEnd = Math.min(channels.length, virtualStart + visibleRowCount + VIRTUAL_OVERSCAN_ROWS * 2);
+  const mustIncludeStart = Math.min(focusedChannelIdx, effectiveScrollIdx);
+  const mustIncludeEnd = Math.max(focusedChannelIdx, effectiveScrollIdx);
+  virtualStart = Math.max(0, Math.min(virtualStart, mustIncludeStart));
+  virtualEnd = Math.min(channels.length, Math.max(virtualEnd, mustIncludeEnd + 1));
 
   return (
     <div
@@ -390,149 +537,58 @@ export default function GuideGrid({
       ref={containerRef}
       style={{ '--guide-channel-col-width': `${channelColWidth}px` } as React.CSSProperties}
     >
-      {/* Time header - width must match channel column exactly; height/fonts scale with visible channels */}
       <div className="guide-time-header" style={{ height: timeHeaderHeight }}>
         <div className="guide-time-header-spacer guide-time-header-clock-wrap">
-          <span className="guide-time-header-clock" style={{ fontSize: timeHeaderClockFontSize }}>{currentTimeStr}</span>
+          <span ref={clockRef} className="guide-time-header-clock" style={{ fontSize: timeHeaderClockFontSize }} />
         </div>
         <div className="guide-time-header-slots" ref={timeHeaderRef}>
           {timeSlots.map((slot, i) => (
-            <div
-              key={i}
-              className="guide-time-slot"
-              style={{ width: timeSlotWidth, fontSize: timeSlotFontSize }}
-            >
+            <div key={i} className="guide-time-slot" style={{ width: timeSlotWidth, fontSize: timeSlotFontSize }}>
               {slot.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: clockFormat === '12h' })}
             </div>
           ))}
         </div>
       </div>
 
-      {/* Grid body */}
-      <div className="guide-grid" ref={gridRef}>
-        {channels.map((channel, chIdx) => {
-          const programs = scheduleByChannel.get(channel.id) || [];
-          const isFocusedRow = chIdx === focusedChannelIdx;
-          const isScrollTarget = chIdx === effectiveScrollIdx;
-
-          // Determine which ref to attach (scroll target only used during active auto-scroll;
-          // otherwise focused row ref drives scrollIntoView for keyboard navigation)
-          const rowRef = (isScrollTarget && isAutoScrolling) ? scrollTargetRef : (isFocusedRow ? focusedRowRef : undefined);
-
-          return (
-            <div
-              key={channel.id}
-              ref={rowRef}
-              className={`guide-row ${isFocusedRow ? 'guide-row-focused' : ''}`}
-              style={{ height: rowHeight }}
-            >
-              {/* Channel number/name column */}
-              <div
-                className="guide-channel-col"
-                onClick={() => onChannelClick(chIdx)}
-              >
-                <span className="guide-channel-num" style={{ fontSize: channelNumFontSize }}>
-                  {channel.number}
-                </span>
-                <span className="guide-channel-name" style={{ fontSize: channelNameFontSize }}>
-                  {channel.name}
-                </span>
+      <div className="guide-grid" ref={gridRef} onScroll={handleGridScroll}>
+        <div className="guide-rows-virtualizer" style={{ height: channels.length * rowHeight }}>
+          {channels.slice(virtualStart, virtualEnd).map((channel, offset) => {
+            const chIdx = virtualStart + offset;
+            const programs = scheduleByChannel.get(channel.id) || [];
+            return (
+              <div key={channel.id} className="guide-row-virtual-item" style={{ top: chIdx * rowHeight }}>
+                <GuideRow
+                  channel={channel}
+                  chIdx={chIdx}
+                  programs={programs}
+                  rowHeight={rowHeight}
+                  isFocusedRow={chIdx === focusedChannelIdx}
+                  focusedProgramIdx={focusedProgramIdx}
+                  nowMs={nowMs}
+                  rangeStartMs={timeRange.start.getTime()}
+                  rangeEndMs={timeRange.end.getTime()}
+                  timeSlotWidth={timeSlotWidth}
+                  totalSlotsWidth={totalSlotsWidth}
+                  isMobile={isMobile}
+                  showArtwork={showArtwork}
+                  artworkThreshold={artworkThreshold}
+                  artworkSize={artworkSize}
+                  showRatings={showRatings}
+                  programTitleFontSize={programTitleFontSize}
+                  guideColors={guideColors}
+                  scrollLeft={scrollLeftRef.current}
+                  channelNumFontSize={channelNumFontSize}
+                  channelNameFontSize={channelNameFontSize}
+                  onChannelClick={onChannelClick}
+                  onProgramClick={onProgramClick}
+                />
               </div>
-
-              {/* Programs */}
-              <div className="guide-programs-row" style={{ minWidth: totalSlotsWidth }}>
-                {programs.map((prog, progIdx) => {
-                  const progStart = new Date(prog.start_time).getTime();
-                  const progEnd = new Date(prog.end_time).getTime();
-                  const rangeStart = timeRange.start.getTime();
-                  const rangeEnd = timeRange.end.getTime();
-
-                  // Skip programs outside visible range
-                  if (progEnd <= rangeStart || progStart >= rangeEnd) return null;
-
-                  // Calculate position and width (with gap between adjacent blocks)
-                  const visibleStart = Math.max(progStart, rangeStart);
-                  const visibleEnd = Math.min(progEnd, rangeEnd);
-                  const left = ((visibleStart - rangeStart) / (30 * 60 * 1000)) * timeSlotWidth + PROGRAM_CELL_GAP / 2;
-                  const width = Math.max(((visibleEnd - visibleStart) / (30 * 60 * 1000)) * timeSlotWidth - PROGRAM_CELL_GAP, 2);
-                  
-                  const isFocused = isFocusedRow && progIdx === focusedProgramIdx;
-                  const isCurrentlyAiring =
-                    currentTime.getTime() >= progStart && currentTime.getTime() < progEnd;
-
-                  // Show subtitle if cell is wide enough (threshold varies by device)
-                  const subtitleThreshold = isMobile ? 120 : 150;
-                  const showSubtitle = width > subtitleThreshold && prog.subtitle && prog.type !== 'interstitial';
-                  
-                  // Determine if artwork should show for this cell
-                  const cellShowArtwork = showArtwork && prog.type !== 'interstitial' && prog.thumbnail_url && width > artworkThreshold;
-                  const artworkSpace = cellShowArtwork ? artworkSize + 6 : 0; // image + margin
-
-                  // Calculate sticky title offset - title slides within cell bounds as time scrolls
-                  const padding = 8; // Match CSS padding
-                  // How far has the grid scrolled past this cell's left edge?
-                  const scrollPastCell = scrollLeftRef.current - left;
-                  // Reserve space for title text (estimate ~150px for title, but at least show something)
-                  const reservedForText = Math.min(150, width * 0.4);
-                  // Clamp the offset: 0 if not scrolled past, or capped so title stays within cell
-                  const maxOffset = Math.max(0, width - padding * 2 - reservedForText - artworkSpace);
-                  const titleOffset = Math.max(0, Math.min(scrollPastCell, maxOffset));
-                  
-                  // Color-coded background based on content type
-                  const cellBg = guideColors.enabled && prog.type !== 'interstitial'
-                    ? prog.content_type === 'movie'
-                      ? guideColors.movie
-                      : prog.content_type === 'episode'
-                        ? guideColors.episode
-                        : undefined
-                    : undefined;
-
-                  // Continuation arrows: program started before visible window
-                  const clippedMs = rangeStart - progStart; // how far back the program started
-                  const continuationArrow = clippedMs > 30 * 60 * 1000
-                    ? '\u25C2\u25C2 ' // ◂◂ — running 30+ min before visible window
-                    : clippedMs > 0
-                      ? '\u25C2 ' // ◂ — started before visible window
-                      : '';
-
-                  return (
-                    <div
-                      key={`${prog.start_time}-${progIdx}`}
-                      className={`guide-program-cell ${isFocused ? 'guide-program-focused' : ''} ${isCurrentlyAiring ? 'guide-program-airing' : ''} ${prog.type === 'interstitial' ? 'guide-program-interstitial' : ''}`}
-                      style={{ left, width, background: cellBg }}
-                      onClick={() => onProgramClick(chIdx, progIdx)}
-                      title={prog.title + (prog.subtitle ? ` - ${prog.subtitle}` : '')}
-                    >
-                      <div
-                        className="guide-program-content"
-                        style={{ transform: `translateX(${titleOffset}px)` }}
-                      >
-                        {continuationArrow && <span className="guide-continuation-arrow">{continuationArrow}</span>}
-                        {cellShowArtwork && (
-                          <ArtworkThumbnail itemId={prog.jellyfin_item_id} size={artworkSize} />
-                        )}
-                        <div className="guide-program-text">
-                          <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
-                            {prog.title}
-                            {showRatings && prog.rating && prog.type !== 'interstitial' && (
-                              <span className="guide-rating-badge">{prog.rating}</span>
-                            )}
-                          </span>
-                          {showSubtitle && (
-                            <span className="guide-program-subtitle" style={{ fontSize: Math.max(programTitleFontSize - 3, 9) }}>
-                              {prog.subtitle}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
+
+export default memo(GuideGrid);

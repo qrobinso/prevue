@@ -42,7 +42,7 @@ export default function Guide({
   const [previewStyle, setPreviewStyleState] = useState<PreviewStyle>(getPreviewStyle);
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0);
   const [focusedProgramIdx, setFocusedProgramIdx] = useState(0);
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [previewTime, setPreviewTime] = useState(new Date());
   const hasRestoredPosition = useRef(false);
   /** When returning from player, scroll this channel to top once; cleared after scroll */
   const [scrollToChannelIdxOnce, setScrollToChannelIdxOnce] = useState<number | null>(null);
@@ -63,9 +63,9 @@ export default function Guide({
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const autoScrollPauseTimeoutRef = useRef<number | null>(null);
 
-  // Update current time every second
+  // Update preview time at low frequency so the entire guide tree does not rerender every second.
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    const timer = setInterval(() => setPreviewTime(new Date()), 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -222,18 +222,25 @@ export default function Guide({
     onFocusedChannelChange?.(focusedChannel?.id ?? null);
   }, [focusedChannel?.id, onFocusedChannelChange]);
 
-  // Compute the currently airing program from schedule + currentTime (updates every second).
-  // This ensures the preview automatically switches when one program ends and the next starts,
-  // instead of waiting for the 60-second schedule refresh.
+  // Compute the currently airing program from schedule + previewTime.
   const currentAiringProgram = focusedChannel ? (() => {
     const programs = scheduleByChannel.get(focusedChannel.id) || [];
-    const now = currentTime.getTime();
+    const now = previewTime.getTime();
     return programs.find(p => {
       const start = new Date(p.start_time).getTime();
       const end = new Date(p.end_time).getTime();
       return now >= start && now < end;
     }) ?? null;
   })() : null;
+
+  const handleGridChannelClick = useCallback((chIdx: number) => {
+    pauseAutoScroll();
+    setFocusedChannelIdx(chIdx);
+    const ch = channels[chIdx];
+    if (ch) {
+      setFocusedProgramIdx(findCurrentProgramIdx(ch.id));
+    }
+  }, [pauseAutoScroll, channels, findCurrentProgramIdx]);
 
   /** When set, show program info modal (future program click). */
   const [programInfoModal, setProgramInfoModal] = useState<{ channel: Channel; program: ScheduleProgram } | null>(null);
@@ -244,6 +251,27 @@ export default function Guide({
   const guideRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const fullscreenModeRef = useRef<FullscreenMode | null>(null);
+
+  const handleGridProgramClick = useCallback((chIdx: number, progIdx: number) => {
+    pauseAutoScroll();
+    const ch = channels[chIdx];
+    const progs = scheduleByChannel.get(ch?.id ?? 0) || [];
+    const prog = progs[progIdx];
+    if (!ch || !prog) return;
+    const now = Date.now();
+    const progStart = new Date(prog.start_time).getTime();
+    if (progStart > now) {
+      // Future program: only show info modal, don't change channel/preview
+      setProgramInfoModal({ channel: ch, program: prog });
+    } else if (chIdx === focusedChannelIdx && progIdx === focusedProgramIdx) {
+      // Already focused: navigate to player
+      onTune(ch, prog, { fromFullscreen: isFullscreen });
+    } else {
+      // Not focused yet: focus the program (preview it)
+      setFocusedChannelIdx(chIdx);
+      setFocusedProgramIdx(progIdx);
+    }
+  }, [pauseAutoScroll, channels, scheduleByChannel, focusedChannelIdx, focusedProgramIdx, onTune, isFullscreen]);
 
   const toggleFullscreen = useCallback(() => {
     const el = guideRef.current;
@@ -447,7 +475,7 @@ export default function Guide({
       <PreviewPanel
         channel={focusedChannel}
         program={currentAiringProgram}
-        currentTime={currentTime}
+        currentTime={previewTime}
         streamingPaused={streamingPaused}
         onTune={handleEnter}
         onSwipeUp={handleUp}
@@ -481,39 +509,12 @@ export default function Guide({
         scheduleByChannel={scheduleByChannel}
         focusedChannelIdx={focusedChannelIdx}
         focusedProgramIdx={focusedProgramIdx}
-        currentTime={currentTime}
         visibleChannels={visibleChannels}
         guideHours={guideHours}
         scrollToChannelIdx={scrollToChannelIdxOnce ?? (autoScrollEnabled && !autoScrollPaused ? autoScrollOffset : undefined)}
         smoothScroll={scrollToChannelIdxOnce === undefined && autoScrollEnabled && !autoScrollPaused}
-        onChannelClick={(chIdx) => {
-          pauseAutoScroll();
-          setFocusedChannelIdx(chIdx);
-          const ch = channels[chIdx];
-          if (ch) {
-            setFocusedProgramIdx(findCurrentProgramIdx(ch.id));
-          }
-        }}
-        onProgramClick={(chIdx, progIdx) => {
-          pauseAutoScroll();
-          const ch = channels[chIdx];
-          const progs = scheduleByChannel.get(ch?.id ?? 0) || [];
-          const prog = progs[progIdx];
-          if (!ch || !prog) return;
-          const now = Date.now();
-          const progStart = new Date(prog.start_time).getTime();
-          if (progStart > now) {
-            // Future program: only show info modal, don't change channel/preview
-            setProgramInfoModal({ channel: ch, program: prog });
-          } else if (chIdx === focusedChannelIdx && progIdx === focusedProgramIdx) {
-            // Already focused: navigate to player
-            onTune(ch, prog, { fromFullscreen: isFullscreen });
-          } else {
-            // Not focused yet: focus the program (preview it)
-            setFocusedChannelIdx(chIdx);
-            setFocusedProgramIdx(progIdx);
-          }
-        }}
+        onChannelClick={handleGridChannelClick}
+        onProgramClick={handleGridProgramClick}
       />
     </div>
   );

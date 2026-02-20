@@ -16,6 +16,7 @@ import {
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from './audioTrackUtils';
 import { formatPlaybackError } from '../../utils/playbackError';
+import { isIOS } from '../../utils/platform';
 import {
   getVideoElement, reparentVideo, getSharedHls, setSharedHls,
   setSharedItemId, setSharedOwner,
@@ -32,8 +33,8 @@ const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
 const VIDEO_FIT_KEY = 'prevue_video_fit';
 const OVERLAY_VISIBLE_MS = 5000;
 const DOUBLE_TAP_MS = 300;
-const PREVIEW_STARTUP_MAX_BUFFER_LENGTH = 2;
-const PREVIEW_STARTUP_MAX_MAX_BUFFER_LENGTH = 4;
+const PREVIEW_STARTUP_MAX_BUFFER_LENGTH = 3;
+const PREVIEW_STARTUP_MAX_MAX_BUFFER_LENGTH = 8;
 
 function getStoredVideoFit(): 'contain' | 'cover' {
   const stored = localStorage.getItem(VIDEO_FIT_KEY);
@@ -71,6 +72,12 @@ const PREVIEW_BASE_SIZES = {
 } as const;
 
 export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4, previewStyle = 'modern', onOverlayVisibilityChange }: PreviewPanelProps) {
+  const isIOSDevice = isIOS();
+  const canRestoreAudioPrefs = () => {
+    if (!isIOSDevice) return true;
+    const nav = navigator as Navigator & { userActivation?: { hasBeenActive?: boolean } };
+    return nav.userActivation?.hasBeenActive === true;
+  };
   const isClassic = previewStyle === 'classic-left' || previewStyle === 'classic-right';
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
   const previewFontSizes = {
@@ -222,9 +229,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       if (cancelled.current) return;
       removePlayingListeners();
       setIsBuffering(false);
-      // Restore user's volume/muted (we start muted for iOS autoplay compat)
-      video.muted = mutedRef.current;
-      video.volume = volumeRef.current;
+      // iOS can pause if we auto-unmute without a fresh user gesture.
+      // Keep muted on autoplay paths; user controls can unmute explicitly.
+      if (canRestoreAudioPrefs()) {
+        video.muted = mutedRef.current;
+        video.volume = volumeRef.current;
+      }
       // Wait briefly so the first frame is painted before we reveal it.
       setTimeout(() => {
         if (!cancelled.current) {
@@ -383,16 +393,20 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       // Restore volume
       const vid = videoRef.current;
       if (vid) {
-        vid.muted = mutedRef.current;
-        vid.volume = volumeRef.current;
+        if (canRestoreAudioPrefs()) {
+          vid.muted = mutedRef.current;
+          vid.volume = volumeRef.current;
+        }
         // Some browsers may pause media when it is reparented between views.
         // Ensure guide handoff resumes playback instead of showing a frozen frame.
         if (vid.paused) {
           void vid.play().catch(() => {
             vid.muted = true;
             void vid.play().then(() => {
-              vid.muted = mutedRef.current;
-              vid.volume = volumeRef.current;
+              if (canRestoreAudioPrefs()) {
+                vid.muted = mutedRef.current;
+                vid.volume = volumeRef.current;
+              }
             }).catch(() => {});
           });
         }
@@ -463,7 +477,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       loadingItemIdRef.current = null;
       clearTimeout(timer);
     };
-  }, [channel?.id, program?.jellyfin_item_id, cleanup, streamingPaused, loadStreamWithInfo, videoFit]);
+  }, [channel?.id, program?.jellyfin_item_id, cleanup, streamingPaused, loadStreamWithInfo, videoFit, isIOSDevice]);
 
   // Playback progress reporting to Jellyfin (after 5 min watch threshold)
   useEffect(() => {
@@ -564,11 +578,17 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     }
   }, [channel, cleanup, loadStreamWithInfo]);
 
-  // When channel/program changes: show overlay, then fade out after 5s
+  // When channel/program changes: show overlay
   useEffect(() => {
     if (!channel || !program || program.type === 'interstitial') return;
     setOverlayVisible(true);
     lastTapTimeRef.current = 0; // Reset so first tap after channel change isn't mistaken for double-tap
+  }, [channel?.id, program?.jellyfin_item_id, program?.type]);
+
+  // Auto-hide metadata overlay whenever it is visible (modern mode only).
+  // This keeps behavior reliable even if parent re-render cadence changes.
+  useEffect(() => {
+    if (isClassic || !overlayVisible) return;
     if (overlayHideTimerRef.current) {
       clearTimeout(overlayHideTimerRef.current);
       overlayHideTimerRef.current = null;
@@ -583,7 +603,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         overlayHideTimerRef.current = null;
       }
     };
-  }, [channel?.id, program?.jellyfin_item_id, program?.type]);
+  }, [overlayVisible, isClassic]);
 
   // Cleanup on unmount
   useEffect(() => {
