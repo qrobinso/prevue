@@ -265,6 +265,50 @@ html[data-preview-bg="white"] .preview-video-container {
   text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
 }
 
+/* ── Preview buffering overlay (semi-transparent, video visible beneath) ── */
+.preview-buffering-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 15;
+  background: rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.preview-buffering-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 4px;
+  border: 1px solid rgba(0, 229, 255, 0.25);
+}
+
+.preview-buffering-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent-cyan);
+  border-radius: 50%;
+  animation: preview-spin 0.9s linear infinite;
+}
+
+@keyframes preview-spin {
+  to { transform: rotate(360deg); }
+}
+
+.preview-buffering-badge-text {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--accent-cyan);
+  text-shadow: 0 0 6px rgba(0, 229, 255, 0.4);
+  letter-spacing: 0.5px;
+}
+
 .preview-error-detail {
   font-family: var(--font-retro);
   font-size: 8px;

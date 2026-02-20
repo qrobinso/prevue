@@ -92,6 +92,7 @@ export default function ChannelSettings() {
   const [separateContentTypes, setSeparateContentTypes] = useState(true);
   const [scheduleAutoUpdateEnabled, setScheduleAutoUpdateEnabled] = useState(true);
   const [scheduleAutoUpdateHours, setScheduleAutoUpdateHours] = useState(4);
+  const [scheduleAlignment, setScheduleAlignment] = useState<'seamless' | '15min'>('seamless');
   const separateLoadedRef = useRef(false);
   const [draggingChannelId, setDraggingChannelId] = useState<number | null>(null);
   const [dragOverChannelId, setDragOverChannelId] = useState<number | null>(null);
@@ -153,6 +154,7 @@ export default function ChannelSettings() {
           : 4;
         setScheduleAutoUpdateEnabled(settings['schedule_auto_update_enabled'] !== false);
         setScheduleAutoUpdateHours(Math.max(1, Math.min(168, parsedHours)));
+        setScheduleAlignment(settings['schedule_alignment'] === '15min' ? '15min' : 'seamless');
         separateLoadedRef.current = true;
       }
       const savedSet = new Set(savedPresets);
@@ -435,6 +437,16 @@ export default function ChannelSettings() {
     }
   };
 
+  const handleAlignmentChange = async (value: 'seamless' | '15min') => {
+    const previous = scheduleAlignment;
+    setScheduleAlignment(value);
+    try {
+      await updateSettings({ schedule_alignment: value });
+    } catch {
+      setScheduleAlignment(previous);
+    }
+  };
+
   const toggleCategory = (categoryId: string) => {
     setExpandedCategories(prev => {
       const newSet = new Set(prev);
@@ -602,6 +614,32 @@ export default function ChannelSettings() {
             </div>
             <p className="settings-field-hint" style={{ marginTop: 4 }}>
               Regenerates future schedule blocks automatically at this interval.
+            </p>
+          </div>
+
+          {/* Schedule Alignment */}
+          <div className="settings-separate-toggle">
+            <span className="settings-toggle-label" style={{ marginBottom: 6, display: 'block' }}>
+              SCHEDULE ALIGNMENT
+            </span>
+            <div className="settings-button-group">
+              <button
+                className={`settings-button-group-btn ${scheduleAlignment === 'seamless' ? 'active' : ''}`}
+                onClick={() => handleAlignmentChange('seamless')}
+              >
+                SEAMLESS
+              </button>
+              <button
+                className={`settings-button-group-btn ${scheduleAlignment === '15min' ? 'active' : ''}`}
+                onClick={() => handleAlignmentChange('15min')}
+              >
+                15-MIN BLOCKS
+              </button>
+            </div>
+            <p className="settings-field-hint" style={{ marginTop: 4 }}>
+              {scheduleAlignment === 'seamless'
+                ? 'Programs start immediately after the previous one ends. Minimizes gaps.'
+                : 'Programs snap to 15-minute boundaries (e.g. 7:00, 7:15, 7:30). More predictable but with short filler gaps.'}
             </p>
           </div>
 

@@ -28,6 +28,11 @@ export default defineConfig({
       workbox: {
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Serve index.html for all SPA navigation routes (e.g. /channel/5).
+        // Without this, navigating to a deep link in the PWA can bypass the
+        // service worker cache and cause the browser address bar to flash.
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,

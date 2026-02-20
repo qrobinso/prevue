@@ -27,6 +27,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'iptv_enabled',
   'iptv_base_url',
   'iptv_timezone',
+  'schedule_alignment',
 ]);
 
 // GET /api/settings - Get all settings

@@ -47,13 +47,9 @@ interface PlayerProps {
 
 const MAX_RETRIES = 2;
 const DOUBLE_TAP_DELAY = 300; // ms to detect double tap
-const PLAYER_REVEAL_DELAY_MS = 120;
-const NETWORK_RETRY_DELAY_MS = 1000;
+const PLAYER_REVEAL_DELAY_MS = 300;
+const NETWORK_RETRY_DELAY_MS = 2000;
 const NETWORK_RELOAD_DELAY_MS = 750;
-const PLAYER_STARTUP_MAX_BUFFER_LENGTH = 4;
-const PLAYER_STARTUP_MAX_MAX_BUFFER_LENGTH = 8;
-const PLAYER_STEADY_MAX_BUFFER_LENGTH = 15;
-const PLAYER_STEADY_MAX_MAX_BUFFER_LENGTH = 30;
 
 // Local storage keys for player preferences
 const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
@@ -396,10 +392,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         
         const hls = new Hls({
           startPosition: startPosition,  // Start at the scheduled position
-          // Fast-start profile: keep startup buffer small so first frame appears sooner.
-          // We raise these back to steady-state values after playback begins.
-          maxBufferLength: PLAYER_STARTUP_MAX_BUFFER_LENGTH,
-          maxMaxBufferLength: PLAYER_STARTUP_MAX_MAX_BUFFER_LENGTH,
+          maxBufferLength: 15,
+          maxMaxBufferLength: 30,
           // Limit retries to avoid hammering the server
           fragLoadingMaxRetry: 2,
           manifestLoadingMaxRetry: 2,
@@ -425,8 +419,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
           video.volume = volumeRef.current;
-          // After first frame, switch to larger steady-state buffers.
-          reconfigureBuffers(PLAYER_STEADY_MAX_BUFFER_LENGTH, PLAYER_STEADY_MAX_MAX_BUFFER_LENGTH);
           // Wait briefly so the first frame is painted before fading in.
           setTimeout(() => {
             if (cancelledRef?.current) return;
@@ -444,7 +436,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           }
         };
         const onWaiting = () => {
-          setBufferingMessage('Connection interrupted. Buffering...');
+          setBufferingMessage('Please wait...');
           setIsBuffering(true);
         };
         const onCanPlayBuffering = () => {
@@ -526,7 +518,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
               // First NETWORK_ERROR: retry with same source (e.g. transient 500)
               if (errorCountRef.current === 1) {
-                setBufferingMessage('Connection interrupted. Buffering...');
+                setBufferingMessage('Please wait...');
                 setIsBuffering(true);
                 setTimeout(() => hls.startLoad(), NETWORK_RETRY_DELAY_MS);
                 return;
@@ -599,7 +591,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           }
         };
         const onWaiting = () => {
-          setBufferingMessage('Connection interrupted. Buffering...');
+          setBufferingMessage('Please wait...');
           setIsBuffering(true);
         };
         const removePlayingListenersNow = removePlayingListenersRef.current;
@@ -1241,16 +1233,13 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         );
       })()}
 
-      {/* Buffering overlay for transient network interruptions */}
+      {/* Buffering overlay — semi-transparent so frozen video is still visible */}
       {isBuffering && !error && !isInterstitial && videoReady && (
-        <div className="player-error-overlay">
-          <div className="player-loading-banner player-loading-banner-fallback" />
-          {loadingArtworkUrl && (
-            <div className="player-loading-banner player-loading-banner-blur" style={{ backgroundImage: safeBgImage(loadingArtworkUrl) }} />
-          )}
-          <div className="player-error-text-wrap">
-            <span className="player-error-title player-buffering-title">BUFFERING</span>
-            <span className="player-error-detail">{bufferingMessage}</span>
+        <div className="player-buffering-overlay">
+          <div className="player-buffering-badge">
+            <div className="player-buffering-spinner" />
+            <span className="player-buffering-badge-text">BUFFERING</span>
+            <span className="player-buffering-badge-detail">{bufferingMessage}</span>
           </div>
         </div>
       )}

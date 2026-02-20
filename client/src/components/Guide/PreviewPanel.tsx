@@ -24,10 +24,10 @@ import {
 } from '../../services/sharedVideo';
 import './Guide.css';
 
-/** Small debounce so rapid browsing does not start a stream for every focus move. */
-const PREVIEW_STREAM_DELAY_MS = 250;
-/** Reveal video shortly after first rendered frames are available. */
-const PREVIEW_REVEAL_DELAY_MS = 120;
+/** Delay before starting preview stream (user may be browsing) */
+const PREVIEW_STREAM_DELAY_MS = 1000;
+/** Reveal video after enough frames are decoded for smooth playback. */
+const PREVIEW_REVEAL_DELAY_MS = 500;
 
 const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
 const VIDEO_FIT_KEY = 'prevue_video_fit';
@@ -109,13 +109,16 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [videoReady, setVideoReady] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
-  const [bufferingMessage, setBufferingMessage] = useState('BUFFERING...');
   const [overlayVisible, setOverlayVisible] = useState(true);
 
-  // Notify parent when overlay visibility changes
+  // Notify parent when overlay visibility changes.
+  // On wide screens (≥768px) in classic mode, CSS forces the overlay always
+  // visible so we always report true.  On mobile where classic falls back to
+  // modern layout, we report the actual overlayVisible state.
+  const isClassicDesktop = isClassic && typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
   useEffect(() => {
-    onOverlayVisibilityChange?.(isClassic || overlayVisible);
-  }, [overlayVisible, isClassic, onOverlayVisibilityChange]);
+    onOverlayVisibilityChange?.(isClassicDesktop || overlayVisible);
+  }, [overlayVisible, isClassicDesktop, onOverlayVisibilityChange]);
 
   const { volume, muted, setVolume, toggleMute } = useVolume();
   const mutedRef = useRef(muted);
@@ -178,7 +181,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     setVideoReady(false);
     setVideoError(null);
     setIsBuffering(false);
-    setBufferingMessage('BUFFERING...');
+
   }, []);
 
   // Load HLS from playback info (shared by initial load and audio track switch).
@@ -216,6 +219,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       video.removeEventListener('playing', onFirstPlaying);
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('stalled', onWaiting);
+      video.removeEventListener('canplay', onCanPlayBuffering);
       if (canplayHandler) {
         video.removeEventListener('canplay', canplayHandler);
         canplayHandler = null;
@@ -249,8 +253,10 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     }
     removePlayingListenersRef.current = removePlayingListeners;
     const onWaiting = () => {
-      setBufferingMessage('Connection interrupted. Buffering...');
       setIsBuffering(true);
+    };
+    const onCanPlayBuffering = () => {
+      setIsBuffering(false);
     };
 
     if (Hls.isSupported()) {
@@ -274,6 +280,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       video.addEventListener('playing', onFirstPlaying);
       video.addEventListener('waiting', onWaiting);
       video.addEventListener('stalled', onWaiting);
+      video.addEventListener('canplay', onCanPlayBuffering);
       // Helper to set native text track mode
       const setNativeSubtitleMode = (posIdx: number | null) => {
         if (video.textTracks) {
@@ -585,10 +592,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     lastTapTimeRef.current = 0; // Reset so first tap after channel change isn't mistaken for double-tap
   }, [channel?.id, program?.jellyfin_item_id, program?.type]);
 
-  // Auto-hide metadata overlay whenever it is visible (modern mode only).
-  // This keeps behavior reliable even if parent re-render cadence changes.
+  // Auto-hide metadata overlay whenever it is visible.
+  // Always schedule the timer even in classic mode: on small screens the CSS
+  // reverts classic to a modern-style overlay, but isClassic remains true in JS
+  // which previously prevented the timer from being set, leaving the overlay
+  // permanently visible on mobile.  On desktop classic, the CSS forces
+  // `opacity: 1 !important` so hiding has no visual effect — safe either way.
   useEffect(() => {
-    if (isClassic || !overlayVisible) return;
+    if (!overlayVisible) return;
     if (overlayHideTimerRef.current) {
       clearTimeout(overlayHideTimerRef.current);
       overlayHideTimerRef.current = null;
@@ -603,7 +614,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         overlayHideTimerRef.current = null;
       }
     };
-  }, [overlayVisible, isClassic]);
+  }, [overlayVisible]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -643,7 +654,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       setVideoReady(false);
       setVideoError(null);
       setIsBuffering(false);
-      setBufferingMessage('BUFFERING...');
+  
     }
   }, [streamingPaused]);
 
@@ -766,25 +777,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             <div className="preview-loading-text">TUNING...</div>
           </div>
         )}
-        {/* Buffering overlay for transient connection interruptions */}
+        {/* Buffering overlay — semi-transparent so frozen video is still visible */}
         {videoReady && isBuffering && !videoError && program && (
-          <div className="preview-loading preview-error-overlay">
-            {artworkSources.length > 0 ? (
-              <img
-                className="preview-loading-banner"
-                src={artworkSources[0] ?? ''}
-                data-fallback-index="0"
-                alt=""
-                onError={(e) => {
-                  applyArtworkFallback(e.currentTarget, artworkSources);
-                }}
-              />
-            ) : (
-              <div className="preview-loading-banner preview-loading-banner-fallback" />
-            )}
-            <div className="preview-error-text-wrap">
-              <span className="preview-error-title preview-buffering-title">BUFFERING</span>
-              <span className="preview-error-detail">{bufferingMessage}</span>
+          <div className="preview-buffering-overlay">
+            <div className="preview-buffering-badge">
+              <div className="preview-buffering-spinner" />
+              <span className="preview-buffering-badge-text">BUFFERING</span>
             </div>
           </div>
         )}
@@ -813,8 +811,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       </div>
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}
       <div
-        className={`preview-overlay ${isClassic || overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}
-        aria-hidden={isClassic ? false : !overlayVisible}
+        className={`preview-overlay ${overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}
+        aria-hidden={!overlayVisible}
       >
         <div className="preview-info">
           <div className="preview-channel-badge">

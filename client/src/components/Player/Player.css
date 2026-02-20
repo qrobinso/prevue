@@ -192,6 +192,57 @@
   text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
 }
 
+/* ── Buffering overlay (semi-transparent, video visible beneath) ──── */
+.player-buffering-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.player-buffering-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 28px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 6px;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+}
+
+.player-buffering-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent-cyan);
+  border-radius: 50%;
+  animation: player-spin 0.9s linear infinite;
+}
+
+@keyframes player-spin {
+  to { transform: rotate(360deg); }
+}
+
+.player-buffering-badge-text {
+  font-family: var(--font-retro);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  text-shadow: 0 0 6px rgba(0, 229, 255, 0.4);
+  letter-spacing: 0.5px;
+}
+
+.player-buffering-badge-detail {
+  font-family: var(--font-retro);
+  font-size: 8px;
+  color: var(--text-gold);
+  opacity: 0.8;
+}
+
 .player-error-detail {
   font-family: var(--font-retro);
   font-size: 10px;

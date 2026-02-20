@@ -233,6 +233,10 @@ export class ScheduleEngine {
       this.db, channel.id, cooldownStartForChannel.toISOString(), blockEnd.toISOString()
     );
 
+    // Schedule alignment: 'seamless' (default) or '15min' (snap to 15-minute boundaries)
+    const scheduleAlignment = (queries.getSetting(this.db, 'schedule_alignment') as string) || 'seamless';
+    const snap15 = scheduleAlignment === '15min';
+
     // When rating filter is on, exclude unrated / "Not Rated" from the schedule
     const ratingFilter = (queries.getSetting(this.db, 'rating_filter') as { mode: string; ratings: string[] } | null) ?? { ratings: [] };
     if (ratingFilter.ratings.length > 0) {
@@ -399,6 +403,14 @@ export class ScheduleEngine {
               lastScheduledBucket = getRatingBucket(episode.OfficialRating);
               lastWasMovie = false;
               currentTime = endTime;
+              // Snap to next 15-min boundary and fill gap with interstitial
+              if (snap15) {
+                const snapped = snapForwardTo15Min(currentTime);
+                if (snapped.getTime() > currentTime.getTime() && snapped.getTime() <= blockEndMs) {
+                  programs.push(this.createInterstitial(currentTime, snapped, null));
+                  currentTime = snapped;
+                }
+              }
               episodeIdx = (episodeIdx + attempt + 1) % episodes.length;
               found = true;
               scheduledSomething = true;
@@ -493,6 +505,14 @@ export class ScheduleEngine {
           lastScheduledBucket = getRatingBucket(selected.item.OfficialRating);
           lastWasMovie = true;
           currentTime = endTime;
+          // Snap to next 15-min boundary and fill gap with interstitial
+          if (snap15) {
+            const snapped = snapForwardTo15Min(currentTime);
+            if (snapped.getTime() > currentTime.getTime() && snapped.getTime() <= blockEndMs) {
+              programs.push(this.createInterstitial(currentTime, snapped, null));
+              currentTime = snapped;
+            }
+          }
           scheduledSomething = true;
         }
       }
@@ -536,6 +556,14 @@ export class ScheduleEngine {
             lastItemId = relaxed.item.Id;
             lastScheduledBucket = getRatingBucket(relaxed.item.OfficialRating);
             currentTime = endTime;
+            // Snap to next 15-min boundary and fill gap with interstitial
+            if (snap15) {
+              const snapped = snapForwardTo15Min(currentTime);
+              if (snapped.getTime() > currentTime.getTime() && snapped.getTime() <= blockEndMs) {
+                programs.push(this.createInterstitial(currentTime, snapped, null));
+                currentTime = snapped;
+              }
+            }
             failedAttempts = 0;
           } else {
             // No content fits: if we're in the last 30 min of the block, fill the rest with one interstitial
@@ -666,6 +694,14 @@ export class ScheduleEngine {
           lastScheduledEndMs.set(item.Id, endMs);
           lastScheduledBucket = getRatingBucket(item.OfficialRating);
           currentTime = endTime;
+          // Snap to next 15-min boundary and fill gap with interstitial
+          if (snap15) {
+            const snapped = snapForwardTo15Min(currentTime);
+            if (snapped.getTime() > currentTime.getTime() && snapped.getTime() <= blockEndMs) {
+              programs.push(this.createInterstitial(currentTime, snapped, null));
+              currentTime = snapped;
+            }
+          }
         } else {
           // No content fits: use ONE interstitial to fill the entire remaining gap
           // (avoids many small "Coming Up Next" blocks)
