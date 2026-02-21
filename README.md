@@ -1,6 +1,6 @@
 # Prevue
 
-A self-hosted, retro cable TV guide for Jellyfin. Prevue transforms your personal media library into a classic channel-surfing experience — complete with auto-generated channels, a full electronic program guide, a built-in video player, and IPTV output for external apps.
+A self-hosted, retro cable TV guide for Jellyfin. Prevue transforms your personal media library into a classic channel-surfing experience — complete with auto-generated channels, a full electronic program guide, a built-in video player, and IPTV output for external apps. It's a fun way to rediscover your media library.
 
 Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
 
@@ -155,6 +155,25 @@ Prevue includes a built-in IPTV server that exposes your channels to external pl
 4. The EPG URL is embedded in the playlist and loaded automatically by most clients
 
 The IPTV stream uses a sliding-window live mode — external players see a continuous live stream, just like real cable TV. EPG data covers 24-48 hours of programming.
+
+## Mobile App (PWA)
+
+Prevue can be installed as a Progressive Web App on iOS, Android, and desktop — no app store required.
+
+### iOS (Safari)
+
+1. Open your Prevue instance in Safari
+2. Tap the **Share** button (box with arrow)
+3. Tap **Add to Home Screen**
+4. Name it "Prevue" and tap **Add**
+
+### Android (Chrome)
+
+1. Open your Prevue instance in Chrome
+2. Tap the **three-dot menu**
+3. Tap **Install app** or **Add to Home Screen**
+
+The PWA runs in standalone mode (no browser chrome), supports offline caching of app assets, and handles deep links to channels. Video playback, fullscreen, and all player controls work as expected.
 
 ## Raspberry Pi Cable Box
 

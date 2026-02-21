@@ -16,7 +16,7 @@ import {
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from './audioTrackUtils';
 import { formatPlaybackError } from '../../utils/playbackError';
-import { isIOS } from '../../utils/platform';
+import { isIOS, isMobile } from '../../utils/platform';
 import {
   getVideoElement, reparentVideo, getSharedHls, setSharedHls,
   setSharedItemId, setSharedOwner,
@@ -237,7 +237,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       // Keep muted on autoplay paths; user controls can unmute explicitly.
       if (canRestoreAudioPrefs()) {
         video.muted = mutedRef.current;
-        video.volume = volumeRef.current;
+        video.volume = isMobile() ? 1.0 : volumeRef.current;
       }
       // Wait briefly so the first frame is painted before we reveal it.
       setTimeout(() => {
@@ -402,7 +402,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       if (vid) {
         if (canRestoreAudioPrefs()) {
           vid.muted = mutedRef.current;
-          vid.volume = volumeRef.current;
+          vid.volume = isMobile() ? 1.0 : volumeRef.current;
         }
         // Some browsers may pause media when it is reparented between views.
         // Ensure guide handoff resumes playback instead of showing a frozen frame.
@@ -412,7 +412,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             void vid.play().then(() => {
               if (canRestoreAudioPrefs()) {
                 vid.muted = mutedRef.current;
-                vid.volume = volumeRef.current;
+                vid.volume = isMobile() ? 1.0 : volumeRef.current;
               }
             }).catch(() => {});
           });
@@ -880,20 +880,22 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
                     >
                       {muted || volume === 0 ? '🔇' : '🔊'}
                     </button>
-                    <input
-                      type="range"
-                      className="preview-audio-more-slider"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={muted ? 0 : volume}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        setVolume(parseFloat(e.target.value));
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ '--volume-fill': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
-                    />
+                    {!isMobile() && (
+                      <input
+                        type="range"
+                        className="preview-audio-more-slider"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={muted ? 0 : volume}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setVolume(parseFloat(e.target.value));
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ '--volume-fill': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
+                      />
+                    )}
                   </div>
                 </div>
                 {serverAudioTracks.length >= 1 && (

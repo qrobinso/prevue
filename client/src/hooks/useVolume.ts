@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { isMobile } from '../utils/platform';
 
 // Local storage keys for volume preferences
 const VOLUME_KEY = 'prevue_volume';
@@ -120,7 +121,9 @@ export function useVideoVolume(
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
-      video.volume = volume;
+      // On mobile, always use 1.0 so hardware volume buttons work intuitively.
+      // iOS ignores video.volume anyway; Android needs 1.0 to not fight system volume.
+      video.volume = isMobile() ? 1.0 : volume;
       video.muted = muted;
     }
   }, [videoRef, volume, muted]);

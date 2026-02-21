@@ -21,7 +21,7 @@ import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from '../Guide/audioTrackUtils';
 import { safeBgImage, sanitizeImageUrl } from '../../utils/sanitize';
 import { formatPlaybackError } from '../../utils/playbackError';
-import { isIOSPWA } from '../../utils/platform';
+import { isIOSPWA, isMobile } from '../../utils/platform';
 import {
   getVideoElement, reparentVideo, getSharedHls, getSharedItemId, setSharedHls,
   setSharedItemId, setSharedOwner,
@@ -418,7 +418,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           // Playback has started; release autoplay mute lock and restore user audio prefs.
           setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
-          video.volume = volumeRef.current;
+          video.volume = isMobile() ? 1.0 : volumeRef.current;
           // Wait briefly so the first frame is painted before fading in.
           setTimeout(() => {
             if (cancelledRef?.current) return;
@@ -574,7 +574,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           // Playback has started; release autoplay mute lock and restore user audio prefs.
           setAutoplayMutedLock(false);
           video.muted = mutedRef.current;
-          video.volume = volumeRef.current;
+          video.volume = isMobile() ? 1.0 : volumeRef.current;
           setTimeout(() => {
             if (cancelledRef?.current) return;
             setVideoReady(true);
@@ -1331,18 +1331,20 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                   >
                     {muted || volume === 0 ? '🔇' : '🔊'}
                   </button>
-                  <input
-                    type="range"
-                    className="player-settings-slider"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={muted ? 0 : volume}
-                    onChange={(e) => { e.stopPropagation(); setVolume(parseFloat(e.target.value)); }}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{ '--volume-fill': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
-                    aria-label="Volume"
-                  />
+                  {!isMobile() && (
+                    <input
+                      type="range"
+                      className="player-settings-slider"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={muted ? 0 : volume}
+                      onChange={(e) => { e.stopPropagation(); setVolume(parseFloat(e.target.value)); }}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ '--volume-fill': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
+                      aria-label="Volume"
+                    />
+                  )}
                 </div>
               </div>
 

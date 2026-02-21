@@ -865,6 +865,22 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 }
 
+/* ── Classic Left: move toolbar icons to the left side ── */
+@media (min-width: 768px) {
+  .guide-classic-left .guide-settings-btn {
+    right: auto;
+    left: 16px;
+  }
+  .guide-classic-left .guide-fullscreen-btn {
+    right: auto;
+    left: 72px;
+  }
+  .guide-classic-left .guide-search-btn {
+    right: auto;
+    left: 128px;
+  }
+}
+
 /* ── Classic tablet: tighten the split ─────────────────── */
 @media (min-width: 768px) and (max-width: 1023px) {
   .preview-panel-classic {

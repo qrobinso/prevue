@@ -446,7 +446,7 @@ export default function Guide({
 
   return (
     <div
-      className={`guide ${isFullscreen ? 'guide-fullscreen' : ''} ${isIOSPWA() && isFullscreen ? 'guide-fullscreen-ios-pwa' : ''}`}
+      className={`guide ${isFullscreen ? 'guide-fullscreen' : ''} ${isIOSPWA() && isFullscreen ? 'guide-fullscreen-ios-pwa' : ''} ${previewStyle === 'classic-left' ? 'guide-classic-left' : ''}`}
       ref={guideRef}
     >
       <button

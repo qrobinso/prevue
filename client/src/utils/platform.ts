@@ -16,3 +16,9 @@ export function isIOSPWA(): boolean {
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   );
 }
+
+/** Detect any mobile device (iOS or Android) where hardware volume buttons control audio. */
+export function isMobile(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return isIOS() || /Android/i.test(navigator.userAgent);
+}

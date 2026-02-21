@@ -279,18 +279,35 @@ export interface QualityParams {
   audioStreamIndex?: number;
 }
 
-/** Detect whether the browser supports HEVC (H.265) in MSE for HLS playback. */
+/**
+ * Detect whether the browser supports HEVC (H.265) for HLS playback.
+ *
+ * Two detection paths:
+ *  1. MSE path (HLS.js browsers): MediaSource.isTypeSupported for desktop Chrome/Edge.
+ *  2. Native HLS path (iOS/macOS Safari): Safari handles HLS natively without MSE,
+ *     so MediaSource is unavailable. Use video.canPlayType() as a fallback — it
+ *     correctly reports HEVC support on iOS 11+ and macOS Safari.
+ */
 let _hevcSupported: boolean | null = null;
 function supportsHevc(): boolean {
   if (_hevcSupported !== null) return _hevcSupported;
   try {
+    // Path 1: MSE-based check (HLS.js path — desktop browsers).
     if (typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported) {
-      _hevcSupported =
+      const msePassed =
         MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L150.B0"') ||
         MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L150.B0"');
-    } else {
-      _hevcSupported = false;
+      if (msePassed) {
+        _hevcSupported = true;
+        return _hevcSupported;
+      }
     }
+    // Path 2: Native HLS check (iOS Safari, macOS Safari). Works without MSE.
+    const video = document.createElement('video');
+    const canPlay =
+      video.canPlayType('video/mp4; codecs="hvc1"') ||
+      video.canPlayType('video/mp4; codecs="hvc1.1.6.L150.B0"');
+    _hevcSupported = canPlay === 'probably' || canPlay === 'maybe';
   } catch {
     _hevcSupported = false;
   }
