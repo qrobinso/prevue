@@ -146,16 +146,10 @@ function AppContent() {
   }, [navigate]);
 
   const handleOpenSettings = useCallback(() => {
-    // Capture the currently focused guide channel before opening settings so
-    // guide remount can restore to the same channel without restore loops.
-    if (guideFocusedChannelId != null) {
-      setLastChannelId(guideFocusedChannelId);
-    }
     setSettingsOpen(true);
-  }, [guideFocusedChannelId]);
+  }, []);
 
   const handleCloseSettings = useCallback(() => {
-    setGuideRefreshKey(k => k + 1);
     setSettingsOpen(false);
   }, []);
 
@@ -195,8 +189,8 @@ function AppContent() {
     onEscape: settingsOpen ? handleCloseSettings : undefined,
   }, !playerActive);
 
-  // Guide streaming paused when player overlay is active, settings open, or iOS not yet interacted
-  const guideStreamingPaused = playerActive || settingsOpen || (isIOS() && !hasUserInteracted);
+  // Guide streaming paused when player overlay is active or iOS not yet interacted
+  const guideStreamingPaused = playerActive || (isIOS() && !hasUserInteracted);
 
   // Fullscreen signal: consumed once when player opens, reset when player closes
   const enterFullscreenOnMount = playerActive ? enterFullscreenRef.current : false;

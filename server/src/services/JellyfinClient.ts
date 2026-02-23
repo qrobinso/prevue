@@ -219,6 +219,7 @@ export class JellyfinClient {
           'DateCreated',
           'Tags',
           'People',
+          'MediaSources',
         ],
         enableUserData: true,
         enableImages: true,
@@ -267,6 +268,7 @@ export class JellyfinClient {
             'DateCreated',       // When added to library
             'Tags',              // Custom tags
             'People',            // Actors, Directors
+            'MediaSources',      // Video resolution
           ],
           enableUserData: true,  // Fetch watch status, favorites, etc.
           enableImages: true,
@@ -845,6 +847,32 @@ export class JellyfinClient {
       console.log(`[Jellyfin] Reported playback stopped: item=${itemId}, position=${Math.round(positionMs / 1000)}s`);
     } catch (err) {
       console.error(`[Jellyfin] Failed to report playback stopped:`, err);
+    }
+  }
+
+  // ─── Media Segments (outro/credits detection) ────────────
+
+  async getMediaSegments(itemId: string): Promise<{ outroStartMs: number | null; outroEndMs: number | null }> {
+    try {
+      const baseUrl = this.getServerUrl();
+      const headers = this.getProxyHeaders();
+      const resp = await fetch(`${baseUrl}/MediaSegments/${itemId}`, { method: 'GET', headers });
+      if (!resp.ok) {
+        return { outroStartMs: null, outroEndMs: null };
+      }
+
+      const data = await resp.json() as { Items?: Array<{ Type?: string; StartTicks?: number; EndTicks?: number }> };
+      const outro = (data.Items ?? []).find(s => s.Type === 'Outro');
+      if (!outro || outro.StartTicks == null) {
+        return { outroStartMs: null, outroEndMs: null };
+      }
+
+      return {
+        outroStartMs: Math.round(outro.StartTicks / 10000),
+        outroEndMs: outro.EndTicks != null ? Math.round(outro.EndTicks / 10000) : null,
+      };
+    } catch {
+      return { outroStartMs: null, outroEndMs: null };
     }
   }
 

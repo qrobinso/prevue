@@ -79,6 +79,7 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
         audio_tracks: [],
         subtitle_tracks: [],
         subtitle_index: null,
+        outro_start_ms: null,
       });
       return;
     }
@@ -103,6 +104,13 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     } catch (e) {
       console.warn('[Playback] Could not fetch tracks:', (e as Error).message);
     }
+
+    // Fetch media segments for outro/credits detection (non-blocking)
+    let outro_start_ms: number | null = null;
+    try {
+      const segments = await jf.getMediaSegments(program.jellyfin_item_id);
+      outro_start_ms = segments.outroStartMs;
+    } catch { /* non-fatal */ }
 
     // If client did not request a specific track, apply preferred audio language from DB
     if (audioStreamIndex == null || Number.isNaN(audioStreamIndex)) {
@@ -161,6 +169,7 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
       audio_stream_index: audioStreamIndex ?? null,
       subtitle_tracks,
       subtitle_index,
+      outro_start_ms,
     });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

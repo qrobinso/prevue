@@ -30,6 +30,8 @@ const GUIDE_COLOR_EPISODE_KEY = 'prevue_guide_color_episode';
 const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
 const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
 const GUIDE_RATINGS_KEY = 'prevue_guide_ratings';
+const GUIDE_YEAR_KEY = 'prevue_guide_year';
+const GUIDE_RESOLUTION_KEY = 'prevue_guide_resolution';
 const GUIDE_ARTWORK_KEY = 'prevue_guide_artwork';
 const PREVIEW_STYLE_KEY = 'prevue_preview_style';
 const CLOCK_FORMAT_KEY = 'prevue_clock_format';
@@ -157,7 +159,33 @@ export function getGuideRatings(): boolean {
 
 export function setGuideRatings(enabled: boolean): void {
   localStorage.setItem(GUIDE_RATINGS_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('guideratingschange'));
+  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
+}
+
+// Guide year badge helpers
+export function getGuideYear(): boolean {
+  try {
+    return localStorage.getItem(GUIDE_YEAR_KEY) === 'true';
+  } catch {}
+  return false;
+}
+
+export function setGuideYear(enabled: boolean): void {
+  localStorage.setItem(GUIDE_YEAR_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
+}
+
+// Guide resolution badge helpers
+export function getGuideResolution(): boolean {
+  try {
+    return localStorage.getItem(GUIDE_RESOLUTION_KEY) === 'true';
+  } catch {}
+  return false;
+}
+
+export function setGuideResolution(enabled: boolean): void {
+  localStorage.setItem(GUIDE_RESOLUTION_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
 }
 
 // Guide artwork thumbnail helpers
@@ -400,6 +428,8 @@ export default function DisplaySettings() {
   const [guideColorMovie, setGuideColorMovieState] = useState(getGuideColorMovie);
   const [guideColorEpisode, setGuideColorEpisodeState] = useState(getGuideColorEpisode);
   const [guideRatingsEnabled, setGuideRatingsEnabledState] = useState(getGuideRatings);
+  const [guideYearEnabled, setGuideYearEnabledState] = useState(getGuideYear);
+  const [guideResolutionEnabled, setGuideResolutionEnabledState] = useState(getGuideResolution);
   const [guideArtworkEnabled, setGuideArtworkEnabledState] = useState(getGuideArtwork);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
   const closeAbout = useCallback(() => setShowAbout(false), []);
@@ -506,6 +536,18 @@ export default function DisplaySettings() {
     const newValue = !guideRatingsEnabled;
     setGuideRatingsEnabledState(newValue);
     setGuideRatings(newValue);
+  };
+
+  const handleGuideYearToggle = () => {
+    const newValue = !guideYearEnabled;
+    setGuideYearEnabledState(newValue);
+    setGuideYear(newValue);
+  };
+
+  const handleGuideResolutionToggle = () => {
+    const newValue = !guideResolutionEnabled;
+    setGuideResolutionEnabledState(newValue);
+    setGuideResolution(newValue);
   };
 
   const handleGuideArtworkToggle = () => {
@@ -806,22 +848,47 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection">
-        <h4>RATINGS BADGES</h4>
+        <h4>GUIDE BADGES</h4>
         <p className="settings-field-hint">
-          Show content rating badges on schedule blocks.
+          Show metadata badges on schedule blocks in the guide.
         </p>
-        <div className="settings-toggle-row">
-          <label className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={guideRatingsEnabled}
-              onChange={handleGuideRatingsToggle}
-            />
-            <span className="settings-toggle-slider" />
-          </label>
-          <span className="settings-toggle-label">
-            {guideRatingsEnabled ? 'ON' : 'OFF'}
-          </span>
+        <div className="settings-badge-group">
+          <div className="settings-badge-row">
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={guideRatingsEnabled}
+                onChange={handleGuideRatingsToggle}
+              />
+              <span className="settings-toggle-slider" />
+            </label>
+            <span className="settings-badge-label">Rating</span>
+            <span className="settings-badge-example guide-rating-badge">PG-13</span>
+          </div>
+          <div className="settings-badge-row">
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={guideYearEnabled}
+                onChange={handleGuideYearToggle}
+              />
+              <span className="settings-toggle-slider" />
+            </label>
+            <span className="settings-badge-label">Year</span>
+            <span className="settings-badge-example guide-year-badge">2024</span>
+          </div>
+          <div className="settings-badge-row">
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={guideResolutionEnabled}
+                onChange={handleGuideResolutionToggle}
+              />
+              <span className="settings-toggle-slider" />
+            </label>
+            <span className="settings-badge-label">Resolution</span>
+            <span className="settings-badge-example guide-resolution-badge">4K</span>
+          </div>
         </div>
       </div>
 

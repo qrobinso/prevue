@@ -100,6 +100,14 @@ app.locals.channelManager = channelManager;
 app.locals.metricsService = metricsService;
 app.locals.wss = wss;
 
+// ─── API Documentation (Swagger UI) ──────────────────
+import swaggerUi from 'swagger-ui-express';
+import { openApiSpec } from './openapi.js';
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'Prevue API Docs',
+}));
+
 // ─── Public endpoints ─────────────────────────────────
 
 // Auth status (public: exempt from auth middleware)
@@ -126,6 +134,25 @@ import { iptvRoutes } from './routes/iptv.js';
 app.use('/api', streamRoutes);
 app.use('/api/iptv', iptvRoutes);
 startTranscodeIdleCleanup(app);
+
+// Serve background music assets and list available tracks
+import fs from 'fs';
+const bgMusicPath = path.join(__dirname, '../src/assets/backgroundMusic');
+app.use('/api/assets/music', express.static(bgMusicPath));
+app.get('/api/assets/music-list', (_req, res) => {
+  try {
+    if (!fs.existsSync(bgMusicPath)) {
+      res.json([]);
+      return;
+    }
+    const files = fs.readdirSync(bgMusicPath)
+      .filter(f => /\.(mp3|ogg|wav|m4a|aac)$/i.test(f))
+      .map(f => `/api/assets/music/${encodeURIComponent(f)}`);
+    res.json(files);
+  } catch {
+    res.json([]);
+  }
+});
 
 // Serve static client build in production
 const clientDistPath = path.join(__dirname, '../../client/dist');
@@ -176,9 +203,16 @@ async function bootSequence() {
       console.log(`[Prevue] Found ${existingChannels.count} existing channels, keeping them.`);
     }
 
-    // Extend schedules to ensure 24 hours of content
-    console.log('[Prevue] Extending schedules (ensuring 24h of content)...');
-    await scheduleEngine.extendSchedules();
+    // Check if schedule blocks exist; if not, do a full regeneration
+    const existingBlocks = db.prepare('SELECT COUNT(*) as count FROM schedule_blocks').get() as { count: number };
+    if (existingBlocks.count === 0) {
+      console.log('[Prevue] No schedule blocks found, generating full schedule...');
+      await scheduleEngine.generateAllSchedules();
+    } else {
+      // Extend schedules to ensure 24 hours of content
+      console.log('[Prevue] Extending schedules (ensuring 24h of content)...');
+      await scheduleEngine.extendSchedules();
+    }
 
     console.log('[Prevue] Boot sequence complete!');
   } catch (err) {

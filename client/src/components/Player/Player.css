@@ -502,6 +502,533 @@
   margin-top: 16px;
 }
 
+/* ── Interstitial Screen ───────────────────────────── */
+.interstitial-screen {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-primary);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: default;
+}
+
+/* Animated background with Ken Burns */
+.interstitial-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.interstitial-bg-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(24px) brightness(0.25);
+  animation: interstitialKenBurns 30s ease-in-out alternate infinite;
+}
+
+@keyframes interstitialKenBurns {
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.12) translate(-2%, -1%); }
+}
+
+/* CRT scanline + vignette overlay */
+.interstitial-crt-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  box-shadow: inset 0 0 120px 50px rgba(0, 0, 0, 0.5);
+}
+
+/* Scene transitions */
+.interstitial-scene {
+  position: relative;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.3s ease;
+}
+
+.interstitial-scene.fade-in { opacity: 1; }
+.interstitial-scene.fade-out { opacity: 0; }
+
+/* ─ Channel Ident ─────────────────────────────────── */
+.interstitial-ident {
+  text-align: center;
+  animation: interstitialGlitch 0.6s ease-out;
+}
+
+.interstitial-ident-number {
+  font-family: var(--font-retro);
+  font-size: 48px;
+  color: var(--text-gold);
+  letter-spacing: 6px;
+  text-shadow:
+    0 0 20px rgba(255, 215, 0, 0.6),
+    0 0 40px rgba(255, 215, 0, 0.3);
+  margin-bottom: 16px;
+}
+
+.interstitial-ident-name {
+  font-family: var(--font-retro);
+  font-size: 20px;
+  color: var(--text-primary);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  opacity: 0;
+  animation: interstitialFadeUp 0.5s ease-out 0.3s forwards;
+}
+
+@keyframes interstitialGlitch {
+  0% { opacity: 0; transform: translateX(-4px); filter: brightness(3); }
+  20% { opacity: 1; transform: translateX(2px); filter: brightness(2); }
+  40% { transform: translateX(-1px); filter: brightness(1.5); }
+  60% { transform: translateX(1px); filter: brightness(1); }
+  100% { transform: translateX(0); filter: brightness(1); }
+}
+
+@keyframes interstitialFadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─ Hero Countdown ────────────────────────────────── */
+.interstitial-hero {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px;
+  animation: interstitialFadeUp 0.5s ease-out;
+}
+
+.interstitial-hero-label {
+  font-family: var(--font-retro);
+  font-size: 12px;
+  color: var(--text-gold);
+  letter-spacing: 4px;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+}
+
+.interstitial-hero-title {
+  font-family: var(--font-retro);
+  font-size: 22px;
+  color: var(--text-primary);
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+  max-width: 600px;
+}
+
+.interstitial-hero-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.interstitial-hero-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.interstitial-badge {
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.interstitial-hero-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 500px;
+  line-height: 1.5;
+  opacity: 0;
+  animation: interstitialFadeUp 0.8s ease-out forwards;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Countdown ring */
+.interstitial-hero-countdown-wrap {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin-top: 8px;
+}
+
+.interstitial-ring {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.interstitial-ring-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 4;
+}
+
+.interstitial-ring-fg {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear, stroke 2s ease;
+}
+
+.interstitial-hero-countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-retro);
+  font-size: 36px;
+  color: var(--accent-cyan);
+  text-shadow:
+    0 0 10px currentColor,
+    0 0 20px currentColor,
+    0 0 40px rgba(0, 229, 255, 0.3);
+}
+
+/* ─ Lineup Carousel ───────────────────────────────── */
+.interstitial-lineup {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 32px;
+  animation: interstitialFadeUp 0.5s ease-out;
+}
+
+.interstitial-lineup-header {
+  font-family: var(--font-retro);
+  font-size: 12px;
+  color: var(--text-gold);
+  letter-spacing: 4px;
+  margin-bottom: 32px;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+}
+
+.interstitial-lineup-track {
+  width: 100%;
+  max-width: 900px;
+  overflow: hidden;
+}
+
+.interstitial-lineup-slider {
+  display: flex;
+  gap: 16px;
+  transition: transform 0.6s ease-in-out;
+}
+
+.interstitial-lineup-card {
+  flex: 0 0 204px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  overflow: hidden;
+  opacity: 0.4;
+  transform: scale(0.95);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.interstitial-lineup-card.active {
+  opacity: 1;
+  transform: scale(1);
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+}
+
+.interstitial-lineup-thumb {
+  width: 100%;
+  height: 115px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.interstitial-lineup-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.interstitial-lineup-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-secondary);
+}
+
+.interstitial-lineup-info {
+  padding: 10px 12px;
+}
+
+.interstitial-lineup-time {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--accent-cyan);
+  margin-bottom: 4px;
+}
+
+.interstitial-lineup-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.interstitial-lineup-type {
+  font-family: var(--font-retro);
+  font-size: 8px;
+  color: var(--text-gold);
+  letter-spacing: 2px;
+}
+
+/* ─ Program Spotlight ─────────────────────────────── */
+.interstitial-spotlight {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  position: relative;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.interstitial-spotlight.visible {
+  opacity: 1;
+}
+
+.interstitial-spotlight-backdrop {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 65%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.interstitial-spotlight-backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.5;
+  mask-image: linear-gradient(to right, transparent, black 30%);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 30%);
+}
+
+.interstitial-spotlight-panel {
+  position: relative;
+  z-index: 2;
+  width: 45%;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  animation: interstitialFadeUp 0.5s ease-out;
+}
+
+.interstitial-spotlight-time {
+  font-family: var(--font-retro);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  letter-spacing: 2px;
+}
+
+.interstitial-spotlight-title {
+  font-family: var(--font-retro);
+  font-size: 20px;
+  color: var(--text-primary);
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+
+.interstitial-spotlight-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.interstitial-spotlight-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.interstitial-spotlight-genres {
+  font-size: 12px;
+  color: var(--text-gold);
+  letter-spacing: 1px;
+}
+
+.interstitial-spotlight-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 400px;
+}
+
+/* ─ Persistent bottom progress bar ────────────────── */
+.interstitial-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  z-index: 20;
+}
+
+.interstitial-progress-fill {
+  height: 100%;
+  background: var(--accent-cyan);
+  transition: width 1s linear;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+}
+
+/* ─ Mini countdown corner ─────────────────────────── */
+.interstitial-mini-countdown {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  font-family: var(--font-retro);
+  font-size: 14px;
+  color: var(--accent-cyan);
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+  z-index: 20;
+  opacity: 0.7;
+}
+
+/* ── Credits / Coming Up Next Overlay ──────────── */
+.credits-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  padding: 24px;
+  pointer-events: none;
+  animation: credits-slide-up 0.6s ease-out;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.5) 50%, transparent 100%);
+}
+
+@keyframes credits-slide-up {
+  from { opacity: 0; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.credits-overlay-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 8px;
+  padding: 20px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.credits-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.credits-label {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-gold);
+  text-transform: uppercase;
+}
+
+.credits-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.credits-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.credits-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.credits-time {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--accent-cyan);
+}
+
+.credits-countdown {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--text-gold);
+}
+
+.credits-backdrop {
+  width: 180px;
+  height: 100px;
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 600px) {
+  .credits-overlay { padding: 12px; }
+  .credits-overlay-content { padding: 14px 16px; gap: 12px; }
+  .credits-title { font-size: 14px; }
+  .credits-backdrop { width: 120px; height: 68px; }
+}
+
+@media (max-width: 380px) {
+  .credits-backdrop { display: none; }
+}
+
 /* ── Controls Container (right side) ────────────────── */
 .player-controls-right {
   position: absolute;
@@ -1486,6 +2013,32 @@
     font-size: 32px;
   }
 
+  /* Interstitial mobile overrides */
+  .interstitial-ident-number { font-size: 32px; }
+  .interstitial-ident-name { font-size: 14px; letter-spacing: 2px; }
+
+  .interstitial-hero { padding: 20px; gap: 8px; }
+  .interstitial-hero-label { font-size: 9px; letter-spacing: 2px; }
+  .interstitial-hero-title { font-size: 16px; max-width: 90vw; }
+  .interstitial-hero-subtitle { font-size: 12px; }
+  .interstitial-hero-countdown-wrap { width: 130px; height: 130px; }
+  .interstitial-hero-countdown { font-size: 24px; }
+  .interstitial-hero-description { font-size: 11px; max-width: 90vw; -webkit-line-clamp: 2; }
+
+  .interstitial-lineup { padding: 20px; }
+  .interstitial-lineup-header { font-size: 9px; letter-spacing: 2px; margin-bottom: 20px; }
+  .interstitial-lineup-card { flex: 0 0 160px; }
+  .interstitial-lineup-thumb { height: 90px; }
+  .interstitial-lineup-time { font-size: 8px; }
+  .interstitial-lineup-title { font-size: 11px; }
+
+  .interstitial-spotlight-panel { width: 60%; padding: 24px 20px; }
+  .interstitial-spotlight-backdrop { width: 55%; }
+  .interstitial-spotlight-title { font-size: 16px; }
+  .interstitial-spotlight-description { font-size: 11px; -webkit-line-clamp: 3; max-width: 90vw; }
+
+  .interstitial-mini-countdown { top: 12px; right: 12px; font-size: 11px; }
+
   .player-quality-btn {
     bottom: 12px;
     right: 12px;
@@ -1565,6 +2118,25 @@
     right: 8px;
     left: 8px;
   }
+
+  /* Interstitial small mobile overrides */
+  .interstitial-ident-number { font-size: 24px; }
+  .interstitial-ident-name { font-size: 11px; }
+  .interstitial-hero-title { font-size: 14px; }
+  .interstitial-hero-countdown-wrap { width: 110px; height: 110px; }
+  .interstitial-hero-countdown { font-size: 20px; }
+  .interstitial-hero-description { display: none; }
+
+  .interstitial-lineup-card { flex: 0 0 140px; }
+  .interstitial-lineup-thumb { height: 78px; }
+
+  /* On very small screens, spotlight goes full-width text over image */
+  .interstitial-spotlight-panel { width: 100%; padding: 20px 16px; }
+  .interstitial-spotlight-backdrop { width: 100%; opacity: 0.3; }
+  .interstitial-spotlight-title { font-size: 14px; }
+  .interstitial-spotlight-description { -webkit-line-clamp: 2; }
+
+  .interstitial-mini-countdown { font-size: 10px; top: 8px; right: 8px; }
 }
 
 /* ── Touch Device Optimizations ──────────────────── */
@@ -1794,6 +2366,24 @@
     font-size: 28px;
     margin-top: 8px;
   }
+
+  /* Interstitial landscape overrides */
+  .interstitial-ident-number { font-size: 28px; }
+  .interstitial-ident-name { font-size: 12px; }
+  .interstitial-hero { padding: 16px; gap: 6px; }
+  .interstitial-hero-label { font-size: 8px; }
+  .interstitial-hero-title { font-size: 14px; }
+  .interstitial-hero-countdown-wrap { width: 100px; height: 100px; margin-top: 4px; }
+  .interstitial-hero-countdown { font-size: 18px; }
+  .interstitial-hero-description { display: none; }
+  .interstitial-lineup { padding: 16px; }
+  .interstitial-lineup-header { font-size: 8px; margin-bottom: 12px; }
+  .interstitial-lineup-card { flex: 0 0 150px; }
+  .interstitial-lineup-thumb { height: 84px; }
+  .interstitial-spotlight-panel { padding: 20px 16px; }
+  .interstitial-spotlight-title { font-size: 14px; }
+  .interstitial-spotlight-description { -webkit-line-clamp: 2; font-size: 11px; }
+  .interstitial-mini-countdown { font-size: 10px; }
 
   /* ─── Settings: side sheet instead of bottom sheet ─── */
   .player-settings-backdrop {

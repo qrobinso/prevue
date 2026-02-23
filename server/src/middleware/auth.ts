@@ -28,7 +28,8 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   // Public endpoints that never require auth
   // IPTV endpoints handle their own token-based auth internally
-  if (req.path === '/health' || req.path === '/auth/status' || req.path.startsWith('/iptv/')) {
+  // Assets (background music, etc.) are public static files
+  if (req.path === '/health' || req.path === '/auth/status' || req.path.startsWith('/docs') || req.path.startsWith('/iptv/') || req.path.startsWith('/assets/')) {
     next();
     return;
   }

@@ -121,6 +121,7 @@ export interface ScheduleProgram {
   banner_url: string | null;
   year: number | null;
   rating: string | null;
+  resolution: string | null;
   description: string | null;
 }
 
@@ -167,6 +168,7 @@ export interface JellyfinItem {
   };
   Tags?: string[];
   People?: { Name: string; Type: string }[];  // Actors, Directors, etc.
+  MediaSources?: { MediaStreams?: { Type?: string; Width?: number; Height?: number }[] }[];
 }
 
 export interface JellyfinLibrary {

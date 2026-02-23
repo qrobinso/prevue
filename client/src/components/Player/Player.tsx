@@ -15,7 +15,8 @@ import {
 } from '../../services/playbackHandoff';
 import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset } from '../Settings/DisplaySettings';
 import InfoOverlay from './InfoOverlay';
-import NextUpCard from './NextUpCard';
+import CreditsOverlay from './CreditsOverlay';
+import InterstitialScreen from './InterstitialScreen';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from '../Guide/audioTrackUtils';
@@ -213,6 +214,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [currentProgram, setCurrentProgram] = useState<ScheduleProgram | null>(program);
   const [nextProgram, setNextProgram] = useState<ScheduleProgram | null>(null);
   const [isInterstitial, setIsInterstitial] = useState(false);
+  const [showCreditsOverlay, setShowCreditsOverlay] = useState(false);
+  const outroStartMsRef = useRef<number | null>(null);
   // If a shared stream is already active (guide → player transition), start in the ready state
   // immediately so the TUNING screen never flashes for even one frame.
   const hasSharedStream = isStreamActive();
@@ -327,6 +330,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       setCurrentProgram(info.program);
       setNextProgram(info.next_program);
       setIsInterstitial(info.is_interstitial);
+      outroStartMsRef.current = info.outro_start_ms ?? null;
+      setShowCreditsOverlay(false);
       setServerAudioTracks(info.audio_tracks ?? []);
       const audioIdx = audioStreamIndex != null ? audioStreamIndex : (info.audio_stream_index ?? null);
       setSelectedAudioStreamIndex(audioIdx);
@@ -480,14 +485,27 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelledRef?.current) return;
           errorCountRef.current = 0; // Reset on success
+          const beginPlayback = () => {
+            if (cancelledRef?.current) return;
+            tryAutoplayMuted(video);
+            setLoading(false);
+            showOverlayBriefly();
+          };
           // Explicitly seek to startPosition — hls.js startPosition is only a hint
-          // and may not be applied if segments haven't been generated yet
+          // and may not be applied if segments haven't been generated yet.
+          // Wait for the seek to complete before starting playback to prevent A/V desync.
           if (startPosition > 0 && Math.abs(video.currentTime - startPosition) > 1) {
             video.currentTime = startPosition;
+            const onSeeked = () => {
+              video.removeEventListener('seeked', onSeeked);
+              beginPlayback();
+            };
+            video.addEventListener('seeked', onSeeked);
+            // Safety timeout in case seeked never fires
+            setTimeout(() => { video.removeEventListener('seeked', onSeeked); beginPlayback(); }, 5000);
+          } else {
+            beginPlayback();
           }
-          tryAutoplayMuted(video);
-          setLoading(false);
-          showOverlayBriefly();
           // Apply subtitle selection via hls.js (so subtitles actually display).
           // When stream was requested with one subtitle, manifest may have a single track at index 0.
           const idx = selectedSubtitleIndexRef.current;
@@ -604,11 +622,25 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         // Use canplay (not loadedmetadata) for native HLS - iOS needs enough data before play()
         const onCanPlay = () => {
           if (cancelledRef?.current) return;
-          if (startPosition > 0) video.currentTime = startPosition;
-          tryAutoplayMuted(video);
-          setIsBuffering(false);
-          setLoading(false);
-          showOverlayBriefly();
+          video.removeEventListener('canplay', onCanPlay);
+          const startPlay = () => {
+            if (cancelledRef?.current) return;
+            tryAutoplayMuted(video);
+            setIsBuffering(false);
+            setLoading(false);
+            showOverlayBriefly();
+          };
+          if (startPosition > 0) {
+            video.currentTime = startPosition;
+            const onSeeked = () => {
+              video.removeEventListener('seeked', onSeeked);
+              startPlay();
+            };
+            video.addEventListener('seeked', onSeeked);
+            setTimeout(() => { video.removeEventListener('seeked', onSeeked); startPlay(); }, 5000);
+          } else {
+            startPlay();
+          }
         };
         video.addEventListener('canplay', onCanPlay);
       } else {
@@ -821,7 +853,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   // Sync loading artwork URL when program changes
   useEffect(() => {
     const prog = currentProgram ?? program;
-    setLoadingArtworkUrl((prog?.thumbnail_url || prog?.banner_url) ?? null);
+    const raw = (prog?.thumbnail_url || prog?.banner_url) ?? null;
+    // Request high-res artwork for the full-screen tuning overlay
+    setLoadingArtworkUrl(raw ? raw + (raw.includes('?') ? '&' : '?') + 'maxWidth=1280' : null);
   }, [currentProgram?.jellyfin_item_id, program?.jellyfin_item_id]);
 
   // Progress tracking and auto-advance
@@ -835,6 +869,15 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         // Direct DOM update — avoids re-rendering the entire Player tree every second
         if (progressBarRef.current) {
           progressBarRef.current.style.width = `${prog}%`;
+        }
+
+        // Credits overlay: show "Coming Up Next" when video reaches the outro segment
+        const video = videoRef.current;
+        if (video && outroStartMsRef.current != null && !video.paused) {
+          const posMs = video.currentTime * 1000;
+          if (posMs >= outroStartMsRef.current) {
+            setShowCreditsOverlay(true);
+          }
         }
 
         // Auto-advance when program ends. Guard with programConfirmedRef so a stale
@@ -1176,9 +1219,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         <div ref={videoContainerRef} className="player-video-host" />
       )}
 
-      {/* Interstitial "Next Up" card */}
+      {/* Interstitial screen with countdown, lineup, and spotlight */}
       {isInterstitial && currentProgram && (
-        <NextUpCard
+        <InterstitialScreen
+          channel={channel}
           program={currentProgram}
           nextProgram={nextProgram}
         />
@@ -1253,6 +1297,11 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         />
       )}
 
+      {/* Credits / Coming Up Next overlay — shown when outro segment is reached */}
+      {showCreditsOverlay && nextProgram && nextProgram.type !== 'interstitial' && !isInterstitial && (
+        <CreditsOverlay nextProgram={nextProgram} currentProgram={currentProgram} />
+      )}
+
       {/* Non-interactive progress bar — updated via ref to avoid re-renders */}
       {showOverlay && !isInterstitial && currentProgram && (
         <div className="player-progress">
@@ -1269,26 +1318,24 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       </button>
 
       {/* Fullscreen + Settings (right side) */}
-      {!isInterstitial && (
-        <div className={`player-controls-right ${showOverlay || showSettingsOpen ? 'visible' : ''}`}>
-          <button
-            type="button"
-            className={`player-control-btn player-fullscreen-btn ${isFullscreen ? 'active' : ''}`}
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          >
-            <span className="player-btn-icon">{isFullscreen ? '⤓' : '⤢'}</span>
-          </button>
-          <button
-            className={`player-control-btn player-settings-btn ${showSettingsOpen ? 'active' : ''}`}
-            onClick={toggleSettings}
-            title="Playback settings"
-          >
-            <span className="player-btn-icon">⚙</span>
-          </button>
-        </div>
-      )}
+      <div className={`player-controls-right ${showOverlay || showSettingsOpen ? 'visible' : ''}`}>
+        <button
+          type="button"
+          className={`player-control-btn player-fullscreen-btn ${isFullscreen ? 'active' : ''}`}
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          <span className="player-btn-icon">{isFullscreen ? '⤓' : '⤢'}</span>
+        </button>
+        <button
+          className={`player-control-btn player-settings-btn ${showSettingsOpen ? 'active' : ''}`}
+          onClick={toggleSettings}
+          title="Playback settings"
+        >
+          <span className="player-btn-icon">⚙</span>
+        </button>
+      </div>
 
       {/* Unified settings panel - bottom sheet on mobile, panel on desktop */}
       {showSettingsOpen && (

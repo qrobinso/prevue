@@ -30,6 +30,20 @@ function isUnratedOrNotRated(rating: string | undefined): boolean {
   return rating.toLowerCase().trim() === 'not rated';
 }
 
+/** Extract a human-readable resolution label from Jellyfin MediaSources. */
+function getResolutionLabel(item: JellyfinItem): string | null {
+  const streams = item.MediaSources?.[0]?.MediaStreams;
+  if (!Array.isArray(streams)) return null;
+  const video = streams.find(s => s.Type === 'Video');
+  if (!video?.Height) return null;
+  const h = video.Height;
+  if (h >= 2160) return '4K';
+  if (h >= 1080) return '1080p';
+  if (h >= 720) return '720p';
+  if (h >= 480) return '480p';
+  return 'SD';
+}
+
 /**
  * Tracks which items are playing at which times across all channels.
  * Used to prevent the same movie/show from playing on multiple channels simultaneously.
@@ -913,6 +927,7 @@ export class ScheduleEngine {
       banner_url: `/api/images/${item.Id}/Banner`,
       year: item.ProductionYear || null,
       rating: item.OfficialRating || null,
+      resolution: getResolutionLabel(item),
       description: item.Overview || null,
     };
   }
@@ -945,6 +960,7 @@ export class ScheduleEngine {
       banner_url: nextItem ? `/api/images/${nextItem.Id}/Banner` : null,
       year: null,
       rating: null,
+      resolution: null,
       description: null,
     };
   }

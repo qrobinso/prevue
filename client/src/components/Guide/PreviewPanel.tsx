@@ -22,6 +22,7 @@ import {
   setSharedItemId, setSharedOwner,
   isStreamActive, destroySharedStream, reconfigureBuffers,
 } from '../../services/sharedVideo';
+import InterstitialScreen from '../Player/InterstitialScreen';
 import './Guide.css';
 
 /** Delay before starting preview stream (user may be browsing) */
@@ -309,8 +310,28 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (!cancelled.current) {
           video.muted = true; // iOS: autoplay requires muted
-          video.play().catch(() => {});
-          setIsBuffering(false);
+          const beginPlayback = () => {
+            if (cancelled.current) return;
+            video.play().catch(() => {});
+            setIsBuffering(false);
+          };
+          // Explicitly seek — hls.js startPosition is only a hint and may
+          // not be applied if segments haven't been generated yet.
+          if (startPosition > 0 && Math.abs(video.currentTime - startPosition) > 1) {
+            video.currentTime = startPosition;
+            const onSeeked = () => {
+              video.removeEventListener('seeked', onSeeked);
+              beginPlayback();
+            };
+            video.addEventListener('seeked', onSeeked);
+            // Safety timeout in case seeked never fires (e.g. edge cases)
+            setTimeout(() => {
+              video.removeEventListener('seeked', onSeeked);
+              beginPlayback();
+            }, 3000);
+          } else {
+            beginPlayback();
+          }
           const idx = selectedSubtitleIndexRef.current;
           if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
             hls.subtitleDisplay = idx !== null && idx >= 0;
@@ -346,10 +367,23 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           video.removeEventListener('canplay', canplayHandler);
           canplayHandler = null;
         }
-        if (startPosition > 0) video.currentTime = startPosition;
         video.muted = true; // iOS: autoplay requires muted
-        setIsBuffering(false);
-        video.play().catch(() => {});
+        const startPlay = () => {
+          if (cancelled.current) return;
+          setIsBuffering(false);
+          video.play().catch(() => {});
+        };
+        if (startPosition > 0) {
+          video.currentTime = startPosition;
+          const onSeeked = () => {
+            video.removeEventListener('seeked', onSeeked);
+            startPlay();
+          };
+          video.addEventListener('seeked', onSeeked);
+          setTimeout(() => { video.removeEventListener('seeked', onSeeked); startPlay(); }, 3000);
+        } else {
+          startPlay();
+        }
       };
       video.src = info.stream_url;
       video.addEventListener('canplay', canplayHandler);
@@ -587,7 +621,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
 
   // When channel/program changes: show overlay
   useEffect(() => {
-    if (!channel || !program || program.type === 'interstitial') return;
+    if (!channel || !program) return;
     setOverlayVisible(true);
     lastTapTimeRef.current = 0; // Reset so first tap after channel change isn't mistaken for double-tap
   }, [channel?.id, program?.jellyfin_item_id, program?.type]);
@@ -689,7 +723,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
 
   const handlePreviewTap = useCallback(
     (e: React.MouseEvent | React.KeyboardEvent) => {
-      if (!channel || !program || program.type === 'interstitial') return;
+      if (!channel || !program) return;
       if ('key' in e && e.key !== 'Enter' && e.key !== ' ') return;
       if ('target' in e && e.target instanceof Node) {
         const target = e.target as HTMLElement;
@@ -757,6 +791,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       <div className="preview-video-container">
         {showVideo && (
           <div ref={videoContainerRef} className="preview-video-host" />
+        )}
+        {/* Interstitial screen when in a gap between programs */}
+        {program && program.type === 'interstitial' && channel && (
+          <InterstitialScreen
+            channel={channel}
+            program={program}
+            nextProgram={channel.next_program ?? null}
+          />
         )}
         {/* Loading overlay (same as full-screen player): banner in background + TUNING text */}
         {!videoReady && !videoError && program && program.type !== 'interstitial' && (
@@ -992,7 +1034,10 @@ function getPreviewArtworkSources(program: ScheduleProgram): string[] {
     program.thumbnail_url,
     program.banner_url,
   ];
-  return candidates.filter((value): value is string => Boolean(value));
+  // Request high-res artwork for the tuning overlay
+  return candidates
+    .filter((value): value is string => Boolean(value))
+    .map(url => url + (url.includes('?') ? '&' : '?') + 'maxWidth=1280');
 }
 
 function applyArtworkFallback(img: HTMLImageElement, sources: string[]): void {

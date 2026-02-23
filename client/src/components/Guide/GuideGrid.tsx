@@ -6,6 +6,8 @@ import {
   getGuideColorMovie,
   getGuideColorEpisode,
   getGuideRatings,
+  getGuideYear,
+  getGuideResolution,
   getGuideArtwork,
   getClockFormat,
   type ClockFormat,
@@ -109,6 +111,8 @@ interface GuideProgramCellProps {
   artworkThreshold: number;
   artworkSize: number;
   showRatings: boolean;
+  showYear: boolean;
+  showResolution: boolean;
   programTitleFontSize: number;
   guideColors: { enabled: boolean; movie: string; episode: string };
   scrollLeft: number;
@@ -129,6 +133,8 @@ const GuideProgramCell = memo(function GuideProgramCell({
   artworkThreshold,
   artworkSize,
   showRatings,
+  showYear,
+  showResolution,
   programTitleFontSize,
   guideColors,
   scrollLeft,
@@ -182,8 +188,18 @@ const GuideProgramCell = memo(function GuideProgramCell({
         <div className="guide-program-text">
           <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
             {prog.title}
-            {showRatings && prog.rating && prog.type !== 'interstitial' && (
-              <span className="guide-rating-badge">{prog.rating}</span>
+            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution) && (
+              <>
+                {showRatings && prog.rating && (
+                  <span className="guide-rating-badge">{prog.rating}</span>
+                )}
+                {showYear && prog.year && (
+                  <span className="guide-year-badge">{prog.year}</span>
+                )}
+                {showResolution && prog.resolution && (
+                  <span className="guide-resolution-badge">{prog.resolution}</span>
+                )}
+              </>
             )}
           </span>
           {showSubtitle && (
@@ -214,6 +230,8 @@ interface GuideRowProps {
   artworkThreshold: number;
   artworkSize: number;
   showRatings: boolean;
+  showYear: boolean;
+  showResolution: boolean;
   programTitleFontSize: number;
   guideColors: { enabled: boolean; movie: string; episode: string };
   scrollLeft: number;
@@ -240,6 +258,8 @@ const GuideRow = memo(function GuideRow({
   artworkThreshold,
   artworkSize,
   showRatings,
+  showYear,
+  showResolution,
   programTitleFontSize,
   guideColors,
   scrollLeft,
@@ -272,6 +292,8 @@ const GuideRow = memo(function GuideRow({
             artworkThreshold={artworkThreshold}
             artworkSize={artworkSize}
             showRatings={showRatings}
+            showYear={showYear}
+            showResolution={showResolution}
             programTitleFontSize={programTitleFontSize}
             guideColors={guideColors}
             scrollLeft={scrollLeft}
@@ -313,6 +335,8 @@ function GuideGrid({
     episode: getGuideColorEpisode(),
   }));
   const [showRatings, setShowRatings] = useState(getGuideRatings);
+  const [showYear, setShowYear] = useState(getGuideYear);
+  const [showResolution, setShowResolution] = useState(getGuideResolution);
   const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
 
@@ -324,18 +348,22 @@ function GuideGrid({
         episode: getGuideColorEpisode(),
       });
     };
-    const refreshRatings = () => setShowRatings(getGuideRatings());
+    const refreshBadges = () => {
+      setShowRatings(getGuideRatings());
+      setShowYear(getGuideYear());
+      setShowResolution(getGuideResolution());
+    };
     const refreshArtwork = () => setShowArtwork(getGuideArtwork());
     const refreshClockFormat = () => setClockFormatState(getClockFormat());
 
     window.addEventListener('guidecolorschange', refreshGuideColors);
-    window.addEventListener('guideratingschange', refreshRatings);
+    window.addEventListener('guidebadgeschange', refreshBadges);
     window.addEventListener('guideartworkchange', refreshArtwork);
     window.addEventListener('clockformatchange', refreshClockFormat);
 
     return () => {
       window.removeEventListener('guidecolorschange', refreshGuideColors);
-      window.removeEventListener('guideratingschange', refreshRatings);
+      window.removeEventListener('guidebadgeschange', refreshBadges);
       window.removeEventListener('guideartworkchange', refreshArtwork);
       window.removeEventListener('clockformatchange', refreshClockFormat);
     };
@@ -574,6 +602,8 @@ function GuideGrid({
                   artworkThreshold={artworkThreshold}
                   artworkSize={artworkSize}
                   showRatings={showRatings}
+                  showYear={showYear}
+                  showResolution={showResolution}
                   programTitleFontSize={programTitleFontSize}
                   guideColors={guideColors}
                   scrollLeft={scrollLeftRef.current}

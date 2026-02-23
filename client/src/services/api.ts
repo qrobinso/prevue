@@ -271,6 +271,12 @@ export async function getProgramDetails(itemId: string): Promise<ProgramDetails>
   return request(`/schedule/item/${encodeURIComponent(itemId)}`);
 }
 
+// ─── Assets ──────────────────────────────────────────
+
+export async function getBackgroundMusicList(): Promise<string[]> {
+  return request('/assets/music-list');
+}
+
 // ─── Playback ─────────────────────────────────────────
 
 export interface QualityParams {

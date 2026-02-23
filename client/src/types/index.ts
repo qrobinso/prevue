@@ -35,6 +35,7 @@ export interface ScheduleProgram {
   banner_url: string | null;
   year: number | null;
   rating: string | null;
+  resolution: string | null;
   description: string | null;
 }
 
@@ -73,6 +74,8 @@ export interface PlaybackInfo {
   subtitle_tracks?: SubtitleTrackInfo[];
   /** Preferred subtitle track index from user settings (null = off). */
   subtitle_index?: number | null;
+  /** Media position (ms into the file) where outro/credits begin, or null if unavailable. */
+  outro_start_ms?: number | null;
 }
 
 export interface Settings {
