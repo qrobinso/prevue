@@ -265,6 +265,9 @@ export async function getCurrentProgram(channelId: number): Promise<{
 export interface ProgramDetails {
   overview: string | null;
   genres?: string[];
+  communityRating?: number;
+  studios?: string[];
+  cast?: string[];
 }
 
 export async function getProgramDetails(itemId: string): Promise<ProgramDetails> {

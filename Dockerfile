@@ -29,6 +29,7 @@ RUN npm ci --omit=dev
 
 COPY --from=client-build /app/client/dist ./client/dist
 COPY --from=server-build /app/server/dist ./server/dist
+COPY server/src/assets ./server/assets
 
 RUN mkdir -p /app/data
 

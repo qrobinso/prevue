@@ -1222,6 +1222,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       {/* Interstitial screen with countdown, lineup, and spotlight */}
       {isInterstitial && currentProgram && (
         <InterstitialScreen
+          key={channel.id}
           channel={channel}
           program={currentProgram}
           nextProgram={nextProgram}

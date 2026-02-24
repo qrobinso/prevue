@@ -137,7 +137,10 @@ startTranscodeIdleCleanup(app);
 
 // Serve background music assets and list available tracks
 import fs from 'fs';
-const bgMusicPath = path.join(__dirname, '../src/assets/backgroundMusic');
+// Resolve assets path for both dev (src/) and production (dist/) layouts
+const bgMusicPath = fs.existsSync(path.join(__dirname, '../src/assets/backgroundMusic'))
+  ? path.join(__dirname, '../src/assets/backgroundMusic')   // dev: running from src/
+  : path.join(__dirname, '../assets/backgroundMusic');       // prod: assets copied alongside dist/
 app.use('/api/assets/music', express.static(bgMusicPath));
 app.get('/api/assets/music-list', (_req, res) => {
   try {

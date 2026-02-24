@@ -196,7 +196,7 @@ export class JellyfinClient {
   private async fetchItems(itemType: string, onProgress?: (message: string) => void): Promise<BaseItemDto[]> {
     const items: BaseItemDto[] = [];
     let startIndex = 0;
-    const limit = 1000;
+    const limit = 7500;
     const api = this.getApi();
     const itemsApi = getItemsApi(api);
     const userId = this.getUserId();
@@ -328,12 +328,15 @@ export class JellyfinClient {
   /**
    * Get item details (e.g. Overview) by ID. Uses cache first, then fetches from Jellyfin if needed.
    */
-  async getItemDetails(itemId: string): Promise<{ overview: string | null; genres?: string[] }> {
+  async getItemDetails(itemId: string): Promise<{ overview: string | null; genres?: string[]; communityRating?: number; studios?: string[]; cast?: string[] }> {
     const cached = this.libraryItems.get(itemId);
     if (cached) {
       return {
         overview: cached.Overview ?? null,
         genres: cached.Genres ?? undefined,
+        communityRating: cached.CommunityRating ?? undefined,
+        studios: cached.Studios?.map(s => s.Name).slice(0, 2) ?? undefined,
+        cast: cached.People?.filter(p => p.Type === 'Actor').slice(0, 3).map(p => p.Name) ?? undefined,
       };
     }
     const api = this.getApi();
@@ -343,7 +346,7 @@ export class JellyfinClient {
       const response = await itemsApi.getItems({
         userId,
         ids: [itemId],
-        fields: ['Overview', 'Genres'],
+        fields: ['Overview', 'Genres', 'People', 'Studios', 'CommunityRating'] as any,
       });
       const item = response.data.Items?.[0] as JellyfinItem | undefined;
       if (!item) {
@@ -352,6 +355,9 @@ export class JellyfinClient {
       return {
         overview: item.Overview ?? null,
         genres: item.Genres ?? undefined,
+        communityRating: item.CommunityRating ?? undefined,
+        studios: item.Studios?.map(s => s.Name).slice(0, 2) ?? undefined,
+        cast: item.People?.filter(p => p.Type === 'Actor').slice(0, 3).map(p => p.Name) ?? undefined,
       };
     } catch (err) {
       console.error('[Jellyfin] getItemDetails failed:', err);

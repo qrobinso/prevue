@@ -166,6 +166,7 @@ export interface JellyfinItem {
     IsFavorite?: boolean;
     LastPlayedDate?: string;
   };
+  CommunityRating?: number;    // User community rating (0-10 scale)
   Tags?: string[];
   People?: { Name: string; Type: string }[];  // Actors, Directors, etc.
   MediaSources?: { MediaStreams?: { Type?: string; Width?: number; Height?: number }[] }[];

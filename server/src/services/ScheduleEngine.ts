@@ -14,6 +14,8 @@ const COOLDOWN_HOURS = 24; // Avoid reusing same program within this many hours
 const COOLDOWN_HOURS_MOVIE_CHANNEL = 8; // Shorter cooldown for movie-only channels = more back-to-back content
 const MOVIE_POOL_SIZE = 20; // Pick randomly from top N candidates (more = more variety)
 const MIN_REPEAT_GAP_MS = 2 * 60 * 60 * 1000; // Don't re-schedule same episode within 2 hours of schedule time
+const GENRE_LOOKBACK = 3; // How many recent items to check for genre saturation
+const MAX_SERIES_RUNS_PER_BLOCK = 3; // No series gets more than 3 episode runs in a 24h block
 
 /** Kids/family ratings (US); everything else is treated as adult so we don't mix with kids. */
 const KIDS_RATINGS = new Set([
@@ -45,14 +47,79 @@ function getResolutionLabel(item: JellyfinItem): string | null {
 }
 
 /**
+ * Score how "fresh" an item's genres are relative to recently scheduled content.
+ * Returns 0.0 (all genres recently seen) to 1.0 (completely fresh genres).
+ */
+function genreFreshnessScore(itemGenres: string[] | undefined, recentGenres: string[][]): number {
+  if (!itemGenres || itemGenres.length === 0) return 0.5;
+  if (recentGenres.length === 0) return 1.0;
+
+  const recentFlat = new Map<string, number>();
+  for (const genreList of recentGenres) {
+    for (const g of genreList) {
+      recentFlat.set(g.toLowerCase(), (recentFlat.get(g.toLowerCase()) || 0) + 1);
+    }
+  }
+  if (recentFlat.size === 0) return 1.0;
+
+  let overlapCount = 0;
+  for (const g of itemGenres) {
+    if (recentFlat.has(g.toLowerCase())) overlapCount++;
+  }
+  return 1.0 - (overlapCount / itemGenres.length);
+}
+
+/**
+ * Score how well an item's duration fits a remaining time gap.
+ * Returns 0.0 (exceeds gap) to 1.0 (fills 90-100% of gap).
+ */
+function durationFitScore(durationMs: number, remainingMs: number): number {
+  if (durationMs <= 0 || remainingMs <= 0) return 0.0;
+  if (durationMs > remainingMs) return 0.0;
+  const ratio = durationMs / remainingMs;
+  if (ratio >= 0.9) return 1.0;
+  if (ratio >= 0.7) return 0.8;
+  if (ratio >= 0.5) return 0.6;
+  return 0.3 + (ratio * 0.6);
+}
+
+/**
+ * Compute a selection weight for an item combining community rating and genre freshness.
+ */
+function computeSelectionWeight(
+  item: JellyfinItem,
+  recentGenres: string[][],
+  usedInBlock: boolean,
+  inCooldown: boolean
+): number {
+  let weight = 1.0;
+  const rating = item.CommunityRating ?? 6.0;
+  weight *= 0.7 + (rating / 10.0) * 0.6; // Range: 0.7 to 1.3
+  const freshness = genreFreshnessScore(item.Genres, recentGenres);
+  weight *= 0.8 + freshness * 0.4; // Range: 0.8 to 1.2
+  if (usedInBlock) weight *= 0.5;
+  if (inCooldown) weight *= 0.6;
+  return weight;
+}
+
+/** Weighted random selection from a list using provided weights. */
+function weightedRandomPick<T>(items: T[], weights: number[], rng: () => number): T {
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  let roll = rng() * totalWeight;
+  for (let i = 0; i < items.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return items[i];
+  }
+  return items[items.length - 1];
+}
+
+/**
  * Tracks which items are playing at which times across all channels.
  * Used to prevent the same movie/show from playing on multiple channels simultaneously.
  */
 interface GlobalScheduleTracker {
   // Map of itemId -> array of [startMs, endMs] time ranges when it's scheduled
   itemSlots: Map<string, Array<[number, number]>>;
-  // Map of seriesId -> array of [startMs, endMs] — prevents same show on multiple channels simultaneously
-  seriesSlots: Map<string, Array<[number, number]>>;
 }
 
 export class ScheduleEngine {
@@ -69,7 +136,7 @@ export class ScheduleEngine {
    * This is used to prevent duplicate content playing simultaneously.
    */
   private buildGlobalTracker(blockStart: Date, blockEnd: Date): GlobalScheduleTracker {
-    const tracker: GlobalScheduleTracker = { itemSlots: new Map(), seriesSlots: new Map() };
+    const tracker: GlobalScheduleTracker = { itemSlots: new Map() };
     const allBlocks = queries.getAllScheduleBlocksInRange(
       this.db,
       blockStart.toISOString(),
@@ -86,14 +153,6 @@ export class ScheduleEngine {
         const existing = tracker.itemSlots.get(prog.jellyfin_item_id) || [];
         existing.push([startMs, endMs]);
         tracker.itemSlots.set(prog.jellyfin_item_id, existing);
-
-        // Also track by series so the same show can't air on two channels simultaneously
-        const item = this.jellyfin.getItem(prog.jellyfin_item_id);
-        if (item?.SeriesId) {
-          const seriesExisting = tracker.seriesSlots.get(item.SeriesId) || [];
-          seriesExisting.push([startMs, endMs]);
-          tracker.seriesSlots.set(item.SeriesId, seriesExisting);
-        }
       }
     }
 
@@ -101,19 +160,15 @@ export class ScheduleEngine {
   }
 
   /**
-   * Check if an item would conflict with existing schedules (playing at the same time on another channel).
-   * When skipSeriesCheck is true, only the exact same episode/movie is blocked — different episodes
-   * of the same series are allowed.  Used as a fallback when strict series-level exclusion leaves gaps.
+   * Check if the exact same item would conflict with existing schedules
+   * (same episode/movie playing at the same time on another channel).
    */
   private wouldConflict(
     tracker: GlobalScheduleTracker,
     itemId: string,
     startMs: number,
     endMs: number,
-    seriesId?: string,
-    skipSeriesCheck = false
   ): boolean {
-    // Item-level check (exact same episode/movie)
     const slots = tracker.itemSlots.get(itemId);
     if (slots) {
       for (const [existingStart, existingEnd] of slots) {
@@ -122,19 +177,6 @@ export class ScheduleEngine {
         }
       }
     }
-
-    // Series-level check (different episodes of the same show)
-    if (!skipSeriesCheck && seriesId) {
-      const seriesSlotsList = tracker.seriesSlots.get(seriesId);
-      if (seriesSlotsList) {
-        for (const [existingStart, existingEnd] of seriesSlotsList) {
-          if (startMs < existingEnd && endMs > existingStart) {
-            return true;
-          }
-        }
-      }
-    }
-
     return false;
   }
 
@@ -146,17 +188,10 @@ export class ScheduleEngine {
     itemId: string,
     startMs: number,
     endMs: number,
-    seriesId?: string
   ): void {
     const existing = tracker.itemSlots.get(itemId) || [];
     existing.push([startMs, endMs]);
     tracker.itemSlots.set(itemId, existing);
-
-    if (seriesId) {
-      const seriesExisting = tracker.seriesSlots.get(seriesId) || [];
-      seriesExisting.push([startMs, endMs]);
-      tracker.seriesSlots.set(seriesId, seriesExisting);
-    }
   }
 
   /**
@@ -227,7 +262,7 @@ export class ScheduleEngine {
     const rng = seedrandom(seed);
 
     // Create a local tracker if none provided
-    const tracker = globalTracker || { itemSlots: new Map(), seriesSlots: new Map() };
+    const tracker = globalTracker || { itemSlots: new Map() };
 
     // Items scheduled in last 24h for this channel - avoid reusing (cooldown)
     const cooldownStart = new Date(blockStart.getTime() - COOLDOWN_HOURS * 60 * 60 * 1000);
@@ -312,6 +347,8 @@ export class ScheduleEngine {
     let lastScheduledBucket: 'kids' | 'adult' | null = null;
     /** Prevent back-to-back movies on mixed channels by forcing an episode run after a movie. */
     let lastWasMovie = false;
+    /** Track genres of last N scheduled items for genre rotation. */
+    const recentGenres: string[][] = [];
 
     while (currentTime.getTime() < blockEndMs && failedAttempts < MAX_FAILED_ATTEMPTS) {
       const remainingMs = blockEndMs - currentTime.getTime();
@@ -339,28 +376,42 @@ export class ScheduleEngine {
           ? seriesIds
           : seriesIds.filter(s => seriesBucket.get(s) === lastScheduledBucket);
         const candidateSeriesIds = seriesIdsInBucket.length > 0 ? seriesIdsInBucket : seriesIds;
-        // Prefer series not in 24h cooldown, avoid back-to-back same series
-        // Sort by least-used-in-block first, then filter for cooldown/last-item
-        const sortedByUsage = [...candidateSeriesIds].sort((a, b) =>
+        // Filter out series that have hit the max runs cap for this block
+        const eligibleSeriesIds = candidateSeriesIds.filter(s =>
+          (seriesUsedCount.get(s) || 0) < MAX_SERIES_RUNS_PER_BLOCK
+        );
+        const poolForSelection = eligibleSeriesIds.length > 0 ? eligibleSeriesIds : candidateSeriesIds;
+        // Sort by least-used-in-block first
+        const sortedByUsage = [...poolForSelection].sort((a, b) =>
           (seriesUsedCount.get(a) || 0) - (seriesUsedCount.get(b) || 0)
         );
         const minUsage = seriesUsedCount.get(sortedByUsage[0]) || 0;
-        // Pick from the least-used tier (series with the lowest usage count)
+        // Pick from the least-used tier (exact minimum only for tighter balancing)
         const leastUsedTier = sortedByUsage.filter(s =>
-          (seriesUsedCount.get(s) || 0) <= minUsage + 1
+          (seriesUsedCount.get(s) || 0) === minUsage
         );
         const preferred = leastUsedTier.filter(s =>
           s !== lastItemId && !seriesInCooldown.has(s)
         );
         const fallback = leastUsedTier.filter(s => s !== lastItemId);
-        const seriesId = this.pickRandom(
-          preferred.length > 0 ? preferred : fallback.length > 0 ? fallback : candidateSeriesIds,
-          candidateSeriesIds,
-          rng
-        );
+        const seriesCandidates = preferred.length > 0 ? preferred : fallback.length > 0 ? fallback : poolForSelection;
+        // Genre-aware selection: score by genre freshness, pick from top half
+        const scoredSeries = seriesCandidates.map(sid => {
+          const eps = seriesMap.get(sid) || [];
+          const firstEp = eps[0];
+          return { sid, freshness: genreFreshnessScore(firstEp?.Genres, recentGenres) };
+        });
+        scoredSeries.sort((a, b) => b.freshness - a.freshness);
+        const topHalf = scoredSeries.slice(0, Math.max(1, Math.ceil(scoredSeries.length / 2)));
+        const seriesId = topHalf[Math.floor(rng() * topHalf.length)].sid;
         const episodes = seriesMap.get(seriesId) || [];
         if (episodes.length > 0) {
-          const runLength = EPISODE_RUN_LENGTH_MIN + Math.floor(rng() * (EPISODE_RUN_LENGTH_MAX - EPISODE_RUN_LENGTH_MIN + 1));
+          let runLength = EPISODE_RUN_LENGTH_MIN + Math.floor(rng() * (EPISODE_RUN_LENGTH_MAX - EPISODE_RUN_LENGTH_MIN + 1));
+          // Dynamic run length: reduce if remaining time is tight
+          const avgEpDur = episodes.reduce((sum, ep) => sum + this.jellyfin.getItemDurationMs(ep), 0) / episodes.length;
+          if (avgEpDur > 0 && runLength * avgEpDur > remainingMs * 0.8) {
+            runLength = Math.max(EPISODE_RUN_LENGTH_MIN, Math.floor((remainingMs * 0.8) / avgEpDur));
+          }
           let episodeIdx = seriesEpisodeIndex.get(seriesId) || 0;
           const startingIdx = episodeIdx;
 
@@ -384,7 +435,7 @@ export class ScheduleEngine {
               if (scheduledInLast24h.has(episode.Id)) continue;
 
               // Check for conflict with other channels (item-level and series-level)
-              if (this.wouldConflict(tracker, episode.Id, epStartMs, epEndMs, episode.SeriesId)) {
+              if (this.wouldConflict(tracker, episode.Id, epStartMs, epEndMs)) {
                 continue;
               }
 
@@ -410,12 +461,14 @@ export class ScheduleEngine {
               const epEndMs = epStartMs + durationMs;
               const endTime = new Date(epEndMs);
               programs.push(this.createProgram(episode, currentTime, endTime));
-              this.addToTracker(tracker, episode.Id, epStartMs, epEndMs, episode.SeriesId);
+              this.addToTracker(tracker, episode.Id, epStartMs, epEndMs);
               usedInBlock.add(episode.Id);
               lastScheduledEndMs.set(episode.Id, epEndMs);
               lastItemId = seriesId;
               lastScheduledBucket = getRatingBucket(episode.OfficialRating);
               lastWasMovie = false;
+              recentGenres.push(episode.Genres || []);
+              if (recentGenres.length > GENRE_LOOKBACK) recentGenres.shift();
               currentTime = endTime;
               // Snap to next 15-min boundary and fill gap with interstitial
               if (snap15) {
@@ -458,7 +511,7 @@ export class ScheduleEngine {
             return {
               item: i,
               duration: dur,
-              conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId),
+              conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur),
               usedBefore: usedInBlock.has(i.Id),
               tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS,
               inCooldown: scheduledInCooldown.has(i.Id),
@@ -467,10 +520,20 @@ export class ScheduleEngine {
           })
           .filter(c => !c.conflicts && !c.tooSoon)
           .sort((a, b) => {
-            // Prefer: not in cooldown > not used before > not last item > longer duration
+            // Prefer: not in cooldown > not used before > not last item > genre freshness > duration fit
             if (a.inCooldown !== b.inCooldown) return a.inCooldown ? 1 : -1;
             if (a.usedBefore !== b.usedBefore) return a.usedBefore ? 1 : -1;
             if (a.isLastItem !== b.isLastItem) return a.isLastItem ? 1 : -1;
+            // Genre freshness: prefer movies from different genres than recent content
+            const aFresh = genreFreshnessScore(a.item.Genres, recentGenres);
+            const bFresh = genreFreshnessScore(b.item.Genres, recentGenres);
+            if (Math.abs(aFresh - bFresh) > 0.3) return bFresh - aFresh;
+            // Duration fit: when less than 4h remain, prefer content that fits the gap
+            if (remainingMs < 4 * 60 * 60 * 1000) {
+              const aFit = durationFitScore(a.duration, remainingMs);
+              const bFit = durationFitScore(b.duration, remainingMs);
+              if (Math.abs(aFit - bFit) > 0.2) return bFit - aFit;
+            }
             return b.duration - a.duration;
           });
 
@@ -488,7 +551,7 @@ export class ScheduleEngine {
               return {
                 item: i,
                 duration: dur,
-                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId),
+                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur),
                 usedBefore: usedInBlock.has(i.Id),
                 tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS,
                 inCooldown: scheduledInCooldown.has(i.Id),
@@ -504,20 +567,25 @@ export class ScheduleEngine {
             });
         }
         if (movieCandidatesToUse.length > 0) {
-          // Pick from top N candidates for more variety (weighted toward fresher content)
+          // Pick from top N candidates using weighted random (genre freshness + community rating)
           const topCandidates = movieCandidatesToUse.slice(0, Math.min(MOVIE_POOL_SIZE, movieCandidatesToUse.length));
-          const selected = topCandidates[Math.floor(rng() * topCandidates.length)];
+          const weights = topCandidates.map(c =>
+            computeSelectionWeight(c.item, recentGenres, c.usedBefore, c.inCooldown)
+          );
+          const selected = weightedRandomPick(topCandidates, weights, rng);
           
           const endMs = startMs + selected.duration;
           const endTime = new Date(endMs);
           
           programs.push(this.createProgram(selected.item, currentTime, endTime));
-          this.addToTracker(tracker, selected.item.Id, startMs, endMs, selected.item.SeriesId);
+          this.addToTracker(tracker, selected.item.Id, startMs, endMs);
           usedInBlock.add(selected.item.Id);
           lastScheduledEndMs.set(selected.item.Id, endMs);
           lastItemId = selected.item.Id;
           lastScheduledBucket = getRatingBucket(selected.item.OfficialRating);
           lastWasMovie = true;
+          recentGenres.push(selected.item.Genres || []);
+          if (recentGenres.length > GENRE_LOOKBACK) recentGenres.shift();
           currentTime = endTime;
           // Snap to next 15-min boundary and fill gap with interstitial
           if (snap15) {
@@ -536,10 +604,18 @@ export class ScheduleEngine {
         failedAttempts++;
         // Last resort: try scheduling with fully relaxed constraints (any rating, allow cooldown)
         if (failedAttempts >= MAX_FAILED_ATTEMPTS / 2) {
-          // After 75% of max attempts, also skip series-level conflict checks so different
-          // episodes of the same show can air on multiple channels simultaneously
-          const desperateMode = failedAttempts >= Math.floor(MAX_FAILED_ATTEMPTS * 0.75);
           const allItemsForRelaxed = [...standaloneItems, ...items.filter(i => i.Type === 'Episode')];
+
+          // Smart gap detection: check if ANY content physically fits before wasting iterations
+          const anyFits = allItemsForRelaxed.some(i => {
+            const dur = this.jellyfin.getItemDurationMs(i);
+            return dur > 0 && dur <= remainingMs;
+          });
+          if (!anyFits) {
+            // No content fits the remaining time — skip to gap filling
+            break;
+          }
+
           const relaxedCandidates = allItemsForRelaxed
             .map(i => {
               const dur = this.jellyfin.getItemDurationMs(i);
@@ -547,14 +623,17 @@ export class ScheduleEngine {
               return {
                 item: i,
                 duration: dur,
-                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId, desperateMode),
+                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur),
                 tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS
               };
             })
             .filter(x => x.duration > 0 && x.duration <= remainingMs && !x.conflicts)
             .sort((a, b) => {
-              // Prefer items that aren't too-soon repeats, but allow them as fallback
               if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
+              // Duration fit: prefer content that fills remaining time well
+              const aFit = durationFitScore(a.duration, remainingMs);
+              const bFit = durationFitScore(b.duration, remainingMs);
+              if (Math.abs(aFit - bFit) > 0.2) return bFit - aFit;
               return b.duration - a.duration;
             });
           const relaxed = relaxedCandidates.length > 0
@@ -564,11 +643,13 @@ export class ScheduleEngine {
             const endMs = startMs + relaxed.duration;
             const endTime = new Date(endMs);
             programs.push(this.createProgram(relaxed.item, currentTime, endTime));
-            this.addToTracker(tracker, relaxed.item.Id, startMs, endMs, relaxed.item.SeriesId);
+            this.addToTracker(tracker, relaxed.item.Id, startMs, endMs);
             usedInBlock.add(relaxed.item.Id);
             lastScheduledEndMs.set(relaxed.item.Id, endMs);
             lastItemId = relaxed.item.Id;
             lastScheduledBucket = getRatingBucket(relaxed.item.OfficialRating);
+            recentGenres.push(relaxed.item.Genres || []);
+            if (recentGenres.length > GENRE_LOOKBACK) recentGenres.shift();
             currentTime = endTime;
             // Snap to next 15-min boundary and fill gap with interstitial
             if (snap15) {
@@ -580,20 +661,29 @@ export class ScheduleEngine {
             }
             failedAttempts = 0;
           } else {
-            // No content fits: if we're in the last 30 min of the block, fill the rest with one interstitial
+            // No content fits constraints: fill remaining intelligently
             const remainingToEnd = blockEndMs - currentTime.getTime();
             if (remainingToEnd <= 30 * 60 * 1000) {
+              // Last 30 min — one interstitial to end
               programs.push(this.createInterstitial(currentTime, blockEnd, null));
               break;
             }
-            const skipEnd = new Date(currentTime.getTime() + INTERSTITIAL_FALLBACK_MS);
+            // Find the shortest content available to size the interstitial skip
+            const shortestDur = allItemsForRelaxed
+              .map(i => this.jellyfin.getItemDurationMs(i))
+              .filter(d => d > 0)
+              .sort((a, b) => a - b)[0];
+            const skipMs = shortestDur && shortestDur <= remainingToEnd
+              ? Math.min(shortestDur, remainingToEnd)
+              : INTERSTITIAL_FALLBACK_MS;
+            const skipEnd = new Date(currentTime.getTime() + skipMs);
             if (skipEnd.getTime() < blockEndMs) {
               programs.push(this.createInterstitial(currentTime, skipEnd, null));
               currentTime = skipEnd;
               lastScheduledBucket = null;
-              // Reset so the loop gets a fresh budget to find content at the new time position
-              failedAttempts = Math.floor(MAX_FAILED_ATTEMPTS / 2);
+              failedAttempts = Math.floor(MAX_FAILED_ATTEMPTS * 0.4);
             } else {
+              programs.push(this.createInterstitial(currentTime, blockEnd, null));
               break;
             }
           }
@@ -634,7 +724,7 @@ export class ScheduleEngine {
               return {
                 item: i,
                 duration: dur,
-                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId),
+                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur),
                 usedInBlock: usedInBlock.has(i.Id),
                 tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS,
                 inCooldown: scheduledInCooldown.has(i.Id)
@@ -646,6 +736,10 @@ export class ScheduleEngine {
               if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
               if (a.inCooldown !== b.inCooldown) return a.inCooldown ? 1 : -1;
               if (a.usedInBlock !== b.usedInBlock) return a.usedInBlock ? 1 : -1;
+              // Duration fit: prefer content that fills the remaining gap well
+              const aFit = durationFitScore(a.duration, remainingGap);
+              const bFit = durationFitScore(b.duration, remainingGap);
+              if (Math.abs(aFit - bFit) > 0.2) return bFit - aFit;
               return b.duration - a.duration;
             });
         let candidates = buildGapCandidates(false);
@@ -661,7 +755,7 @@ export class ScheduleEngine {
               return {
                 item: i,
                 duration: dur,
-                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId),
+                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur),
                 usedInBlock: usedInBlock.has(i.Id),
                 tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS,
                 inCooldown: scheduledInCooldown.has(i.Id)
@@ -670,6 +764,9 @@ export class ScheduleEngine {
             .filter(x => x.duration > 0 && x.duration <= remainingGap && !x.conflicts)
             .sort((a, b) => {
               if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
+              const aFit = durationFitScore(a.duration, remainingGap);
+              const bFit = durationFitScore(b.duration, remainingGap);
+              if (Math.abs(aFit - bFit) > 0.2) return bFit - aFit;
               return b.duration - a.duration;
             });
         }
@@ -683,7 +780,7 @@ export class ScheduleEngine {
               return {
                 item: i,
                 duration: dur,
-                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur, i.SeriesId, true),
+                conflicts: this.wouldConflict(tracker, i.Id, startMs, startMs + dur),
                 usedInBlock: usedInBlock.has(i.Id),
                 tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS,
                 inCooldown: scheduledInCooldown.has(i.Id)
@@ -693,6 +790,9 @@ export class ScheduleEngine {
             .sort((a, b) => {
               if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
               if (a.usedInBlock !== b.usedInBlock) return a.usedInBlock ? 1 : -1;
+              const aFit = durationFitScore(a.duration, remainingGap);
+              const bFit = durationFitScore(b.duration, remainingGap);
+              if (Math.abs(aFit - bFit) > 0.2) return bFit - aFit;
               return b.duration - a.duration;
             });
         }
@@ -703,7 +803,7 @@ export class ScheduleEngine {
           const endMs = startMs + duration;
           const endTime = new Date(endMs);
           programs.push(this.createProgram(item, currentTime, endTime));
-          this.addToTracker(tracker, item.Id, startMs, endMs, item.SeriesId);
+          this.addToTracker(tracker, item.Id, startMs, endMs);
           usedInBlock.add(item.Id);
           lastScheduledEndMs.set(item.Id, endMs);
           lastScheduledBucket = getRatingBucket(item.OfficialRating);
@@ -727,10 +827,13 @@ export class ScheduleEngine {
       }
     }
 
+    // Merge adjacent interstitials to reduce clutter
+    const mergedPrograms = this.mergeAdjacentInterstitials(programs);
+
     return queries.upsertScheduleBlock(
       this.db, channel.id,
       blockStart.toISOString(), blockEnd.toISOString(),
-      programs, seed
+      mergedPrograms, seed
     );
   }
 
@@ -963,6 +1066,29 @@ export class ScheduleEngine {
       resolution: null,
       description: null,
     };
+  }
+
+  /** Merge consecutive interstitials into single blocks to reduce clutter. */
+  private mergeAdjacentInterstitials(programs: ScheduleProgram[]): ScheduleProgram[] {
+    if (programs.length < 2) return programs;
+    const merged: ScheduleProgram[] = [];
+    for (const prog of programs) {
+      const last = merged[merged.length - 1];
+      if (last && last.type === 'interstitial' && prog.type === 'interstitial') {
+        last.end_time = prog.end_time;
+        last.duration_ms = new Date(last.end_time).getTime() - new Date(last.start_time).getTime();
+        // Keep the more informative title/backdrop
+        if (prog.title !== 'Coming Up Next' && last.title === 'Coming Up Next') {
+          last.title = prog.title;
+          last.backdrop_url = prog.backdrop_url;
+          last.guide_url = prog.guide_url;
+          last.thumbnail_url = prog.thumbnail_url;
+        }
+      } else {
+        merged.push({ ...prog });
+      }
+    }
+    return merged;
   }
 
   /**

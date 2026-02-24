@@ -515,24 +515,65 @@
   cursor: default;
 }
 
-/* Animated background with Ken Burns */
+/* Animated background with Ken Burns + parallax layers */
 .interstitial-bg {
   position: absolute;
   inset: 0;
   overflow: hidden;
 }
 
-.interstitial-bg-image {
+.interstitial-bg-far {
   width: 100%;
   height: 100%;
   object-fit: cover;
   filter: blur(24px) brightness(0.25);
-  animation: interstitialKenBurns 30s ease-in-out alternate infinite;
+  animation: kenBurnsFar 30s ease-in-out alternate infinite;
 }
 
-@keyframes interstitialKenBurns {
+.interstitial-bg-near {
+  position: absolute;
+  inset: -20px;
+  background: radial-gradient(
+    ellipse at 30% 40%,
+    rgba(0, 229, 255, 0.03) 0%,
+    transparent 60%
+  );
+  animation: kenBurnsNear 20s ease-in-out alternate infinite;
+  pointer-events: none;
+}
+
+@keyframes kenBurnsFar {
   0% { transform: scale(1) translate(0, 0); }
   100% { transform: scale(1.12) translate(-2%, -1%); }
+}
+
+@keyframes kenBurnsNear {
+  0% { transform: scale(1.05) translate(1%, 2%); }
+  100% { transform: scale(1.15) translate(-3%, -1%); }
+}
+
+/* Floating particles */
+.interstitial-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.interstitial-particle {
+  position: absolute;
+  bottom: -10px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  animation: particleFloat linear infinite;
+}
+
+@keyframes particleFloat {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  10%  { opacity: 0.3; }
+  90%  { opacity: 0.3; }
+  100% { transform: translateY(-100vh) translateX(20px); opacity: 0; }
 }
 
 /* CRT scanline + vignette overlay */
@@ -551,7 +592,18 @@
   box-shadow: inset 0 0 120px 50px rgba(0, 0, 0, 0.5);
 }
 
-/* Scene transitions */
+/* Staggered reveal animation — blur-to-sharp resolve */
+.stagger-in {
+  opacity: 0;
+  animation: staggerReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes staggerReveal {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+/* Scene transitions — directional choreography */
 .interstitial-scene {
   position: relative;
   z-index: 5;
@@ -560,16 +612,36 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.3s ease;
 }
 
-.interstitial-scene.fade-in { opacity: 1; }
-.interstitial-scene.fade-out { opacity: 0; }
+.interstitial-scene.phase-entering {
+  animation: phaseEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
-/* ─ Channel Ident ─────────────────────────────────── */
+.interstitial-scene.phase-exiting {
+  animation: phaseExit 0.4s ease-in forwards;
+}
+
+@keyframes phaseEnter {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes phaseExit {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-12px); }
+}
+
+/* Legacy fallback */
+@keyframes interstitialFadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─ Channel Ident — CRT Power-On ─────────────────── */
 .interstitial-ident {
   text-align: center;
-  animation: interstitialGlitch 0.6s ease-out;
+  animation: crtPowerOn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .interstitial-ident-number {
@@ -581,6 +653,7 @@
     0 0 20px rgba(255, 215, 0, 0.6),
     0 0 40px rgba(255, 215, 0, 0.3);
   margin-bottom: 16px;
+  animation: chromaticPulse 0.6s ease-out;
 }
 
 .interstitial-ident-name {
@@ -590,20 +663,23 @@
   letter-spacing: 4px;
   text-transform: uppercase;
   opacity: 0;
-  animation: interstitialFadeUp 0.5s ease-out 0.3s forwards;
+  animation: staggerReveal 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards;
 }
 
-@keyframes interstitialGlitch {
-  0% { opacity: 0; transform: translateX(-4px); filter: brightness(3); }
-  20% { opacity: 1; transform: translateX(2px); filter: brightness(2); }
-  40% { transform: translateX(-1px); filter: brightness(1.5); }
-  60% { transform: translateX(1px); filter: brightness(1); }
-  100% { transform: translateX(0); filter: brightness(1); }
+@keyframes crtPowerOn {
+  0%   { clip-path: inset(49.5% 0 49.5% 0); filter: brightness(5); }
+  15%  { clip-path: inset(40% 0 40% 0); filter: brightness(3); }
+  35%  { clip-path: inset(20% 0 20% 0); filter: brightness(1.5); }
+  50%  { clip-path: inset(0% 0 0% 0); filter: brightness(1); }
+  55%  { filter: brightness(1.3); }
+  60%  { filter: brightness(0.9); }
+  100% { clip-path: inset(0% 0 0% 0); filter: brightness(1); }
 }
 
-@keyframes interstitialFadeUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes chromaticPulse {
+  0%   { text-shadow: -3px 0 #ff0040, 3px 0 #00e5ff, 0 0 20px rgba(255,215,0,0.6); }
+  40%  { text-shadow: -1px 0 #ff0040, 1px 0 #00e5ff, 0 0 20px rgba(255,215,0,0.6); }
+  100% { text-shadow: 0 0 20px rgba(255,215,0,0.6), 0 0 40px rgba(255,215,0,0.3); }
 }
 
 /* ─ Hero Countdown ────────────────────────────────── */
@@ -614,7 +690,6 @@
   align-items: center;
   gap: 12px;
   padding: 32px;
-  animation: interstitialFadeUp 0.5s ease-out;
 }
 
 .interstitial-hero-label {
@@ -654,25 +729,46 @@
   letter-spacing: 0.5px;
 }
 
+.interstitial-badge-rating {
+  color: var(--text-gold);
+  border-color: rgba(255, 215, 0, 0.3);
+}
+
 .interstitial-hero-description {
   font-size: 13px;
   color: var(--text-secondary);
   max-width: 500px;
   line-height: 1.5;
   opacity: 0;
-  animation: interstitialFadeUp 0.8s ease-out forwards;
+  animation: staggerReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-/* Countdown ring */
+/* Countdown ring with ambient glow */
 .interstitial-hero-countdown-wrap {
   position: relative;
   width: 180px;
   height: 180px;
   margin-top: 8px;
+}
+
+.interstitial-hero-countdown-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-cyan) 0%, transparent 70%);
+  opacity: 0.08;
+  animation: ambientPulse 4s ease-in-out infinite;
+  z-index: -1;
+}
+
+@keyframes ambientPulse {
+  0%, 100% { opacity: 0.06; transform: scale(1); }
+  50%      { opacity: 0.12; transform: scale(1.05); }
 }
 
 .interstitial-ring {
@@ -692,6 +788,8 @@
   stroke-width: 4;
   stroke-linecap: round;
   transition: stroke-dashoffset 1s linear, stroke 2s ease;
+  transform-origin: center;
+  transform: scale(var(--audio-pulse, 1));
 }
 
 .interstitial-hero-countdown {
@@ -718,7 +816,6 @@
   justify-content: center;
   align-items: center;
   padding: 32px;
-  animation: interstitialFadeUp 0.5s ease-out;
 }
 
 .interstitial-lineup-header {
@@ -739,7 +836,7 @@
 .interstitial-lineup-slider {
   display: flex;
   gap: 16px;
-  transition: transform 0.6s ease-in-out;
+  transition: transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .interstitial-lineup-card {
@@ -749,7 +846,7 @@
   overflow: hidden;
   opacity: 0.4;
   transform: scale(0.95);
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .interstitial-lineup-card.active {
@@ -772,10 +869,23 @@
   object-fit: cover;
 }
 
+/* Shimmer loading placeholder */
 .interstitial-lineup-thumb-placeholder {
   width: 100%;
   height: 100%;
-  background: var(--bg-secondary);
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary) 25%,
+    rgba(255, 255, 255, 0.06) 50%,
+    var(--bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
 }
 
 .interstitial-lineup-info {
@@ -829,13 +939,41 @@
   overflow: hidden;
 }
 
+/* Cross-fading backdrop images */
 .interstitial-spotlight-backdrop img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.5;
   mask-image: linear-gradient(to right, transparent, black 30%);
   -webkit-mask-image: linear-gradient(to right, transparent, black 30%);
+}
+
+.spotlight-backdrop-entering {
+  animation: spotlightFadeIn 1.2s ease-out forwards;
+}
+
+.spotlight-backdrop-leaving {
+  animation: spotlightFadeOut 1.2s ease-out forwards;
+}
+
+@keyframes spotlightFadeIn { from { opacity: 0; } to { opacity: 0.5; } }
+@keyframes spotlightFadeOut { from { opacity: 0.5; } to { opacity: 0; } }
+
+/* Ambient glow on spotlight backdrop */
+.interstitial-spotlight-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at 60% 50%,
+    var(--accent-cyan) 0%,
+    transparent 60%
+  );
+  opacity: 0.04;
+  mix-blend-mode: screen;
+  z-index: 1;
 }
 
 .interstitial-spotlight-panel {
@@ -847,7 +985,6 @@
   flex-direction: column;
   justify-content: center;
   gap: 10px;
-  animation: interstitialFadeUp 0.5s ease-out;
 }
 
 .interstitial-spotlight-time {
@@ -876,9 +1013,24 @@
 }
 
 .interstitial-spotlight-genres {
-  font-size: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.interstitial-genre-pill {
+  font-size: 11px;
   color: var(--text-gold);
-  letter-spacing: 1px;
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  padding: 2px 10px;
+  border-radius: 12px;
+  letter-spacing: 0.5px;
+}
+
+.interstitial-spotlight-cast {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
 }
 
 .interstitial-spotlight-description {
@@ -892,7 +1044,7 @@
   max-width: 400px;
 }
 
-/* ─ Persistent bottom progress bar ────────────────── */
+/* ─ Persistent bottom progress bar with comet glow ── */
 .interstitial-progress-bar {
   position: absolute;
   bottom: 0;
@@ -905,9 +1057,22 @@
 
 .interstitial-progress-fill {
   height: 100%;
-  background: var(--accent-cyan);
+  background: linear-gradient(90deg, transparent, var(--accent-cyan) 80%, var(--accent-cyan));
   transition: width 1s linear;
   box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+  position: relative;
+}
+
+.interstitial-progress-fill::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -3px;
+  width: 6px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px var(--accent-cyan), 0 0 12px var(--accent-cyan);
 }
 
 /* ─ Mini countdown corner ─────────────────────────── */

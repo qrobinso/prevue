@@ -795,6 +795,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         {/* Interstitial screen when in a gap between programs */}
         {program && program.type === 'interstitial' && channel && (
           <InterstitialScreen
+            key={channel.id}
             channel={channel}
             program={program}
             nextProgram={channel.next_program ?? null}
