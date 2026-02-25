@@ -116,10 +116,13 @@ function weightedRandomPick<T>(items: T[], weights: number[], rng: () => number)
 /**
  * Tracks which items are playing at which times across all channels.
  * Used to prevent the same movie/show from playing on multiple channels simultaneously.
+ * Also tracks series-level scheduling to promote diversity across channels.
  */
 interface GlobalScheduleTracker {
   // Map of itemId -> array of [startMs, endMs] time ranges when it's scheduled
   itemSlots: Map<string, Array<[number, number]>>;
+  // Map of seriesId -> array of [startMs, endMs, channelId] for cross-channel series diversity
+  seriesSlots: Map<string, Array<[number, number, number]>>;
 }
 
 export class ScheduleEngine {
@@ -136,7 +139,7 @@ export class ScheduleEngine {
    * This is used to prevent duplicate content playing simultaneously.
    */
   private buildGlobalTracker(blockStart: Date, blockEnd: Date): GlobalScheduleTracker {
-    const tracker: GlobalScheduleTracker = { itemSlots: new Map() };
+    const tracker: GlobalScheduleTracker = { itemSlots: new Map(), seriesSlots: new Map() };
     const allBlocks = queries.getAllScheduleBlocksInRange(
       this.db,
       blockStart.toISOString(),
@@ -153,6 +156,14 @@ export class ScheduleEngine {
         const existing = tracker.itemSlots.get(prog.jellyfin_item_id) || [];
         existing.push([startMs, endMs]);
         tracker.itemSlots.set(prog.jellyfin_item_id, existing);
+
+        // Track series-level slots for cross-channel diversity
+        const item = this.jellyfin.getItem(prog.jellyfin_item_id);
+        if (item?.Type === 'Episode' && item.SeriesId) {
+          const seriesExisting = tracker.seriesSlots.get(item.SeriesId) || [];
+          seriesExisting.push([startMs, endMs, block.channel_id]);
+          tracker.seriesSlots.set(item.SeriesId, seriesExisting);
+        }
       }
     }
 
@@ -181,6 +192,40 @@ export class ScheduleEngine {
   }
 
   /**
+   * Check if a series is already playing on a DIFFERENT channel during the proposed time window.
+   * Returns a diversity score: 1.0 = no conflict, 0.3 = overlapping on another channel,
+   * 0.6 = on another channel but at a different time in this block.
+   */
+  private seriesDiversityScore(
+    tracker: GlobalScheduleTracker,
+    seriesId: string | undefined,
+    channelId: number,
+    startMs: number,
+    endMs: number,
+  ): number {
+    if (!seriesId) return 1.0;
+    const slots = tracker.seriesSlots.get(seriesId);
+    if (!slots) return 1.0;
+
+    let onOtherChannel = false;
+    let overlapsOtherChannel = false;
+
+    for (const [existingStart, existingEnd, existingChannelId] of slots) {
+      if (existingChannelId === channelId) continue; // Same channel, ignore
+      onOtherChannel = true;
+      // Check time overlap
+      if (startMs < existingEnd && endMs > existingStart) {
+        overlapsOtherChannel = true;
+        break;
+      }
+    }
+
+    if (overlapsOtherChannel) return 0.3; // Same show at same time on another channel
+    if (onOtherChannel) return 0.6;       // Same show on another channel but different time
+    return 1.0;                           // Not on any other channel
+  }
+
+  /**
    * Add a scheduled item to the tracker
    */
   private addToTracker(
@@ -188,10 +233,19 @@ export class ScheduleEngine {
     itemId: string,
     startMs: number,
     endMs: number,
+    seriesId?: string,
+    channelId?: number,
   ): void {
     const existing = tracker.itemSlots.get(itemId) || [];
     existing.push([startMs, endMs]);
     tracker.itemSlots.set(itemId, existing);
+
+    // Track series-level slots for cross-channel diversity
+    if (seriesId && channelId !== undefined) {
+      const seriesExisting = tracker.seriesSlots.get(seriesId) || [];
+      seriesExisting.push([startMs, endMs, channelId]);
+      tracker.seriesSlots.set(seriesId, seriesExisting);
+    }
   }
 
   /**
@@ -262,7 +316,7 @@ export class ScheduleEngine {
     const rng = seedrandom(seed);
 
     // Create a local tracker if none provided
-    const tracker = globalTracker || { itemSlots: new Map() };
+    const tracker = globalTracker || { itemSlots: new Map(), seriesSlots: new Map() };
 
     // Items scheduled in last 24h for this channel - avoid reusing (cooldown)
     const cooldownStart = new Date(blockStart.getTime() - COOLDOWN_HOURS * 60 * 60 * 1000);
@@ -395,13 +449,17 @@ export class ScheduleEngine {
         );
         const fallback = leastUsedTier.filter(s => s !== lastItemId);
         const seriesCandidates = preferred.length > 0 ? preferred : fallback.length > 0 ? fallback : poolForSelection;
-        // Genre-aware selection: score by genre freshness, pick from top half
+        // Genre-aware + cross-channel diversity selection
         const scoredSeries = seriesCandidates.map(sid => {
           const eps = seriesMap.get(sid) || [];
           const firstEp = eps[0];
-          return { sid, freshness: genreFreshnessScore(firstEp?.Genres, recentGenres) };
+          const freshness = genreFreshnessScore(firstEp?.Genres, recentGenres);
+          // Penalize series already airing on other channels (soft preference, not hard block)
+          const avgEpDurForScore = eps.reduce((sum, ep) => sum + this.jellyfin.getItemDurationMs(ep), 0) / (eps.length || 1);
+          const diversity = this.seriesDiversityScore(tracker, sid, channel.id, startMs, startMs + avgEpDurForScore);
+          return { sid, score: freshness * diversity };
         });
-        scoredSeries.sort((a, b) => b.freshness - a.freshness);
+        scoredSeries.sort((a, b) => b.score - a.score);
         const topHalf = scoredSeries.slice(0, Math.max(1, Math.ceil(scoredSeries.length / 2)));
         const seriesId = topHalf[Math.floor(rng() * topHalf.length)].sid;
         const episodes = seriesMap.get(seriesId) || [];
@@ -461,7 +519,7 @@ export class ScheduleEngine {
               const epEndMs = epStartMs + durationMs;
               const endTime = new Date(epEndMs);
               programs.push(this.createProgram(episode, currentTime, endTime));
-              this.addToTracker(tracker, episode.Id, epStartMs, epEndMs);
+              this.addToTracker(tracker, episode.Id, epStartMs, epEndMs, episode.SeriesId, channel.id);
               usedInBlock.add(episode.Id);
               lastScheduledEndMs.set(episode.Id, epEndMs);
               lastItemId = seriesId;
@@ -643,7 +701,7 @@ export class ScheduleEngine {
             const endMs = startMs + relaxed.duration;
             const endTime = new Date(endMs);
             programs.push(this.createProgram(relaxed.item, currentTime, endTime));
-            this.addToTracker(tracker, relaxed.item.Id, startMs, endMs);
+            this.addToTracker(tracker, relaxed.item.Id, startMs, endMs, relaxed.item.SeriesId, channel.id);
             usedInBlock.add(relaxed.item.Id);
             lastScheduledEndMs.set(relaxed.item.Id, endMs);
             lastItemId = relaxed.item.Id;
@@ -803,7 +861,7 @@ export class ScheduleEngine {
           const endMs = startMs + duration;
           const endTime = new Date(endMs);
           programs.push(this.createProgram(item, currentTime, endTime));
-          this.addToTracker(tracker, item.Id, startMs, endMs);
+          this.addToTracker(tracker, item.Id, startMs, endMs, item.SeriesId, channel.id);
           usedInBlock.add(item.Id);
           lastScheduledEndMs.set(item.Id, endMs);
           lastScheduledBucket = getRatingBucket(item.OfficialRating);
@@ -1031,6 +1089,7 @@ export class ScheduleEngine {
       year: item.ProductionYear || null,
       rating: item.OfficialRating || null,
       resolution: getResolutionLabel(item),
+      genres: item.Genres && item.Genres.length > 0 ? item.Genres : null,
       description: item.Overview || null,
     };
   }
@@ -1064,6 +1123,7 @@ export class ScheduleEngine {
       year: null,
       rating: null,
       resolution: null,
+      genres: null,
       description: null,
     };
   }

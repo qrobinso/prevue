@@ -423,6 +423,23 @@ html[data-preview-bg="white"] .preview-video-container {
   color: var(--text-secondary);
 }
 
+.preview-resolution {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--text-primary);
+  background: var(--bg-cell);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-grid);
+}
+
+.preview-genres {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+
 .preview-description {
   font-family: var(--font-retro);
   font-size: 10px;

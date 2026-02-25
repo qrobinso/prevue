@@ -387,6 +387,23 @@
   color: var(--text-secondary);
 }
 
+.info-resolution {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-grid);
+}
+
+.info-genres {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+
 .info-description {
   font-family: var(--font-retro);
   font-size: 10px;
@@ -2457,6 +2474,15 @@
     font-size: 8px;
   }
 
+  .info-resolution {
+    font-size: 7px;
+    padding: 1px 5px;
+  }
+
+  .info-genres {
+    display: none;
+  }
+
   .info-rating {
     font-size: 7px;
     padding: 1px 5px;
@@ -2751,6 +2777,15 @@
   .info-rating {
     font-size: 12px;
     padding: 4px 10px;
+  }
+
+  .info-resolution {
+    font-size: 12px;
+    padding: 4px 10px;
+  }
+
+  .info-genres {
+    font-size: 12px;
   }
 
   .info-description {

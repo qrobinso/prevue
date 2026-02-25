@@ -1,32 +1,57 @@
 import crypto from 'crypto';
-import os from 'os';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
 
-let keyWarningShown = false;
+let cachedKey: Buffer | null = null;
 
 function getEncryptionKey(): Buffer {
+  if (cachedKey) return cachedKey;
+
   const key = process.env.DATA_ENCRYPTION_KEY;
   if (key && key.length >= 32) {
-    return Buffer.from(key.slice(0, 32), 'utf-8');
+    cachedKey = Buffer.from(key.slice(0, 32), 'utf-8');
+    return cachedKey;
   }
 
-  // No explicit key configured — derive one from machine identity so that
-  // stored tokens are at least unique per host. Log a clear warning on first
-  // use so operators know to set a proper key for production.
-  if (!keyWarningShown) {
-    keyWarningShown = true;
-    console.warn(
-      '[Security] DATA_ENCRYPTION_KEY is not set or too short (need >=32 chars). ' +
-      'Using a machine-derived fallback. Set a strong DATA_ENCRYPTION_KEY in your .env for production.'
-    );
+  // No explicit key configured — use a persisted random key in the data
+  // directory so it survives Docker container restarts (the data dir is
+  // mounted as a volume).
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const dataDir = process.env.DATA_DIR || path.join(__dirname, '../../../data');
+  const keyFile = path.join(dataDir, '.encryption-key');
+
+  try {
+    if (fs.existsSync(keyFile)) {
+      const stored = fs.readFileSync(keyFile, 'utf-8').trim();
+      if (stored.length >= 64) {
+        cachedKey = Buffer.from(stored, 'hex');
+        return cachedKey;
+      }
+    }
+  } catch {
+    // Key file unreadable — regenerate below
   }
 
-  // Derive from hostname + platform — not truly secret but unique per machine
-  const seed = `prevue:${os.hostname()}:${os.platform()}:${os.arch()}`;
-  return crypto.createHash('sha256').update(seed).digest();
+  // Generate and persist a new random key
+  console.warn(
+    '[Security] DATA_ENCRYPTION_KEY is not set. Generating a persistent key in the data directory. ' +
+    'Set DATA_ENCRYPTION_KEY in your .env for explicit control.'
+  );
+
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  const generated = crypto.randomBytes(32);
+  fs.writeFileSync(keyFile, generated.toString('hex'), { mode: 0o600 });
+  cachedKey = generated;
+  return cachedKey;
 }
 
 export function encrypt(text: string): string {

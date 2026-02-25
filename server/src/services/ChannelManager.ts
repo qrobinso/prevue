@@ -69,7 +69,11 @@ const PRIORITY_GENRES = [
   'Action', 'Comedy', 'Drama', 'Horror', 'Science Fiction', 'Thriller',
   'Romance', 'Adventure', 'Fantasy', 'Animation',
 ];
-const GENRE_ALTERNATES: Record<string, string[]> = { 'Science Fiction': ['Sci-Fi'] };
+const GENRE_ALTERNATES: Record<string, string[]> = {
+  'Science Fiction': ['Sci-Fi'],
+  'Animation': ['Anime'],
+  'Comedy': ['Stand-Up'],
+};
 const PRIORITY_GENRE_NAMES = new Set([
   ...PRIORITY_GENRES,
   ...Object.values(GENRE_ALTERNATES).flat(),
@@ -300,11 +304,15 @@ export class ChannelManager {
     const settings = this.getFilterSettings();
 
     if (preset.dynamicType === 'genres') {
+      // Track how many genre channels each item appears on to limit excessive overlap
+      const itemChannelCount = new Map<string, number>();
+      const MAX_GENRE_CHANNELS_PER_ITEM = 2;
+
       // Priority genres first: include any item with this genre anywhere (fills Action, Comedy, etc.)
       for (const genre of PRIORITY_GENRES) {
         if (configs.length >= maxCount) break;
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
-        const items = this.jellyfin.getItemsWithLeadGenre(genre, GENRE_ALTERNATES[genre] ?? []);
+        const items = this.jellyfin.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -314,6 +322,8 @@ export class ChannelManager {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
           if (settings.unwatchedOnly && item.UserData?.Played) return false;
+          // Limit items from appearing on too many genre channels
+          if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
@@ -327,14 +337,19 @@ export class ChannelManager {
           item_ids: filteredItems.map(i => i.Id),
           genre,
         });
+        // Track items assigned to this genre channel
+        for (const item of filteredItems) {
+          itemChannelCount.set(item.Id, (itemChannelCount.get(item.Id) || 0) + 1);
+        }
       }
-      // Other genres (lead-genre only); skip if already covered by a priority channel
+      // Other genres: include any item with this genre anywhere; skip if already covered by a priority channel
       const genres = this.jellyfin.getGenres();
       const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
-      for (const [genre, items] of sortedGenres) {
+      for (const [genre] of sortedGenres) {
         if (configs.length >= maxCount) break;
         if (PRIORITY_GENRE_NAMES.has(genre)) continue;
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
+        const items = this.jellyfin.getItemsWithGenre(genre);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -344,6 +359,7 @@ export class ChannelManager {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
           if (settings.unwatchedOnly && item.UserData?.Played) return false;
+          if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
@@ -357,6 +373,9 @@ export class ChannelManager {
           item_ids: filteredItems.map(i => i.Id),
           genre,
         });
+        for (const item of filteredItems) {
+          itemChannelCount.set(item.Id, (itemChannelCount.get(item.Id) || 0) + 1);
+        }
       }
     } else if (preset.dynamicType === 'eras') {
       const decades = this.getDecadesFromLibrary(libraryItems);
@@ -542,13 +561,16 @@ export class ChannelManager {
 
     if (preset.dynamicType === 'genres') {
       const settings = this.getFilterSettings();
+      // Track how many genre channels each item appears on to limit excessive overlap
+      const itemChannelCount = new Map<string, number>();
+      const MAX_GENRE_CHANNELS_PER_ITEM = 2;
 
       // 1) Priority genres: include any item that has this genre anywhere (fills Action, Comedy, etc.)
       for (const genre of PRIORITY_GENRES) {
         if (created.length >= maxCount) break;
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
 
-        const items = this.jellyfin.getItemsWithLeadGenre(genre, GENRE_ALTERNATES[genre] ?? []);
+        const items = this.jellyfin.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -557,6 +579,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce(
@@ -576,17 +599,21 @@ export class ChannelManager {
         });
         created.push(channel);
         console.log(`[ChannelManager] Created genre channel: ${channelName} (${filteredItems.length} items)`);
+        for (const item of filteredItems) {
+          itemChannelCount.set(item.Id, (itemChannelCount.get(item.Id) || 0) + 1);
+        }
       }
 
-      // 2) Other genres from library (lead-genre only); skip if already covered by a priority channel
+      // 2) Other genres from library; skip if already covered by a priority channel
       const genres = this.jellyfin.getGenres();
       const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
-      for (const [genre, items] of sortedGenres) {
+      for (const [genre] of sortedGenres) {
         if (created.length >= maxCount) break;
         if (PRIORITY_GENRE_NAMES.has(genre)) continue;
 
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
 
+        const items = this.jellyfin.getItemsWithGenre(genre);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -595,6 +622,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce(
@@ -614,6 +642,9 @@ export class ChannelManager {
         });
         created.push(channel);
         console.log(`[ChannelManager] Created genre channel: ${channelName} (${filteredItems.length} items)`);
+        for (const item of filteredItems) {
+          itemChannelCount.set(item.Id, (itemChannelCount.get(item.Id) || 0) + 1);
+        }
       }
     } else if (preset.dynamicType === 'eras') {
       // Generate era-based channels based on content in library
@@ -1161,13 +1192,16 @@ export class ChannelManager {
     queries.deleteAutoChannels(this.db);
     const usedNames = new Set(queries.getChannelNames(this.db));
     const created: ChannelParsed[] = [];
+    // Track how many genre channels each item appears on to limit excessive overlap
+    const itemChannelCount = new Map<string, number>();
+    const MAX_GENRE_CHANNELS_PER_ITEM = 2;
 
     // 1) Priority genres: include any item that has this genre anywhere (fills Action, Comedy, etc.)
     for (const genre of PRIORITY_GENRES) {
       if (created.length >= maxCount) break;
       if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
 
-      const items = this.jellyfin.getItemsWithLeadGenre(genre, GENRE_ALTERNATES[genre] ?? []);
+      const items = this.jellyfin.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
       const filteredItems = items.filter(item => {
         if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
         if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -1176,6 +1210,7 @@ export class ChannelManager {
         for (const g of itemGenres) {
           if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
         }
+        if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
         return true;
       });
       const totalDuration = filteredItems.reduce(
@@ -1192,17 +1227,21 @@ export class ChannelManager {
         item_ids: filteredItems.map(i => i.Id),
       });
       created.push(channel);
+      for (const item of filteredItems) {
+        itemChannelCount.set(item.Id, (itemChannelCount.get(item.Id) || 0) + 1);
+      }
     }
 
-    // 2) Other genres from library (lead-genre only); skip if already covered by a priority channel
+    // 2) Other genres from library; skip if already covered by a priority channel
     const genres = this.jellyfin.getGenres();
     const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
-    for (const [genre, items] of sortedGenres) {
+    for (const [genre] of sortedGenres) {
       if (created.length >= maxCount) break;
       if (PRIORITY_GENRE_NAMES.has(genre)) continue;
 
       if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
 
+      const items = this.jellyfin.getItemsWithGenre(genre);
       const filteredItems = items.filter(item => {
         if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
         if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -1211,6 +1250,7 @@ export class ChannelManager {
         for (const g of itemGenres) {
           if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
         }
+        if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
         return true;
       });
       const totalDuration = filteredItems.reduce(
@@ -1227,6 +1267,9 @@ export class ChannelManager {
         item_ids: filteredItems.map(i => i.Id),
       });
       created.push(channel);
+      for (const item of filteredItems) {
+        itemChannelCount.set(item.Id, (itemChannelCount.get(item.Id) || 0) + 1);
+      }
     }
 
     console.log(`[ChannelManager] Auto-generated ${created.length} genre channels`);
@@ -1541,10 +1584,12 @@ export class ChannelManager {
 
     if (preset.dynamicType === 'genres') {
       const settings = this.getFilterSettings();
+      const itemChannelCount = new Map<string, number>();
+      const MAX_GENRE_CHANNELS_PER_ITEM = 2;
 
       for (const genre of PRIORITY_GENRES) {
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
-        const items = this.jellyfin.getItemsWithLeadGenre(genre, GENRE_ALTERNATES[genre] ?? []);
+        const items = this.jellyfin.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -1553,6 +1598,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
         const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
@@ -1560,14 +1606,18 @@ export class ChannelManager {
           dynamicChannels.push({ name: genre, count: filteredItems.length });
           totalItems += filteredItems.length;
           totalDuration += duration;
+          for (const item of filteredItems) {
+            itemChannelCount.set(item.Id, (itemChannelCount.get(item.Id) || 0) + 1);
+          }
         }
       }
 
       const genres = this.jellyfin.getGenres();
       const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
-      for (const [genre, items] of sortedGenres) {
+      for (const [genre] of sortedGenres) {
         if (PRIORITY_GENRE_NAMES.has(genre)) continue;
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
+        const items = this.jellyfin.getItemsWithGenre(genre);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -1576,6 +1626,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
         const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
@@ -1583,6 +1634,9 @@ export class ChannelManager {
           dynamicChannels.push({ name: genre, count: filteredItems.length });
           totalItems += filteredItems.length;
           totalDuration += duration;
+          for (const item of filteredItems) {
+            itemChannelCount.set(item.Id, (itemChannelCount.get(item.Id) || 0) + 1);
+          }
         }
       }
     } else if (preset.dynamicType === 'eras') {

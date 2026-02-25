@@ -122,6 +122,7 @@ export interface ScheduleProgram {
   year: number | null;
   rating: string | null;
   resolution: string | null;
+  genres: string[] | null;
   description: string | null;
 }
 

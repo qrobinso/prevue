@@ -37,8 +37,12 @@ export default function InfoOverlay({ channel, program, nextProgram }: InfoOverl
           <div className="info-meta">
             {program.year && <span className="info-year">{program.year}</span>}
             {program.rating && <span className="info-rating">{program.rating}</span>}
+            {program.resolution && <span className="info-resolution">{program.resolution}</span>}
             {program.duration_ms > 0 && <span className="info-runtime">{runtime}</span>}
           </div>
+          {program.genres && program.genres.length > 0 && (
+            <div className="info-genres">{program.genres.join(' · ')}</div>
+          )}
           {program.description && (
             <div className="info-description">{program.description}</div>
           )}

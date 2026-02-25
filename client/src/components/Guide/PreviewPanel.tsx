@@ -871,8 +871,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
               <div className="preview-meta">
                 {program.year && <span className="preview-year" style={{ fontSize: previewFontSizes.year }}>{program.year}</span>}
                 {program.rating && <span className="preview-rating" style={{ fontSize: previewFontSizes.rating }}>{program.rating}</span>}
+                {program.resolution && <span className="preview-resolution" style={{ fontSize: previewFontSizes.rating }}>{program.resolution}</span>}
                 {program.duration_ms > 0 && <span className="preview-runtime" style={{ fontSize: previewFontSizes.year }}>{formatRuntime(program.duration_ms)}</span>}
               </div>
+              {program.genres && program.genres.length > 0 && (
+                <div className="preview-genres" style={{ fontSize: previewFontSizes.year }}>{program.genres.join(' · ')}</div>
+              )}
               {isClassic && (
                 <div className="preview-day" style={{ fontSize: previewFontSizes.time }}>
                   {new Date(program.start_time).toLocaleDateString([], { weekday: 'long' }).toUpperCase()}
