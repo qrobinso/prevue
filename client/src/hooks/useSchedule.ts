@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSchedule, type ChannelWithProgram } from '../services/api';
-import type { ScheduleProgram, ScheduleBlock } from '../types';
+import type { ScheduleProgram, ScheduleBlock, WSEvent } from '../types';
+import { useWebSocket } from './useWebSocket';
 
 interface ScheduleData {
   channels: ChannelWithProgram[];
@@ -74,6 +75,20 @@ export function useSchedule(): ScheduleData {
       setLoading(false);
     }
   }, []);
+
+  // Reload guide when schedules are regenerated via WebSocket
+  const handleWsEvent = useCallback((event: WSEvent) => {
+    if (
+      event.type === 'channels:regenerated' ||
+      event.type === 'channel:added' ||
+      event.type === 'channel:removed' ||
+      event.type === 'schedule:updated'
+    ) {
+      loadData();
+    }
+  }, [loadData]);
+
+  useWebSocket(handleWsEvent);
 
   useEffect(() => {
     loadData();

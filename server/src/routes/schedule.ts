@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
 import type { JellyfinClient } from '../services/JellyfinClient.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
+import { broadcast } from '../websocket/index.js';
 
 export const scheduleRoutes = Router();
 
@@ -81,8 +82,9 @@ scheduleRoutes.get('/:channelId/now', (req: Request, res: Response) => {
 // POST /api/schedule/regenerate - Force regeneration
 scheduleRoutes.post('/regenerate', async (req: Request, res: Response) => {
   try {
-    const { scheduleEngine } = req.app.locals;
+    const { scheduleEngine, wss } = req.app.locals;
     await (scheduleEngine as ScheduleEngine).generateAllSchedules();
+    broadcast(wss, { type: 'channels:regenerated', payload: {} });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

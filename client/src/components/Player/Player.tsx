@@ -258,6 +258,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   // Set to true once we have confirmed program info from the server/session.
   // Prevents stale program prop from triggering premature auto-advance on mount.
   const programConfirmedRef = useRef(false);
+  // Pre-warmed playback info: fetched before interstitial ends so the Jellyfin
+  // transcode session is already running when we transition to the real program.
+  const prewarmedInfoRef = useRef<Awaited<ReturnType<typeof getPlaybackInfo>> | null>(null);
 
   // ─── Playback progress tracking ──────────────────────
   const watchStartRef = useRef<number>(0);           // wall-clock when this item started playing
@@ -301,6 +304,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     reuseInfo?: { info: Awaited<ReturnType<typeof getPlaybackInfo>> | null; startPositionSec?: number }
   ) => {
     autoAdvanceDisabledRef.current = false; // Re-enable auto-advance when loading new program
+    prewarmedInfoRef.current = null; // Clear any stale pre-warm
     try {
       setLoading(true);
       setError(null);
@@ -884,7 +888,14 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         // program prop passed in on mount doesn't trigger an immediate reload before
         // the real session info has been applied.
         if (now >= end && !autoAdvanceDisabledRef.current && programConfirmedRef.current) {
-          loadPlayback();
+          // Use pre-warmed info if available (transcode already started)
+          const prewarmed = prewarmedInfoRef.current;
+          prewarmedInfoRef.current = null;
+          if (prewarmed) {
+            loadPlayback(undefined, undefined, undefined, undefined, { info: prewarmed });
+          } else {
+            loadPlayback();
+          }
         }
       }
     }, 1000);
@@ -893,6 +904,33 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       if (checkTimer.current) clearInterval(checkTimer.current);
     };
   }, [currentProgram, loadPlayback]);
+
+  // Pre-warm: fetch playback info ~15s before the interstitial ends so the
+  // Jellyfin transcode session is already running when we auto-advance.
+  useEffect(() => {
+    if (!isInterstitial || !currentProgram) return;
+
+    const endMs = new Date(currentProgram.end_time).getTime();
+    const PRE_WARM_LEAD_MS = 15000;
+    const delay = Math.max(0, endMs - Date.now() - PRE_WARM_LEAD_MS);
+
+    const timer = setTimeout(async () => {
+      try {
+        const qualityToUse = currentQuality;
+        const isAuto = qualityToUse.id === 'auto';
+        const info = await getPlaybackInfo(channel.id, {
+          ...(isAuto ? {} : { bitrate: qualityToUse.bitrate, maxWidth: qualityToUse.maxWidth }),
+        });
+        if (!info.is_interstitial && info.stream_url) {
+          prewarmedInfoRef.current = info;
+        }
+      } catch {
+        // Pre-warm failed — auto-advance will do a fresh fetch
+      }
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [isInterstitial, currentProgram, channel.id, currentQuality]);
 
   // Playback progress reporting to Jellyfin (after 5 min watch threshold)
   useEffect(() => {
