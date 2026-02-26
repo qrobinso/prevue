@@ -38,6 +38,10 @@ export interface ScheduleProgram {
   resolution: string | null;
   genres: string[] | null;
   description: string | null;
+  /** Pre-computed numeric timestamp (ms) for start_time – set client-side by useSchedule */
+  start_ms?: number;
+  /** Pre-computed numeric timestamp (ms) for end_time – set client-side by useSchedule */
+  end_ms?: number;
 }
 
 export interface ScheduleBlock {

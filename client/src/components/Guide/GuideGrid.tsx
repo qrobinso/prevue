@@ -12,11 +12,43 @@ import {
   getClockFormat,
   type ClockFormat,
 } from '../Settings/DisplaySettings';
+import {
+  type GuideDivider,
+  getGuideDividers,
+  getChannelColors,
+  hydrateDividersFromServer,
+  hydrateChannelColorsFromServer,
+  persistDividers,
+  persistChannelColors,
+} from '../../utils/guideCustomization';
+import { getSettings } from '../../services/api';
 import './Guide.css';
 
+const MAX_ARTWORK_CACHE = 500;
 let artworkCache = new Map<string, string>();
 let artworkPending = new Set<string>();
 let artworkFailed = new Set<string>();
+
+function addToArtworkCache(key: string, url: string): void {
+  if (artworkCache.size >= MAX_ARTWORK_CACHE) {
+    const oldest = artworkCache.keys().next().value;
+    if (oldest) {
+      URL.revokeObjectURL(artworkCache.get(oldest)!);
+      artworkCache.delete(oldest);
+    }
+  }
+  artworkCache.set(key, url);
+}
+
+function getFromArtworkCache(key: string): string | undefined {
+  const url = artworkCache.get(key);
+  if (url !== undefined) {
+    // Move to most-recent position (LRU)
+    artworkCache.delete(key);
+    artworkCache.set(key, url);
+  }
+  return url;
+}
 
 function clearArtworkCache(): void {
   for (const url of artworkCache.values()) {
@@ -27,13 +59,44 @@ function clearArtworkCache(): void {
   artworkFailed = new Set();
 }
 
+const EMPTY_PROGRAMS: ScheduleProgram[] = [];
+
+/** Binary-search filter: return only programs overlapping [rangeStartMs, rangeEndMs]. */
+function getVisiblePrograms(
+  programs: ScheduleProgram[],
+  rangeStartMs: number,
+  rangeEndMs: number,
+): ScheduleProgram[] {
+  if (programs.length === 0) return programs;
+
+  // Find first program whose end_ms > rangeStartMs
+  let lo = 0, hi = programs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if ((programs[mid].end_ms ?? 0) <= rangeStartMs) lo = mid + 1;
+    else hi = mid;
+  }
+  const startIdx = lo;
+
+  // Find first program whose start_ms >= rangeEndMs
+  lo = startIdx; hi = programs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if ((programs[mid].start_ms ?? 0) >= rangeEndMs) hi = mid;
+    else lo = mid + 1;
+  }
+
+  return programs.slice(startIdx, lo);
+}
+
 const ArtworkThumbnail = memo(function ArtworkThumbnail({ itemId, size }: { itemId: string; size: number }) {
-  const [src, setSrc] = useState<string | null>(artworkCache.get(itemId) || null);
+  const [src, setSrc] = useState<string | null>(getFromArtworkCache(itemId) ?? null);
   const [failed, setFailed] = useState(artworkFailed.has(itemId));
 
   useEffect(() => {
-    if (artworkCache.has(itemId)) {
-      setSrc(artworkCache.get(itemId) || null);
+    const cached = getFromArtworkCache(itemId);
+    if (cached) {
+      setSrc(cached);
       return;
     }
     if (artworkFailed.has(itemId)) {
@@ -50,7 +113,7 @@ const ArtworkThumbnail = memo(function ArtworkThumbnail({ itemId, size }: { item
       })
       .then(blob => {
         const url = URL.createObjectURL(blob);
-        artworkCache.set(itemId, url);
+        addToArtworkCache(itemId, url);
         artworkPending.delete(itemId);
         setSrc(url);
       })
@@ -102,7 +165,7 @@ interface GuideProgramCellProps {
   progIdx: number;
   chIdx: number;
   isFocused: boolean;
-  nowMs: number;
+  isAiring: boolean;
   rangeStartMs: number;
   rangeEndMs: number;
   timeSlotWidth: number;
@@ -124,7 +187,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
   progIdx,
   chIdx,
   isFocused,
-  nowMs,
+  isAiring,
   rangeStartMs,
   rangeEndMs,
   timeSlotWidth,
@@ -140,17 +203,15 @@ const GuideProgramCell = memo(function GuideProgramCell({
   scrollLeft,
   onProgramClick,
 }: GuideProgramCellProps) {
-  const progStart = new Date(prog.start_time).getTime();
-  const progEnd = new Date(prog.end_time).getTime();
-
-  if (progEnd <= rangeStartMs || progStart >= rangeEndMs) return null;
+  const progStart = prog.start_ms!;
+  const progEnd = prog.end_ms!;
 
   const visibleStart = Math.max(progStart, rangeStartMs);
   const visibleEnd = Math.min(progEnd, rangeEndMs);
   const left = ((visibleStart - rangeStartMs) / SLOT_MS) * timeSlotWidth + PROGRAM_CELL_GAP / 2;
   const width = Math.max(((visibleEnd - visibleStart) / SLOT_MS) * timeSlotWidth - PROGRAM_CELL_GAP, 2);
 
-  const isCurrentlyAiring = nowMs >= progStart && nowMs < progEnd;
+  const isCurrentlyAiring = isAiring;
   const subtitleThreshold = isMobile ? 120 : 150;
   const showSubtitle = width > subtitleThreshold && prog.subtitle && prog.type !== 'interstitial';
   const cellShowArtwork = showArtwork && prog.type !== 'interstitial' && prog.thumbnail_url && width > artworkThreshold;
@@ -220,7 +281,7 @@ interface GuideRowProps {
   rowHeight: number;
   isFocusedRow: boolean;
   focusedProgramIdx: number;
-  nowMs: number;
+  airingKeys: Set<string>;
   rangeStartMs: number;
   rangeEndMs: number;
   timeSlotWidth: number;
@@ -237,6 +298,7 @@ interface GuideRowProps {
   scrollLeft: number;
   channelNumFontSize: number;
   channelNameFontSize: number;
+  channelColor?: string;
   onChannelClick: (channelIdx: number) => void;
   onProgramClick: (channelIdx: number, programIdx: number) => void;
 }
@@ -248,7 +310,7 @@ const GuideRow = memo(function GuideRow({
   rowHeight,
   isFocusedRow,
   focusedProgramIdx,
-  nowMs,
+  airingKeys,
   rangeStartMs,
   rangeEndMs,
   timeSlotWidth,
@@ -265,12 +327,17 @@ const GuideRow = memo(function GuideRow({
   scrollLeft,
   channelNumFontSize,
   channelNameFontSize,
+  channelColor,
   onChannelClick,
   onProgramClick,
 }: GuideRowProps) {
+  const channelColStyle: React.CSSProperties = channelColor
+    ? { background: isFocusedRow ? `linear-gradient(rgba(255,255,255,0.18), rgba(255,255,255,0.18)), ${channelColor}` : channelColor }
+    : {};
+
   return (
     <div className={`guide-row ${isFocusedRow ? 'guide-row-focused' : ''}`} style={{ height: rowHeight }}>
-      <div className="guide-channel-col" onClick={() => onChannelClick(chIdx)}>
+      <div className="guide-channel-col" onClick={() => onChannelClick(chIdx)} style={channelColStyle}>
         <span className="guide-channel-num" style={{ fontSize: channelNumFontSize }}>{channel.number}</span>
         <span className="guide-channel-name" style={{ fontSize: channelNameFontSize }}>{channel.name}</span>
       </div>
@@ -283,7 +350,7 @@ const GuideRow = memo(function GuideRow({
             progIdx={progIdx}
             chIdx={chIdx}
             isFocused={isFocusedRow && progIdx === focusedProgramIdx}
-            nowMs={nowMs}
+            isAiring={airingKeys.has(`${channel.id}-${prog.start_time}`)}
             rangeStartMs={rangeStartMs}
             rangeEndMs={rangeEndMs}
             timeSlotWidth={timeSlotWidth}
@@ -340,6 +407,10 @@ function GuideGrid({
   const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
 
+  // Channel colors & dividers from localStorage
+  const [channelColorMap, setChannelColorMap] = useState<Record<number, string>>(() => getChannelColors());
+  const [guideDividers, setGuideDividers] = useState<GuideDivider[]>(() => getGuideDividers());
+
   useEffect(() => {
     const refreshGuideColors = () => {
       setGuideColors({
@@ -355,18 +426,47 @@ function GuideGrid({
     };
     const refreshArtwork = () => setShowArtwork(getGuideArtwork());
     const refreshClockFormat = () => setClockFormatState(getClockFormat());
+    const refreshChannelColors = () => setChannelColorMap(getChannelColors());
+    const refreshDividers = () => setGuideDividers(getGuideDividers());
 
     window.addEventListener('guidecolorschange', refreshGuideColors);
     window.addEventListener('guidebadgeschange', refreshBadges);
     window.addEventListener('guideartworkchange', refreshArtwork);
     window.addEventListener('clockformatchange', refreshClockFormat);
+    window.addEventListener('channelcolorschange', refreshChannelColors);
+    window.addEventListener('guidedividerschange', refreshDividers);
 
     return () => {
       window.removeEventListener('guidecolorschange', refreshGuideColors);
       window.removeEventListener('guidebadgeschange', refreshBadges);
       window.removeEventListener('guideartworkchange', refreshArtwork);
       window.removeEventListener('clockformatchange', refreshClockFormat);
+      window.removeEventListener('channelcolorschange', refreshChannelColors);
+      window.removeEventListener('guidedividerschange', refreshDividers);
     };
+  }, []);
+
+  // Hydrate dividers & channel colors from server on mount.
+  // If server has data, use it. If server is empty but localStorage has data, push it up.
+  useEffect(() => {
+    getSettings().then((settings: Record<string, unknown>) => {
+      // Dividers
+      if (Array.isArray(settings['guide_dividers']) && (settings['guide_dividers'] as GuideDivider[]).length > 0) {
+        hydrateDividersFromServer(settings['guide_dividers'] as GuideDivider[]);
+        setGuideDividers(settings['guide_dividers'] as GuideDivider[]);
+      } else {
+        const local = getGuideDividers();
+        if (local.length > 0) persistDividers(local);
+      }
+      // Channel colors
+      if (settings['channel_colors'] && typeof settings['channel_colors'] === 'object' && !Array.isArray(settings['channel_colors']) && Object.keys(settings['channel_colors'] as object).length > 0) {
+        hydrateChannelColorsFromServer(settings['channel_colors'] as Record<number, string>);
+        setChannelColorMap(settings['channel_colors'] as Record<number, string>);
+      } else {
+        const local = getChannelColors();
+        if (Object.keys(local).length > 0) persistChannelColors(local);
+      }
+    }).catch(() => { /* use localStorage fallback */ });
   }, []);
 
   useEffect(() => {
@@ -457,6 +557,22 @@ function GuideGrid({
     return slots;
   }, [timeRange]);
 
+  const rangeStartMs = timeRange.start.getTime();
+  const rangeEndMs = timeRange.end.getTime();
+
+  // Compute set of currently-airing program keys so cells get a stable boolean prop
+  const airingKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const [channelId, programs] of scheduleByChannel) {
+      for (const prog of programs) {
+        if (nowMs >= prog.start_ms! && nowMs < prog.end_ms!) {
+          keys.add(`${channelId}-${prog.start_time}`);
+        }
+      }
+    }
+    return keys;
+  }, [nowMs, scheduleByChannel]);
+
   const totalSlotsWidth = timeSlots.length * timeSlotWidth;
   const maxScroll = timeSlotWidth;
   const effectiveScrollIdx = scrollToChannelIdx ?? focusedChannelIdx;
@@ -501,18 +617,7 @@ function GuideGrid({
     verticalScrollAnimRef.current = requestAnimationFrame(animate);
   }, []);
 
-  useEffect(() => {
-    if (!isAutoScrolling) return;
-    animateVerticalScroll(Math.max(0, effectiveScrollIdx * rowHeight), smoothScroll);
-  }, [isAutoScrolling, effectiveScrollIdx, rowHeight, smoothScroll, animateVerticalScroll]);
-
-  useEffect(() => {
-    if (scrollToChannelIdx !== undefined) return;
-    const container = gridRef.current;
-    if (!container) return;
-    const centeredTop = Math.max(0, focusedChannelIdx * rowHeight - (container.clientHeight - rowHeight) / 2);
-    animateVerticalScroll(centeredTop, true);
-  }, [focusedChannelIdx, rowHeight, scrollToChannelIdx, animateVerticalScroll]);
+  // Scroll-to-channel effects moved below guideItems/itemOffsets declarations
 
   const handleGridScroll = useCallback(() => {
     if (scrollRafRef.current != null) return;
@@ -527,16 +632,18 @@ function GuideGrid({
     const timeHeader = timeHeaderRef.current;
     if (!grid || !timeHeader || availableWidth <= 0 || timeSlotWidth <= 0) return;
 
-    const rangeStartMs = timeRange.start.getTime();
-
     let rafId: number;
+    let lastScroll = -1;
     const tick = () => {
       const elapsedMs = Date.now() - rangeStartMs;
       const scrollPosition = (elapsedMs / SLOT_MS) * timeSlotWidth;
-      const scroll = Math.max(0, Math.min(maxScroll, scrollPosition));
-      grid.scrollLeft = scroll;
-      timeHeader.scrollLeft = scroll;
-      scrollLeftRef.current = scroll;
+      const scroll = Math.round(Math.max(0, Math.min(maxScroll, scrollPosition)));
+      if (scroll !== lastScroll) {
+        grid.scrollLeft = scroll;
+        timeHeader.scrollLeft = scroll;
+        scrollLeftRef.current = scroll;
+        lastScroll = scroll;
+      }
       rafId = requestAnimationFrame(tick);
     };
 
@@ -551,13 +658,78 @@ function GuideGrid({
     };
   }, []);
 
-  const visibleRowCount = Math.max(1, Math.ceil((gridHeight || 1) / rowHeight));
-  let virtualStart = Math.max(0, Math.floor(scrollTop / rowHeight) - VIRTUAL_OVERSCAN_ROWS);
-  let virtualEnd = Math.min(channels.length, virtualStart + visibleRowCount + VIRTUAL_OVERSCAN_ROWS * 2);
-  const mustIncludeStart = Math.min(focusedChannelIdx, effectiveScrollIdx);
-  const mustIncludeEnd = Math.max(focusedChannelIdx, effectiveScrollIdx);
-  virtualStart = Math.max(0, Math.min(virtualStart, mustIncludeStart));
-  virtualEnd = Math.min(channels.length, Math.max(virtualEnd, mustIncludeEnd + 1));
+  // Build merged guide rows: channels + dividers sorted by sort_order
+  type GuideItem =
+    | { kind: 'channel'; channel: ChannelWithProgram; chIdx: number }
+    | { kind: 'divider'; divider: GuideDivider };
+
+  const guideItems = useMemo<GuideItem[]>(() => {
+    const items: GuideItem[] = [];
+    let chIdx = 0;
+    // Build separate lists
+    const chList = channels.map(c => ({ sort: c.sort_order, kind: 'channel' as const, channel: c }));
+    const divList = guideDividers.map(d => ({ sort: d.sort_order, kind: 'divider' as const, divider: d }));
+    const all = [...chList, ...divList].sort((a, b) => a.sort - b.sort);
+    for (const entry of all) {
+      if (entry.kind === 'channel') {
+        items.push({ kind: 'channel', channel: entry.channel, chIdx });
+        chIdx++;
+      } else {
+        items.push({ kind: 'divider', divider: entry.divider });
+      }
+    }
+    return items;
+  }, [channels, guideDividers]);
+
+  // Compute cumulative top offsets for mixed row heights
+  const itemOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let top = 0;
+    for (const item of guideItems) {
+      offsets.push(top);
+      top += rowHeight;
+    }
+    return { offsets, totalHeight: top };
+  }, [guideItems, rowHeight]);
+
+  // Helper: find the top offset for a channel by its chIdx in the merged guide items
+  const getChannelTop = useCallback((chIdx: number) => {
+    const guideIdx = guideItems.findIndex(g => g.kind === 'channel' && g.chIdx === chIdx);
+    if (guideIdx >= 0 && itemOffsets.offsets[guideIdx] !== undefined) return itemOffsets.offsets[guideIdx];
+    return chIdx * rowHeight; // fallback
+  }, [guideItems, itemOffsets, rowHeight]);
+
+  useEffect(() => {
+    if (!isAutoScrolling) return;
+    animateVerticalScroll(Math.max(0, getChannelTop(effectiveScrollIdx)), smoothScroll);
+  }, [isAutoScrolling, effectiveScrollIdx, smoothScroll, animateVerticalScroll, getChannelTop]);
+
+  useEffect(() => {
+    if (scrollToChannelIdx !== undefined) return;
+    const container = gridRef.current;
+    if (!container) return;
+    const centeredTop = Math.max(0, getChannelTop(focusedChannelIdx) - (container.clientHeight - rowHeight) / 2);
+    animateVerticalScroll(centeredTop, true);
+  }, [focusedChannelIdx, rowHeight, scrollToChannelIdx, animateVerticalScroll, getChannelTop]);
+
+  // Virtual scrolling: find visible range based on scroll position
+  let virtualStart = 0;
+  let virtualEnd = guideItems.length;
+  if (guideItems.length > 0) {
+    const viewTop = scrollTop - VIRTUAL_OVERSCAN_ROWS * rowHeight;
+    const viewBottom = scrollTop + gridHeight + VIRTUAL_OVERSCAN_ROWS * rowHeight;
+    virtualStart = Math.max(0, itemOffsets.offsets.findIndex(o => o + rowHeight > viewTop));
+    virtualEnd = guideItems.length;
+    for (let i = virtualStart; i < guideItems.length; i++) {
+      if (itemOffsets.offsets[i] > viewBottom) { virtualEnd = i; break; }
+    }
+    // Ensure focused channel is included
+    const focusedGuideIdx = guideItems.findIndex(g => g.kind === 'channel' && g.chIdx === focusedChannelIdx);
+    if (focusedGuideIdx >= 0) {
+      virtualStart = Math.min(virtualStart, focusedGuideIdx);
+      virtualEnd = Math.max(virtualEnd, focusedGuideIdx + 1);
+    }
+  }
 
   return (
     <div
@@ -579,12 +751,30 @@ function GuideGrid({
       </div>
 
       <div className="guide-grid" ref={gridRef} onScroll={handleGridScroll}>
-        <div className="guide-rows-virtualizer" style={{ height: channels.length * rowHeight }}>
-          {channels.slice(virtualStart, virtualEnd).map((channel, offset) => {
-            const chIdx = virtualStart + offset;
-            const programs = scheduleByChannel.get(channel.id) || [];
+        <div className="guide-rows-virtualizer" style={{ height: itemOffsets.totalHeight }}>
+          {guideItems.slice(virtualStart, virtualEnd).map((item, offset) => {
+            const idx = virtualStart + offset;
+            const top = itemOffsets.offsets[idx];
+
+            if (item.kind === 'divider') {
+              return (
+                <div key={`div-${item.divider.id}`} className="guide-row-virtual-item" style={{ top }}>
+                  <div className="guide-divider-row" style={{ height: rowHeight, minWidth: channelColWidth + totalSlotsWidth }}>
+                    {item.divider.label && (
+                      <span className="guide-divider-label" style={{ fontSize: channelNameFontSize }}>
+                        {item.divider.label}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            const { channel, chIdx } = item;
+            const allPrograms = scheduleByChannel.get(channel.id) || EMPTY_PROGRAMS;
+            const programs = getVisiblePrograms(allPrograms, rangeStartMs, rangeEndMs);
             return (
-              <div key={channel.id} className="guide-row-virtual-item" style={{ top: chIdx * rowHeight }}>
+              <div key={channel.id} className="guide-row-virtual-item" style={{ top }}>
                 <GuideRow
                   channel={channel}
                   chIdx={chIdx}
@@ -592,9 +782,9 @@ function GuideGrid({
                   rowHeight={rowHeight}
                   isFocusedRow={chIdx === focusedChannelIdx}
                   focusedProgramIdx={focusedProgramIdx}
-                  nowMs={nowMs}
-                  rangeStartMs={timeRange.start.getTime()}
-                  rangeEndMs={timeRange.end.getTime()}
+                  airingKeys={airingKeys}
+                  rangeStartMs={rangeStartMs}
+                  rangeEndMs={rangeEndMs}
                   timeSlotWidth={timeSlotWidth}
                   totalSlotsWidth={totalSlotsWidth}
                   isMobile={isMobile}
@@ -609,6 +799,7 @@ function GuideGrid({
                   scrollLeft={scrollLeftRef.current}
                   channelNumFontSize={channelNumFontSize}
                   channelNameFontSize={channelNameFontSize}
+                  channelColor={channelColorMap[channel.id]}
                   onChannelClick={onChannelClick}
                   onProgramClick={onProgramClick}
                 />

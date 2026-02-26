@@ -34,7 +34,7 @@ export interface ChannelPreset {
   filter: ChannelFilter;
   // For dynamic presets that generate multiple channels based on library content
   isDynamic?: boolean;
-  dynamicType?: 'genres' | 'eras' | 'directors' | 'actors' | 'composers' | 'collections' | 'playlists' | 'studios';
+  dynamicType?: 'genres' | 'eras' | 'directors' | 'actors' | 'composers' | 'collections' | 'playlists' | 'studios' | 'networks';
 }
 
 // Filter criteria for channel content

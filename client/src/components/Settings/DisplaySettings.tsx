@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { factoryReset, getSettings, updateSettings } from '../../services/api';
+import { factoryReset, restartServer, getSettings, updateSettings } from '../../services/api';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import './Settings.css';
 
@@ -35,6 +35,7 @@ const GUIDE_RESOLUTION_KEY = 'prevue_guide_resolution';
 const GUIDE_ARTWORK_KEY = 'prevue_guide_artwork';
 const PREVIEW_STYLE_KEY = 'prevue_preview_style';
 const CLOCK_FORMAT_KEY = 'prevue_clock_format';
+const PROMO_OVERLAY_KEY = 'prevue_promo_overlay';
 
 export type PreviewBgOption = 'theme' | 'black' | 'white';
 export type PreviewStyle = 'modern' | 'classic-left' | 'classic-right';
@@ -51,6 +52,19 @@ export function getClockFormat(): ClockFormat {
 export function setClockFormat(format: ClockFormat): void {
   localStorage.setItem(CLOCK_FORMAT_KEY, format);
   window.dispatchEvent(new CustomEvent('clockformatchange', { detail: { format } }));
+}
+
+export function getPromoOverlayEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(PROMO_OVERLAY_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return true; // default: enabled
+}
+
+export function setPromoOverlayEnabled(enabled: boolean): void {
+  localStorage.setItem(PROMO_OVERLAY_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('promooverlaychange', { detail: { enabled } }));
 }
 
 export function applyPreviewBg(value: PreviewBgOption): void {
@@ -418,9 +432,12 @@ export default function DisplaySettings() {
   const [previewStyle, setPreviewStyleState] = useState<PreviewStyle>(getPreviewStyle);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(getAutoScroll);
   const [autoScrollSpeed, setAutoScrollSpeedState] = useState(getAutoScrollSpeed);
+  const [promoOverlay, setPromoOverlay] = useState(getPromoOverlayEnabled);
   const [sharePlaybackProgress, setSharePlaybackProgress] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const [showPWAInstructions, setShowPWAInstructions] = useState(false);
@@ -583,6 +600,36 @@ export default function DisplaySettings() {
       setVideoQualityState(preset);
       setVideoQuality(qualityId);
     }
+  };
+
+  const handleRestart = async () => {
+    if (!confirmRestart) {
+      setConfirmRestart(true);
+      return;
+    }
+
+    setRestarting(true);
+    setError(null);
+    try {
+      await restartServer();
+    } catch {
+      // Expected — server may drop the connection as it shuts down
+    }
+    // Poll until the server is back up, then reload
+    const pollUntilReady = () => {
+      const check = async () => {
+        try {
+          const res = await fetch('/api/health');
+          if (res.ok) {
+            window.location.reload();
+            return;
+          }
+        } catch { /* server still down */ }
+        setTimeout(check, 1000);
+      };
+      setTimeout(check, 2000);
+    };
+    pollUntilReady();
   };
 
   const handleFactoryReset = async () => {
@@ -949,6 +996,29 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection">
+        <h4>PROMO OVERLAY</h4>
+        <p className="settings-field-hint">
+          Periodically shows what you're watching and what's coming up next, just like broadcast TV promos.
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={promoOverlay}
+              onChange={(e) => {
+                setPromoOverlay(e.target.checked);
+                setPromoOverlayEnabled(e.target.checked);
+              }}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {promoOverlay ? 'ON' : 'OFF'}
+          </span>
+        </div>
+      </div>
+
+      <div className="settings-subsection">
         <h4>TOTAL CHANNELS</h4>
         <p className="settings-field-hint">
           Maximum channels to auto-generate. More channels = more variety but may spread content thinner.
@@ -1036,11 +1106,35 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection settings-danger-zone">
+        <h4>RESTART SERVER</h4>
+        <p className="settings-field-hint">
+          Restart the Prevue server process. Requires a process manager (Docker, systemd) to bring it back up.
+        </p>
+        {error && !confirmReset && <div className="settings-error">{error}</div>}
+        <button
+          className={`settings-btn-sm settings-btn-danger ${confirmRestart ? 'settings-btn-danger-confirm' : ''}`}
+          onClick={handleRestart}
+          disabled={restarting}
+        >
+          {restarting ? 'RESTARTING...' : confirmRestart ? 'CLICK AGAIN TO CONFIRM' : 'RESTART SERVER'}
+        </button>
+        {confirmRestart && !restarting && (
+          <button
+            className="settings-btn-sm"
+            onClick={() => setConfirmRestart(false)}
+            style={{ marginLeft: 8 }}
+          >
+            CANCEL
+          </button>
+        )}
+      </div>
+
+      <div className="settings-subsection settings-danger-zone">
         <h4>FACTORY RESET</h4>
         <p className="settings-field-hint">
           Delete all servers, channels, schedules, and settings. This cannot be undone.
         </p>
-        {error && <div className="settings-error">{error}</div>}
+        {error && confirmReset && <div className="settings-error">{error}</div>}
         <button
           className={`settings-btn-sm settings-btn-danger ${confirmReset ? 'settings-btn-danger-confirm' : ''}`}
           onClick={handleFactoryReset}

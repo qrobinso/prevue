@@ -646,6 +646,17 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
         <div className="interstitial-bg-near" />
       </div>
 
+      {/* Subtle video texture overlay — above background, below everything else */}
+      <video
+        className="interstitial-video-overlay"
+        src="/api/assets/video/bg-vid.mp4"
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="none"
+      />
+
       {/* Floating particles */}
       <FloatingParticles />
 

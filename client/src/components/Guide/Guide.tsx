@@ -242,6 +242,15 @@ export default function Guide({
     }
   }, [pauseAutoScroll, channels, findCurrentProgramIdx]);
 
+  const handlePromoChannelSelect = useCallback((channelId: number) => {
+    const idx = channels.findIndex(ch => ch.id === channelId);
+    if (idx >= 0) {
+      pauseAutoScroll();
+      setFocusedChannelIdx(idx);
+      setFocusedProgramIdx(findCurrentProgramIdx(channelId));
+    }
+  }, [channels, pauseAutoScroll, findCurrentProgramIdx]);
+
   /** When set, show program info modal (future program click). */
   const [programInfoModal, setProgramInfoModal] = useState<{ channel: Channel; program: ScheduleProgram } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -483,6 +492,9 @@ export default function Guide({
         guideHours={guideHours}
         previewStyle={previewStyle}
         onOverlayVisibilityChange={setOverlayVisible}
+        scheduleByChannel={scheduleByChannel}
+        channels={channels}
+        onSelectChannel={handlePromoChannelSelect}
       />
       {programInfoModal && (
         <ProgramInfoModal

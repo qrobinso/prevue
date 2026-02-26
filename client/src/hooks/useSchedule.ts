@@ -3,6 +3,9 @@ import { getSchedule, type ChannelWithProgram } from '../services/api';
 import type { ScheduleProgram, ScheduleBlock, WSEvent } from '../types';
 import { useWebSocket } from './useWebSocket';
 
+/** Minimum gap between schedule reloads (ms). */
+const RELOAD_DEBOUNCE_MS = 2000;
+
 interface ScheduleData {
   channels: ChannelWithProgram[];
   scheduleByChannel: Map<number, ScheduleProgram[]>;
@@ -19,8 +22,16 @@ export function useSchedule(): ScheduleData {
   const refreshTimer = useRef<ReturnType<typeof setInterval>>();
 
   const hasLoadedOnce = useRef(false);
+  const loadingRef = useRef(false);
+  const debouncedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const lastLoadTime = useRef(0);
 
   const loadData = useCallback(async () => {
+    // Prevent overlapping requests
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    lastLoadTime.current = Date.now();
+
     // Only show loading spinner on the initial load; background refreshes are silent
     // so that PreviewPanel (and its HLS stream) is never unmounted mid-playback.
     if (!hasLoadedOnce.current) {
@@ -39,14 +50,17 @@ export function useSchedule(): ScheduleData {
         for (const block of (data as { blocks: ScheduleBlock[] }).blocks) {
           programs.push(...block.programs);
         }
-        // Sort by start time
-        programs.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+        // Pre-compute numeric timestamps once so renderers never parse Date strings
+        for (const prog of programs) {
+          prog.start_ms = new Date(prog.start_time).getTime();
+          prog.end_ms = new Date(prog.end_time).getTime();
+        }
+        // Sort by pre-computed timestamp
+        programs.sort((a, b) => a.start_ms! - b.start_ms!);
         schedMap.set(channelIdNum, programs);
 
         const currentIdx = programs.findIndex((prog) => {
-          const start = new Date(prog.start_time).getTime();
-          const end = new Date(prog.end_time).getTime();
-          return nowMs >= start && nowMs < end;
+          return nowMs >= prog.start_ms! && nowMs < prog.end_ms!;
         });
 
         const currentProgram = currentIdx >= 0 ? programs[currentIdx] : null;
@@ -73,8 +87,17 @@ export function useSchedule(): ScheduleData {
       }
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   }, []);
+
+  /** Debounced reload — collapses rapid WS events into a single fetch. */
+  const debouncedLoad = useCallback(() => {
+    if (debouncedTimer.current) clearTimeout(debouncedTimer.current);
+    const elapsed = Date.now() - lastLoadTime.current;
+    const delay = Math.max(0, RELOAD_DEBOUNCE_MS - elapsed);
+    debouncedTimer.current = setTimeout(loadData, delay);
+  }, [loadData]);
 
   // Reload guide when schedules are regenerated via WebSocket
   const handleWsEvent = useCallback((event: WSEvent) => {
@@ -84,9 +107,9 @@ export function useSchedule(): ScheduleData {
       event.type === 'channel:removed' ||
       event.type === 'schedule:updated'
     ) {
-      loadData();
+      debouncedLoad();
     }
-  }, [loadData]);
+  }, [debouncedLoad]);
 
   useWebSocket(handleWsEvent);
 
@@ -97,6 +120,7 @@ export function useSchedule(): ScheduleData {
     refreshTimer.current = setInterval(loadData, 60000);
     return () => {
       if (refreshTimer.current) clearInterval(refreshTimer.current);
+      if (debouncedTimer.current) clearTimeout(debouncedTimer.current);
     };
   }, [loadData]);
 

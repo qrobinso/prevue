@@ -74,6 +74,7 @@ const strictLimiter = rateLimit({
 });
 app.use('/api/servers', strictLimiter);
 app.use('/api/settings/factory-reset', strictLimiter);
+app.use('/api/settings/restart', strictLimiter);
 
 // ─── Auth middleware ──────────────────────────────────
 // When PREVUE_API_KEY is set, all /api/* routes require it
@@ -156,6 +157,12 @@ app.get('/api/assets/music-list', (_req, res) => {
     res.json([]);
   }
 });
+
+// Serve video assets (interstitial background video, etc.)
+const bgVideoPath = fs.existsSync(path.join(__dirname, '../src/assets/video'))
+  ? path.join(__dirname, '../src/assets/video')   // dev: running from src/
+  : path.join(__dirname, '../assets/video');       // prod: assets copied alongside dist/
+app.use('/api/assets/video', express.static(bgVideoPath));
 
 // Serve static client build in production
 const clientDistPath = path.join(__dirname, '../../client/dist');

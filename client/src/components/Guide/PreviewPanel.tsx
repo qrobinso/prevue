@@ -23,6 +23,8 @@ import {
   isStreamActive, destroySharedStream, reconfigureBuffers,
 } from '../../services/sharedVideo';
 import InterstitialScreen from '../Player/InterstitialScreen';
+import PromoOverlay from '../Player/PromoOverlay';
+import { getPromoOverlayEnabled } from '../Settings/DisplaySettings';
 import './Guide.css';
 
 /** Delay before starting preview stream (user may be browsing) */
@@ -60,6 +62,10 @@ interface PreviewPanelProps {
   guideHours?: number;
   previewStyle?: 'modern' | 'classic-left' | 'classic-right';
   onOverlayVisibilityChange?: (visible: boolean) => void;
+  scheduleByChannel?: Map<number, ScheduleProgram[]>;
+  channels?: import('../../services/api').ChannelWithProgram[];
+  /** Called when a "Starting Soon" promo is clicked — selects that channel in the guide */
+  onSelectChannel?: (channelId: number) => void;
 }
 
 const PREVIEW_BASE_SIZES = {
@@ -72,7 +78,7 @@ const PREVIEW_BASE_SIZES = {
   time: 10,
 } as const;
 
-export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4, previewStyle = 'modern', onOverlayVisibilityChange }: PreviewPanelProps) {
+export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4, previewStyle = 'modern', onOverlayVisibilityChange, scheduleByChannel, channels: allChannels, onSelectChannel }: PreviewPanelProps) {
   const isIOSDevice = isIOS();
   const canRestoreAudioPrefs = () => {
     if (!isIOSDevice) return true;
@@ -111,6 +117,27 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [videoError, setVideoError] = useState<string | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(true);
+  const [promoOverlayEnabled, setPromoOverlayEnabledState] = useState(getPromoOverlayEnabled);
+
+  // Listen for promo overlay setting changes
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setPromoOverlayEnabledState((e as CustomEvent).detail.enabled);
+    };
+    window.addEventListener('promooverlaychange', handler);
+    return () => window.removeEventListener('promooverlaychange', handler);
+  }, []);
+
+  // Compute upcoming programs for promo overlay
+  const upcomingPrograms = (() => {
+    if (!scheduleByChannel || !channel) return [];
+    const programs = scheduleByChannel.get(channel.id);
+    if (!programs) return [];
+    const now = Date.now();
+    return programs
+      .filter((p) => p.type === 'program' && (p.start_ms ?? new Date(p.start_time).getTime()) > now)
+      .slice(0, 3);
+  })();
 
   // Notify parent when overlay visibility changes.
   // On wide screens (≥768px) in classic mode, CSS forces the overlay always
@@ -850,6 +877,20 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
               <span className="preview-error-detail">{videoError}</span>
             </div>
           </div>
+        )}
+        {/* 2E Promo overlay — periodic broadcast-style promo */}
+        {program && program.type !== 'interstitial' && videoReady && (
+          <PromoOverlay
+            currentProgram={program}
+            upcomingPrograms={upcomingPrograms}
+            isInterstitial={false}
+            enabled={promoOverlayEnabled}
+            creditsVisible={false}
+            scheduleByChannel={scheduleByChannel}
+            channels={allChannels}
+            currentChannelId={channel.id}
+            onTuneChannel={onSelectChannel}
+          />
         )}
       </div>
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}

@@ -10,6 +10,7 @@ Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
 - **Jellyfin integration** — Connects to your Jellyfin media server and syncs your full movie and TV library.
 - **AI-powered channel creation** — Generate channels from natural language prompts using an AI agent via OpenRouter (e.g. "90s nostalgia" or "Christopher Nolan marathon").
 - **Preset and custom channels** — Auto-generates channels by genre, era, director, actor, collection, and more. Create your own with manual item lists or AI prompts.
+- **Content filters** — Filter channels by content type (movies, TV shows, or both), ratings, genres, and unwatched status.
 - **Hardware transcoding** — Leverages Jellyfin's transcoding pipeline with selectable quality presets (Auto, 4K, 1080p, 720p, 480p) and HEVC support.
 - **Subtitle and audio track support** — Full multi-track subtitle and audio selection, with per-language preferences and persistence.
 - **Full-featured guide and player** — Retro Prevue Channel-inspired EPG grid with a built-in HLS video player, overlay controls, nerd stats, and picture-in-picture.
@@ -101,6 +102,8 @@ Default model: `google/gemini-3-flash-preview` (configurable in Settings).
 - Configurable time window (1-4 hours) and visible channels (3-15)
 - Program preview panel with artwork, title, description, and duration
 - Color-coded entries (movies vs. episodes, customizable)
+- Per-channel color coding with preset color palette
+- Guide dividers — labeled section separators to organize your channel lineup
 - Auto-scroll with adjustable speed (slow, normal, fast)
 - Classic or modern preview style
 - Keyboard navigation (arrow keys, Enter to tune, Escape for settings)
@@ -113,10 +116,18 @@ Default model: `google/gemini-3-flash-preview` (configurable in Settings).
 - Subtitle and audio track selection overlay
 - Fullscreen, picture-in-picture, and video fit (contain/cover) modes
 - Info overlay with channel name, program title, time remaining, and next up
+- Promo overlay — periodic broadcast-style popups showing what you're watching, what's coming up next, and what's starting soon on other channels (toggleable in Settings). "Starting Soon" promos are clickable — tap to tune directly to that channel.
 - Nerd stats panel: resolution, bitrate, codec, FPS, buffer health
 - Channel up/down while watching
 - Progress reporting back to Jellyfin
 - Auto-advances to next program when current one ends
+
+### Interstitial Screen
+
+- Cinematic "coming soon" screen between programs with countdown, channel ident, lineup carousel, and program spotlight
+- Ambient video texture overlay for visual depth
+- Background music with audio-reactive animations
+- CRT scanline overlay and floating particles
 
 ## Hardware Transcoding
 
@@ -126,6 +137,15 @@ Prevue proxies HLS streams through Jellyfin's transcoding pipeline. If your Jell
 - HEVC support (when Jellyfin is configured for it)
 - Smart request deduplication to prevent duplicate FFmpeg jobs
 - Idle session cleanup after 5 minutes of inactivity
+
+## API Resilience
+
+Prevue includes built-in protections against rate limiting and redundant API calls:
+
+- **Request deduplication** — Concurrent identical GET requests share a single in-flight fetch
+- **Retry with exponential backoff** — 429 (rate limit) responses are retried up to 3 times with 1s/2s/4s delays, respecting `Retry-After` headers
+- **Debounced schedule reloads** — Rapid WebSocket events (channel changes, schedule updates) are collapsed into a single reload with a 2-second debounce window
+- **Server-side caching** — Item details (5-min TTL) and playback session info (60s TTL) are cached to reduce Jellyfin API calls during rapid navigation
 
 ## Subtitle Support
 
@@ -222,23 +242,177 @@ Jellyfin server credentials are configured from the app UI in **Settings > Serve
 |-------|-------|
 | Client | React 18, Vite, HLS.js, TypeScript |
 | Server | Express, TypeScript, WebSocket |
-| Database | SQLite (better-sqlite3) |
+| Database | SQLite (better-sqlite3, WAL mode) |
 | Streaming | Proxied HLS from Jellyfin |
-| Container | Docker (node:20-alpine, multi-stage build) |
+| AI | OpenRouter API (configurable model) |
+| Container | Docker (node:20-alpine, 3-stage build) |
+
+### Streaming Pipeline
+
+All video is proxied through Prevue so Jellyfin credentials are never exposed to the browser:
+
+```
+Browser (hls.js)
+  → GET /api/playback/:channelId       (stream URL + seek position + tracks)
+  → GET /api/stream/:itemId            (master M3U8 from Jellyfin, URLs rewritten)
+  → GET /api/stream/proxy/*            (child playlists + segments proxied to Jellyfin)
+```
+
+- **Session pre-fetching** — `/api/playback` does one Jellyfin `PlaybackInfo` call and forwards `playSessionId` + `mediaSourceId` in the stream URL so `/api/stream` skips a redundant round-trip
+- **Request deduplication** — Concurrent requests for the same Jellyfin URL share a single in-flight fetch, preventing duplicate FFmpeg processes when hls.js retries
+- **Idle cleanup** — Runs every 2 minutes and stops Jellyfin transcoding sessions inactive for 5+ minutes
+- **Pre-warming** — After returning the master playlist, the server pre-fetches the first child playlist so segments are ready faster
+- **Shared video element** — Client uses a singleton `<video>` element that is DOM-reparented between Guide preview and Player — no re-buffering on guide-to-fullscreen transitions
+- **Playback handoff** — 8-second TTL contract so Guide and Player can transfer ownership of the same HLS session without stopping/restarting
+- **HEVC/HDR** — Client-side codec detection; passes `hevc=1` to request HEVC with `mp4` segment container, falls back to `h264` with `ts` container
+- **Seek** — Handled client-side via hls.js `startPosition` (not Jellyfin's `StartTimeTicks`) to avoid FFmpeg exit code 234 on VAAPI systems
+
+### Schedule Engine
+
+Generates deterministic 24-hour blocks (starting at 4am, configurable) using seeded PRNG per channel+block for reproducible schedules.
+
+- **Cooldown** — 24-hour reuse cooldown per item; 8-hour cooldown for movies on movie-only channels
+- **Episode runs** — 2–5 consecutive episodes from the same series per run; max 3 runs per series per 24-hour block
+- **Genre saturation** — Tracks last 3 items, prevents 3+ consecutive items from the same genre
+- **Maintenance** — `maintainSchedules()` runs every 15 minutes and extends any channel whose schedule ends within 24 hours
+- **Auto-update** — Configurable interval (1–168 hours) for extending schedules, independent of maintenance
+- **Minimum content** — 4 hours of content required for a channel; 2 hours for cast/crew channels
+
+### Channel System
+
+Three channel types: **auto** (genre-based), **preset** (curated definitions), and **custom** (user-created or AI-generated).
+
+- **Auto channels** — Groups library items by lead genre; priority genres processed first; no bleeding across genres
+- **Preset channels** — Static (fixed filter rules) and dynamic (`auto-genres`, `auto-eras`, `auto-directors`, `auto-actors`, `auto-composers`, `auto-collections`, `auto-playlists`, `auto-studios`). Dynamic presets enumerate the library and create one channel per entity
+- **AI channels** — Library is condensed into a token-efficient format (`M0`, `S5`-style indices) and sent to the LLM via OpenRouter. The model returns item indices + channel name; server maps back to Jellyfin IDs
+
+### WebSocket Events
+
+Real-time updates via WebSocket (`ws://host/ws`). When `PREVUE_API_KEY` is set, connections require `?api_key=<key>`.
+
+| Event | Payload | Trigger |
+|-------|---------|---------|
+| `connected` | `{ timestamp }` | New connection |
+| `heartbeat` | `{ timestamp }` | Every 30 seconds |
+| `channel:added` | Channel object | Channel created |
+| `channel:removed` | `{ id }` | Channel deleted |
+| `channels:regenerated` | `{ count }` | Regeneration complete |
+| `library:synced` | `{ item_count }` | Library sync finished |
+| `generation:progress` | `{ step, message }` | Progress during sync/generation |
+| `schedule:updated` | — | Schedule changed |
+
+### Database
+
+Raw SQL via `better-sqlite3` (synchronous, WAL mode). No ORM.
+
+| Table | Purpose |
+|-------|---------|
+| `servers` | Jellyfin server configs and encrypted access tokens |
+| `channels` | Channel definitions (type, genre, preset, AI prompt, item IDs) |
+| `schedule_blocks` | Schedule data (programs JSON, deterministic seed) |
+| `settings` | Key-value store (JSON-serialized values) |
+| `library_cache` | Cached Jellyfin item metadata |
+| `watch_sessions` | Viewing session metrics |
+| `watch_events` | Granular watch event log |
+| `client_registry` | Known client identifiers |
+
+Sensitive data (OpenRouter API key) is encrypted with AES-256-GCM. Key sourced from `DATA_ENCRYPTION_KEY` env var or auto-generated and persisted in `data/.encryption-key`.
+
+### Security
+
+- **Helmet** — Security headers (CSP disabled for SPA, `crossOriginEmbedderPolicy` disabled for HLS)
+- **Rate limiting** — 600 req/15 min global on `/api`; 90 req/15 min on sensitive routes (`/servers`, `/factory-reset`, `/restart`)
+- **SSRF protection** — Server URL validation prevents internal network scanning
+- **Auth** — API key accepted via `X-API-Key` header, `?api_key=` query, or `?token=` query. Public exemptions: `/health`, `/auth/status`, `/docs`, `/iptv`, `/assets`
 
 ## API
 
-All endpoints prefixed with `/api`:
+All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs`.
+
+### Channels
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/channels` | List channels with current programs |
+| `GET /api/channels` | List channels with current/next programs |
+| `POST /api/channels` | Create custom channel |
+| `PUT /api/channels/:id` | Update channel (name, items, sort order) |
+| `DELETE /api/channels/:id` | Delete channel |
+| `POST /api/channels/regenerate` | Regenerate all channels from presets |
+| `POST /api/channels/generate` | Generate channels from preset ID array |
+| `GET /api/channels/genres` | Library genres with counts |
+| `GET /api/channels/ratings` | Library content ratings |
+| `GET /api/channels/search?q=` | Search library items |
+| `GET /api/channels/presets` | All preset definitions |
+| `POST /api/channels/presets/:id` | Create channel from preset |
+| `GET /api/channels/settings` | Channel generation settings |
+| `PUT /api/channels/settings` | Update channel settings |
+
+### AI Channels
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/channels/ai` | Create channel from natural language prompt |
+| `PUT /api/channels/:id/ai-refresh` | Re-run AI prompt against latest library |
+| `GET /api/channels/ai/status` | AI service availability |
+| `GET /api/channels/ai/config` | AI config (key presence, model) |
+| `PUT /api/channels/ai/config` | Update AI key and model |
+| `GET /api/channels/ai/suggestions` | Generate sample prompts from library |
+
+### Schedule
+
+| Endpoint | Description |
+|----------|-------------|
 | `GET /api/schedule` | Full schedule for all channels |
-| `GET /api/playback/:channelId` | Stream URL + seek offset |
-| `GET /api/settings` | App settings |
-| `GET /api/servers` | Configured Jellyfin servers |
-| `GET /api/iptv/playlist.m3u` | IPTV M3U playlist |
-| `GET /api/iptv/epg.xml` | IPTV XMLTV guide |
+| `GET /api/schedule/:channelId` | Schedule for one channel |
+| `GET /api/schedule/:channelId/now` | Current program + next + seek offset |
+| `POST /api/schedule/regenerate` | Force-regenerate all schedules |
+| `GET /api/schedule/item/:itemId` | Jellyfin item details (5-min cache) |
+
+### Playback & Streaming
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/playback/:channelId` | Stream URL, seek position, tracks, outro detection |
+| `GET /api/stream/:itemId` | HLS master playlist (rewritten URLs) |
+| `GET /api/stream/proxy/*` | Proxy HLS sub-requests to Jellyfin |
+| `POST /api/stream/stop` | Stop playback session |
+| `POST /api/stream/progress` | Report playback progress to Jellyfin |
+| `GET /api/images/:itemId/:type` | Proxy Jellyfin images (24h cache) |
+
+### IPTV
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/iptv/playlist.m3u` | M3U playlist with all channels |
+| `GET /api/iptv/epg.xml` | XMLTV electronic program guide (gzip) |
+| `GET /api/iptv/channel/:number` | Live HLS stream for a channel |
+| `GET /api/iptv/status` | IPTV status and URLs |
+
+### Settings & Servers
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/settings` | All settings |
+| `PUT /api/settings` | Bulk-update settings |
+| `POST /api/settings/factory-reset` | Wipe all data |
+| `POST /api/settings/restart` | Restart server process |
+| `GET /api/servers` | List configured servers |
+| `POST /api/servers` | Add Jellyfin server |
+| `PUT /api/servers/:id` | Update server |
+| `DELETE /api/servers/:id` | Remove server |
+| `POST /api/servers/:id/resync` | Re-sync library |
+| `GET /api/servers/discover` | Discover Jellyfin via UDP/HTTP |
+
+### Metrics & System
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/metrics/start` | Start watch session |
+| `POST /api/metrics/stop` | End watch session |
+| `POST /api/metrics/channel-switch` | Record channel switch |
+| `GET /api/metrics/dashboard?range=` | Dashboard data (24h, 7d, 30d, all) |
+| `GET /api/assets/music` | Background music files |
+| `GET /api/assets/video` | Video assets (interstitial backgrounds) |
 | `GET /api/health` | Health check |
 | `GET /api/auth/status` | Whether API key auth is required |
 

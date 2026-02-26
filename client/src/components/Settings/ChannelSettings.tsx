@@ -3,7 +3,6 @@ import {
   getChannels,
   deleteChannel,
   updateChannel,
-  createChannel,
   createAIChannel,
   refreshAIChannel,
   getAIConfig,
@@ -20,6 +19,22 @@ import {
   type AIConfig,
 } from '../../services/api';
 import { wsClient } from '../../services/websocket';
+import {
+  type GuideDivider,
+  getGuideDividers,
+  saveGuideDividers,
+  createDivider,
+  persistDividers,
+  hydrateDividersFromServer,
+  CHANNEL_COLOR_PRESETS,
+  getChannelColors,
+  saveChannelColors,
+  setChannelColor,
+  clearChannelColor,
+  persistChannelColors,
+  hydrateChannelColorsFromServer,
+  getLastUsedColor,
+} from '../../utils/guideCustomization';
 
 type ViewMode = 'presets' | 'list' | 'ai';
 
@@ -80,9 +95,6 @@ export default function ChannelSettings() {
   const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
   const [presetMultipliers, setPresetMultipliers] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [channelName, setChannelName] = useState('');
-  const [creating, setCreating] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [error, setError] = useState('');
@@ -90,6 +102,7 @@ export default function ChannelSettings() {
   const [viewMode, setViewMode] = useState<ViewMode>('presets');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [separateContentTypes, setSeparateContentTypes] = useState(true);
+  const [contentTypesFilter, setContentTypesFilter] = useState<{ movies: boolean; tv_shows: boolean }>({ movies: true, tv_shows: true });
   const [scheduleAutoUpdateEnabled, setScheduleAutoUpdateEnabled] = useState(true);
   const [scheduleAutoUpdateHours, setScheduleAutoUpdateHours] = useState(4);
   const [scheduleAlignment, setScheduleAlignment] = useState<'seamless' | '15min'>('seamless');
@@ -97,6 +110,16 @@ export default function ChannelSettings() {
   const [draggingChannelId, setDraggingChannelId] = useState<number | null>(null);
   const [dragOverChannelId, setDragOverChannelId] = useState<number | null>(null);
   const dragPointerIdRef = useRef<number | null>(null);
+
+  // Dividers
+  const [dividers, setDividers] = useState<GuideDivider[]>(() => getGuideDividers());
+  const [draggingDividerId, setDraggingDividerId] = useState<string | null>(null);
+  const [dragOverDividerId, setDragOverDividerId] = useState<string | null>(null);
+
+  // Channel colors
+  const [channelColors, setChannelColors] = useState<Record<number, string>>(() => getChannelColors());
+  const [colorPickerChannelId, setColorPickerChannelId] = useState<number | null>(null);
+  const lastUsedColor = getLastUsedColor();
 
   const [refreshingChannelId, setRefreshingChannelId] = useState<number | null>(null);
 
@@ -148,6 +171,9 @@ export default function ChannelSettings() {
       if (!separateLoadedRef.current) {
         const settings = settingsData as Record<string, unknown>;
         setSeparateContentTypes(settings['separate_content_types'] !== false);
+        if (settings['content_types'] && typeof settings['content_types'] === 'object') {
+          setContentTypesFilter(settings['content_types'] as { movies: boolean; tv_shows: boolean });
+        }
         const hoursSetting = settings['schedule_auto_update_hours'];
         const parsedHours = typeof hoursSetting === 'number' && Number.isFinite(hoursSetting)
           ? Math.floor(hoursSetting)
@@ -155,6 +181,16 @@ export default function ChannelSettings() {
         setScheduleAutoUpdateEnabled(settings['schedule_auto_update_enabled'] !== false);
         setScheduleAutoUpdateHours(Math.max(1, Math.min(168, parsedHours)));
         setScheduleAlignment(settings['schedule_alignment'] === '15min' ? '15min' : 'seamless');
+        // Hydrate dividers from server
+        if (Array.isArray(settings['guide_dividers'])) {
+          hydrateDividersFromServer(settings['guide_dividers'] as GuideDivider[]);
+          setDividers(settings['guide_dividers'] as GuideDivider[]);
+        }
+        // Hydrate channel colors from server
+        if (settings['channel_colors'] && typeof settings['channel_colors'] === 'object' && !Array.isArray(settings['channel_colors'])) {
+          hydrateChannelColorsFromServer(settings['channel_colors'] as Record<number, string>);
+          setChannelColors(settings['channel_colors'] as Record<number, string>);
+        }
         separateLoadedRef.current = true;
       }
       const savedSet = new Set(savedPresets);
@@ -271,6 +307,165 @@ export default function ChannelSettings() {
     await persistChannelOrder(reordered);
   }, [channels, draggingChannelId, dragOverChannelId, persistChannelOrder, reorderChannelsById]);
 
+  // ─── Merged list (channels + dividers) by sort_order ───
+  type ListItem =
+    | { kind: 'channel'; channel: ChannelWithProgram }
+    | { kind: 'divider'; divider: GuideDivider };
+
+  const mergedList = useMemo<ListItem[]>(() => {
+    const items: ListItem[] = [];
+    for (const ch of channels) items.push({ kind: 'channel', channel: ch });
+    for (const d of dividers) items.push({ kind: 'divider', divider: d });
+    items.sort((a, b) => {
+      const aOrder = a.kind === 'channel' ? a.channel.sort_order : a.divider.sort_order;
+      const bOrder = b.kind === 'channel' ? b.channel.sort_order : b.divider.sort_order;
+      return aOrder - bOrder;
+    });
+    return items;
+  }, [channels, dividers]);
+
+  // Unique key for merged items used in data attributes
+  const itemKey = (item: ListItem) =>
+    item.kind === 'channel' ? `ch-${item.channel.id}` : `div-${item.divider.id}`;
+
+  // ─── Unified drag for merged list ───
+  const handleMergedDragStart = useCallback((key: string, e: React.PointerEvent<HTMLButtonElement>) => {
+    if (savingOrder) return;
+    dragPointerIdRef.current = e.pointerId;
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    if (key.startsWith('ch-')) {
+      const id = Number(key.slice(3));
+      setDraggingChannelId(id);
+      setDragOverChannelId(id);
+    } else {
+      setDraggingDividerId(key.slice(4));
+      setDragOverDividerId(key.slice(4));
+    }
+  }, [savingOrder]);
+
+  const handleMergedDragMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    if (draggingChannelId === null && draggingDividerId === null) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const row = el instanceof HTMLElement ? el.closest<HTMLElement>('[data-item-key]') : null;
+    if (!row) return;
+    const key = row.getAttribute('data-item-key');
+    if (!key) return;
+    if (key.startsWith('ch-')) {
+      setDragOverChannelId(Number(key.slice(3)));
+      setDragOverDividerId(null);
+    } else {
+      setDragOverDividerId(key.slice(4));
+      setDragOverChannelId(null);
+    }
+  }, [draggingChannelId, draggingDividerId]);
+
+  const handleMergedDragEnd = useCallback(async (e?: React.PointerEvent<HTMLButtonElement>) => {
+    if (e && dragPointerIdRef.current !== null && e.currentTarget.hasPointerCapture(dragPointerIdRef.current)) {
+      e.currentTarget.releasePointerCapture(dragPointerIdRef.current);
+    }
+    dragPointerIdRef.current = null;
+
+    const srcChId = draggingChannelId;
+    const srcDivId = draggingDividerId;
+    const tgtChId = dragOverChannelId;
+    const tgtDivId = dragOverDividerId;
+    setDraggingChannelId(null);
+    setDraggingDividerId(null);
+    setDragOverChannelId(null);
+    setDragOverDividerId(null);
+
+    if (srcChId === null && srcDivId === null) return;
+
+    const srcKey = srcChId !== null ? `ch-${srcChId}` : `div-${srcDivId}`;
+    const tgtKey = tgtChId !== null ? `ch-${tgtChId}` : tgtDivId !== null ? `div-${tgtDivId}` : null;
+    if (!tgtKey || srcKey === tgtKey) return;
+
+    // Reorder merged list
+    const keys = mergedList.map(itemKey);
+    const fromIdx = keys.indexOf(srcKey);
+    const toIdx = keys.indexOf(tgtKey);
+    if (fromIdx < 0 || toIdx < 0) return;
+
+    const reordered = [...mergedList];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+
+    // Assign new sort_order to all items
+    const channelUpdates: { id: number; sort_order: number }[] = [];
+    const newDividers: GuideDivider[] = [];
+    reordered.forEach((item, idx) => {
+      const order = idx + 1;
+      if (item.kind === 'channel') {
+        channelUpdates.push({ id: item.channel.id, sort_order: order });
+      } else {
+        newDividers.push({ ...item.divider, sort_order: order });
+      }
+    });
+
+    // Optimistically update dividers
+    setDividers(newDividers);
+    saveGuideDividers(newDividers);
+    persistDividers(newDividers);
+
+    // Persist channel order
+    setSavingOrder(true);
+    setError('');
+    try {
+      await Promise.all(channelUpdates.map(u => updateChannel(u.id, { sort_order: u.sort_order })));
+      await loadData();
+    } catch (err) {
+      setError((err as Error).message);
+      await loadData();
+    } finally {
+      setSavingOrder(false);
+    }
+  }, [mergedList, draggingChannelId, draggingDividerId, dragOverChannelId, dragOverDividerId]);
+
+  // ─── Divider handlers ───
+  const handleAddDivider = useCallback(() => {
+    const maxOrder = mergedList.length > 0
+      ? Math.max(...mergedList.map(i => i.kind === 'channel' ? i.channel.sort_order : i.divider.sort_order))
+      : 0;
+    const div = createDivider(maxOrder + 1);
+    const updated = [...dividers, div];
+    setDividers(updated);
+    saveGuideDividers(updated);
+    persistDividers(updated);
+  }, [dividers, mergedList]);
+
+  const handleDeleteDivider = useCallback((id: string) => {
+    const updated = dividers.filter(d => d.id !== id);
+    setDividers(updated);
+    saveGuideDividers(updated);
+    persistDividers(updated);
+  }, [dividers]);
+
+  const handleRenameDivider = useCallback((id: string, label: string) => {
+    const updated = dividers.map(d => d.id === id ? { ...d, label } : d);
+    setDividers(updated);
+    saveGuideDividers(updated);
+    persistDividers(updated);
+  }, [dividers]);
+
+  // ─── Channel color handlers ───
+  const handleSetColor = useCallback((channelId: number, hex: string) => {
+    setChannelColor(channelId, hex);
+    setChannelColors(prev => ({ ...prev, [channelId]: hex }));
+    setColorPickerChannelId(null);
+  }, []);
+
+  const handleClearColor = useCallback((channelId: number) => {
+    clearChannelColor(channelId);
+    setChannelColors(prev => {
+      const next = { ...prev };
+      delete next[channelId];
+      return next;
+    });
+    setColorPickerChannelId(null);
+  }, []);
+
   // Fetch fresh suggestions each time AI tab is shown
   useEffect(() => {
     if (viewMode === 'ai') {
@@ -358,22 +553,6 @@ export default function ChannelSettings() {
       setAiError((err as Error).message);
     } finally {
       setAiCreating(false);
-    }
-  };
-
-  const handleCreateManual = async () => {
-    if (!channelName.trim()) return;
-    setCreating(true);
-    setError('');
-    try {
-      await createChannel(channelName, []);
-      setChannelName('');
-      setShowCreate(false);
-      await loadData();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setCreating(false);
     }
   };
 
@@ -479,12 +658,73 @@ export default function ChannelSettings() {
       setError('Please select at least one channel type');
       return;
     }
+
+    // ── Snapshot colors & dividers before regeneration ──
+    // Map channel name → color so we can re-apply after IDs change
+    const colorsByName: Record<string, string> = {};
+    const oldColors = getChannelColors();
+    for (const ch of channels) {
+      if (oldColors[ch.id]) colorsByName[ch.name] = oldColors[ch.id];
+    }
+    // Snapshot divider fractional positions in the merged list
+    const oldMerged = mergedList;
+    const dividerSnapshots: { divider: GuideDivider; fraction: number }[] = [];
+    if (oldMerged.length > 0) {
+      for (let i = 0; i < oldMerged.length; i++) {
+        const item = oldMerged[i];
+        if (item.kind === 'divider') {
+          dividerSnapshots.push({
+            divider: item.divider,
+            fraction: oldMerged.length > 1 ? i / (oldMerged.length - 1) : 0.5,
+          });
+        }
+      }
+    }
+
     setGenerating(true);
     setGenerationProgress({ step: 'starting', message: 'Starting channel generation...' });
     setError('');
     try {
       await generateChannels(expandedPresetIds);
       await loadData();
+
+      // ── Restore colors by channel name ──
+      const newChannels = await getChannels();
+      const restoredColors: Record<number, string> = {};
+      for (const ch of newChannels) {
+        if (colorsByName[ch.name]) restoredColors[ch.id] = colorsByName[ch.name];
+      }
+      if (Object.keys(restoredColors).length > 0) {
+        saveChannelColors(restoredColors);
+        persistChannelColors(restoredColors);
+        setChannelColors(restoredColors);
+        window.dispatchEvent(new Event('channelcolorschange'));
+      }
+
+      // ── Restore dividers at equivalent fractional positions ──
+      if (dividerSnapshots.length > 0) {
+        const totalNew = newChannels.length + dividerSnapshots.length;
+        const restoredDividers: GuideDivider[] = dividerSnapshots.map(({ divider, fraction }) => {
+          const targetIdx = Math.round(fraction * (totalNew - 1));
+          return { ...divider, sort_order: targetIdx + 1 };
+        });
+        // Re-number channels to make room for dividers
+        const allItems: { kind: 'channel' | 'divider'; sort: number; ch?: typeof newChannels[0]; div?: GuideDivider }[] = [
+          ...newChannels.map(ch => ({ kind: 'channel' as const, sort: ch.sort_order, ch })),
+          ...restoredDividers.map(d => ({ kind: 'divider' as const, sort: d.sort_order, div: d })),
+        ];
+        allItems.sort((a, b) => a.sort - b.sort);
+        const finalDividers: GuideDivider[] = [];
+        for (let i = 0; i < allItems.length; i++) {
+          const item = allItems[i];
+          if (item.kind === 'divider' && item.div) {
+            finalDividers.push({ ...item.div, sort_order: i + 1 });
+          }
+        }
+        setDividers(finalDividers);
+        saveGuideDividers(finalDividers);
+        persistDividers(finalDividers);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -550,27 +790,29 @@ export default function ChannelSettings() {
             Select channel types to add to your lineup.
           </p>
 
-          {/* Content Type Separation Toggle */}
-          <div className="settings-separate-toggle">
-            <div className="settings-toggle-row">
-              <label className="settings-toggle">
-                <input
-                  type="checkbox"
-                  checked={separateContentTypes}
-                  onChange={handleSeparateToggle}
-                />
-                <span className="settings-toggle-slider" />
-              </label>
-              <span className="settings-toggle-label">
-                {separateContentTypes ? 'SEPARATE MOVIES & TV' : 'MIX MOVIES & TV'}
-              </span>
+          {/* Content Type Separation Toggle — only relevant when both types are enabled */}
+          {contentTypesFilter.movies && contentTypesFilter.tv_shows && (
+            <div className="settings-separate-toggle">
+              <div className="settings-toggle-row">
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={separateContentTypes}
+                    onChange={handleSeparateToggle}
+                  />
+                  <span className="settings-toggle-slider" />
+                </label>
+                <span className="settings-toggle-label">
+                  {separateContentTypes ? 'SEPARATE MOVIES & TV' : 'MIX MOVIES & TV'}
+                </span>
+              </div>
+              <p className="settings-field-hint" style={{ marginTop: 4 }}>
+                {separateContentTypes
+                  ? 'Each channel type creates separate movie and TV channels.'
+                  : 'Movies and TV shows are mixed together in each channel.'}
+              </p>
             </div>
-            <p className="settings-field-hint" style={{ marginTop: 4 }}>
-              {separateContentTypes
-                ? 'Each channel type creates separate movie and TV channels.'
-                : 'Movies and TV shows are mixed together in each channel.'}
-            </p>
-          </div>
+          )}
 
           {/* Schedule auto-update controls */}
           <div className="settings-separate-toggle">
@@ -737,109 +979,187 @@ export default function ChannelSettings() {
         <>
           <div className="settings-section-header">
             <h3>Active Channels</h3>
-            <button className="settings-btn-primary" onClick={() => setShowCreate(!showCreate)}>
-              {showCreate ? 'CANCEL' : '+ CUSTOM'}
+            <button className="settings-btn-primary" onClick={handleAddDivider}>
+              + DIVIDER
             </button>
           </div>
 
-          {showCreate && (
-            <div className="settings-form">
-              <div className="settings-field">
-                <label>Channel Name</label>
-                <input
-                  type="text"
-                  value={channelName}
-                  onChange={e => setChannelName(e.target.value)}
-                  placeholder="My Custom Channel"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      void handleCreateManual();
-                    }
-                  }}
-                />
-              </div>
-              <button
-                className="settings-btn-primary"
-                onClick={handleCreateManual}
-                disabled={creating || !channelName.trim()}
-              >
-                {creating ? 'CREATING...' : 'CREATE CHANNEL'}
-              </button>
-            </div>
-          )}
-
           <div className="settings-list">
             <p className="settings-field-hint" style={{ marginBottom: 4 }}>
-              Drag the handle to reorder channels.
+              Drag the handle to reorder channels and dividers.
             </p>
-            {channels.map(ch => (
-              <div
-                key={ch.id}
-                data-channel-id={ch.id}
-                className={`settings-list-item settings-list-item-draggable ${draggingChannelId === ch.id ? 'dragging' : ''} ${dragOverChannelId === ch.id && draggingChannelId !== null && draggingChannelId !== ch.id ? 'drag-over' : ''}`}
-              >
-                <div className="settings-list-info">
-                  <span className="settings-list-name">
-                    <span className="settings-channel-number">CH {ch.number}</span>
-                    {ch.name}
-                    <span className={`settings-badge settings-badge-${ch.type}`}>
-                      {ch.type.toUpperCase()}
+            {mergedList.map(item => {
+              const key = itemKey(item);
+              const isDragging = item.kind === 'channel'
+                ? draggingChannelId === item.channel.id
+                : draggingDividerId === item.divider.id;
+              const isDragOver = (item.kind === 'channel'
+                ? dragOverChannelId === item.channel.id
+                : dragOverDividerId === item.divider.id)
+                && (draggingChannelId !== null || draggingDividerId !== null) && !isDragging;
+
+              if (item.kind === 'divider') {
+                return (
+                  <div
+                    key={key}
+                    data-item-key={key}
+                    className={`settings-list-item settings-list-item-draggable settings-divider-item ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
+                  >
+                    <div className="settings-divider-label-wrap">
+                      <span className="settings-divider-icon">―</span>
+                      <input
+                        type="text"
+                        className="settings-divider-label-input"
+                        value={item.divider.label}
+                        onChange={(e) => handleRenameDivider(item.divider.id, e.target.value)}
+                        placeholder="Divider label (optional)"
+                      />
+                    </div>
+                    <div className="settings-list-actions">
+                      <button
+                        className="settings-btn-sm settings-btn-reorder settings-btn-drag-handle"
+                        onPointerDown={(e) => handleMergedDragStart(key, e)}
+                        onPointerMove={handleMergedDragMove}
+                        onPointerUp={(e) => { void handleMergedDragEnd(e); }}
+                        onPointerCancel={(e) => { void handleMergedDragEnd(e); }}
+                        disabled={savingOrder}
+                        title="Drag to reorder divider"
+                      >
+                        DRAG
+                      </button>
+                      <button
+                        className="settings-btn-sm settings-btn-danger"
+                        onClick={() => handleDeleteDivider(item.divider.id)}
+                        disabled={savingOrder}
+                      >
+                        DELETE
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              const ch = item.channel;
+              const chColor = channelColors[ch.id];
+              return (
+                <div
+                  key={key}
+                  data-item-key={key}
+                  className={`settings-list-item settings-list-item-draggable ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
+                >
+                  {chColor && <div className="settings-channel-color-bar" style={{ background: chColor }} />}
+                  <div className="settings-list-info">
+                    <span className="settings-list-name">
+                      <span className="settings-channel-number">CH {ch.number}</span>
+                      {ch.name}
+                      <span className={`settings-badge settings-badge-${ch.type}`}>
+                        {ch.type.toUpperCase()}
+                      </span>
+                      {ch.ai_prompt && (
+                        <span className="settings-badge settings-badge-ai">AI</span>
+                      )}
                     </span>
-                    {ch.ai_prompt && (
-                      <span className="settings-badge settings-badge-ai">AI</span>
-                    )}
-                  </span>
-                  <span className="settings-list-detail">
-                    {ch.item_ids.length} items
-                    {ch.ai_prompt && ` · Prompt: "${ch.ai_prompt}"`}
-                    {ch.current_program && ` · Now: ${ch.current_program.title}`}
-                  </span>
-                  <span className="settings-list-schedule-meta">
-                    {ch.schedule_generated_at ? (
-                      <>
-                        Generated {formatRelativeTime(ch.schedule_generated_at)}
-                        {ch.schedule_updated_at && ch.schedule_updated_at !== ch.schedule_generated_at && (
-                          <> · Updated {formatRelativeTime(ch.schedule_updated_at)}</>
-                        )}
-                      </>
-                    ) : (
-                      'No schedule generated'
-                    )}
-                  </span>
-                </div>
-                <div className="settings-list-actions settings-list-actions-channel">
-                  {ch.ai_prompt && (
+                    <span className="settings-list-detail">
+                      {ch.item_ids.length} items
+                      {ch.ai_prompt && ` · Prompt: "${ch.ai_prompt}"`}
+                      {ch.current_program && ` · Now: ${ch.current_program.title}`}
+                    </span>
+                    <span className="settings-list-schedule-meta">
+                      {ch.schedule_generated_at ? (
+                        <>
+                          Generated {formatRelativeTime(ch.schedule_generated_at)}
+                          {ch.schedule_updated_at && ch.schedule_updated_at !== ch.schedule_generated_at && (
+                            <> · Updated {formatRelativeTime(ch.schedule_updated_at)}</>
+                          )}
+                        </>
+                      ) : (
+                        'No schedule generated'
+                      )}
+                    </span>
+                  </div>
+                  <div className="settings-list-actions settings-list-actions-channel">
+                    {/* Color picker toggle */}
                     <button
-                      className="settings-btn-sm settings-btn-ai-refresh"
-                      onClick={() => handleRefreshAI(ch.id)}
-                      disabled={refreshingChannelId !== null || savingOrder || draggingChannelId !== null}
-                      title={`Re-query AI with: "${ch.ai_prompt}"`}
+                      className={`settings-btn-sm settings-btn-color ${chColor ? '' : 'settings-btn-color-unset'}`}
+                      onClick={() => setColorPickerChannelId(colorPickerChannelId === ch.id ? null : ch.id)}
+                      title="Set channel color"
+                      style={chColor ? { background: chColor, borderColor: chColor } : undefined}
                     >
-                      {refreshingChannelId === ch.id ? 'UPDATING...' : 'REFRESH'}
+                      {chColor ? '' : 'COLOR'}
                     </button>
+                    {ch.ai_prompt && (
+                      <button
+                        className="settings-btn-sm settings-btn-ai-refresh"
+                        onClick={() => handleRefreshAI(ch.id)}
+                        disabled={refreshingChannelId !== null || savingOrder || draggingChannelId !== null}
+                        title={`Re-query AI with: "${ch.ai_prompt}"`}
+                      >
+                        {refreshingChannelId === ch.id ? 'UPDATING...' : 'REFRESH'}
+                      </button>
+                    )}
+                    <button
+                      className="settings-btn-sm settings-btn-reorder settings-btn-drag-handle"
+                      onPointerDown={(e) => handleMergedDragStart(key, e)}
+                      onPointerMove={handleMergedDragMove}
+                      onPointerUp={(e) => { void handleMergedDragEnd(e); }}
+                      onPointerCancel={(e) => { void handleMergedDragEnd(e); }}
+                      disabled={savingOrder}
+                      title="Drag to reorder channel"
+                    >
+                      DRAG
+                    </button>
+                    <button
+                      className="settings-btn-sm settings-btn-danger"
+                      onClick={() => handleDelete(ch.id)}
+                      disabled={savingOrder || draggingChannelId !== null}
+                    >
+                      DELETE
+                    </button>
+                  </div>
+
+                  {/* Color picker dropdown */}
+                  {colorPickerChannelId === ch.id && (
+                    <div className="settings-color-picker">
+                      {lastUsedColor && (
+                        <div className="settings-color-picker-section">
+                          <span className="settings-color-picker-label">LAST USED</span>
+                          <div className="settings-color-swatches">
+                            <button
+                              className={`settings-color-swatch ${chColor === lastUsedColor ? 'active' : ''}`}
+                              style={{ background: lastUsedColor }}
+                              onClick={() => handleSetColor(ch.id, lastUsedColor)}
+                              title="Last used color"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <div className="settings-color-picker-section">
+                        <span className="settings-color-picker-label">COLORS</span>
+                        <div className="settings-color-swatches">
+                          {CHANNEL_COLOR_PRESETS.map(c => (
+                            <button
+                              key={c.id}
+                              className={`settings-color-swatch ${chColor === c.hex ? 'active' : ''}`}
+                              style={{ background: c.hex }}
+                              onClick={() => handleSetColor(ch.id, c.hex)}
+                              title={c.label}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      {chColor && (
+                        <button
+                          className="settings-btn-sm settings-color-clear"
+                          onClick={() => handleClearColor(ch.id)}
+                        >
+                          CLEAR COLOR
+                        </button>
+                      )}
+                    </div>
                   )}
-                  <button
-                    className="settings-btn-sm settings-btn-reorder settings-btn-drag-handle"
-                    onPointerDown={(e) => handleDragStart(ch.id, e)}
-                    onPointerMove={handleDragMove}
-                    onPointerUp={(e) => { void handleDragEnd(e); }}
-                    onPointerCancel={(e) => { void handleDragEnd(e); }}
-                    disabled={savingOrder}
-                    title="Drag to reorder channel"
-                  >
-                    DRAG
-                  </button>
-                  <button
-                    className="settings-btn-sm settings-btn-danger"
-                    onClick={() => handleDelete(ch.id)}
-                    disabled={savingOrder || draggingChannelId !== null}
-                  >
-                    DELETE
-                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {channels.length === 0 && (
               <div className="settings-empty">
                 No channels yet. Go to Channel Types to generate channels.

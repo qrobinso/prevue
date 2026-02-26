@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getServers, addServer, deleteServer, testServer, activateServer, resyncServer, discoverServers, reauthenticateServer, type ServerInfo, type DiscoveredServer } from '../../services/api';
+import { getServers, addServer, deleteServer, testServer, resyncServer, discoverServers, reauthenticateServer, type ServerInfo, type DiscoveredServer } from '../../services/api';
 
 interface ServerSettingsProps {
   onServerAdded?: (server: ServerInfo) => void;
@@ -8,20 +8,22 @@ interface ServerSettingsProps {
 export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [testResults, setTestResults] = useState<Record<number, { connected: boolean; authenticated: boolean } | null>>({});
+  const [testResult, setTestResult] = useState<{ connected: boolean; authenticated: boolean } | null>(null);
   const [discovered, setDiscovered] = useState<DiscoveredServer[]>([]);
   const [discovering, setDiscovering] = useState(false);
-  const [reauthId, setReauthId] = useState<number | null>(null);
+  const [reauthOpen, setReauthOpen] = useState(false);
   const [reauthPassword, setReauthPassword] = useState('');
   const [connecting, setConnecting] = useState(false);
-  const [resyncingId, setResyncingId] = useState<number | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [resyncing, setResyncing] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+
+  const activeServer = servers.find(s => s.is_active) ?? servers[0] ?? null;
 
   const loadServers = async () => {
     try {
@@ -40,7 +42,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
       const found = await discoverServers();
       setDiscovered(found);
     } catch {
-      // Discovery failed silently - not critical
+      // Discovery failed silently
     } finally {
       setDiscovering(false);
     }
@@ -48,30 +50,33 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
 
   useEffect(() => { loadServers(); }, []);
 
-  // Auto-discover when add form is opened
   useEffect(() => {
-    if (showAdd) {
+    if (showSetup) {
       runDiscovery();
     } else {
       setDiscovered([]);
     }
-  }, [showAdd]);
+  }, [showSetup]);
 
   const handleSelectDiscovered = (server: DiscoveredServer) => {
     setName(server.name);
     setUrl(server.address);
   };
 
-  const handleAdd = async () => {
+  const handleConnect = async () => {
     try {
       setError('');
       setConnecting(true);
+      // If there's an existing server, remove it first
+      if (activeServer) {
+        await deleteServer(activeServer.id);
+      }
       const server = await addServer(name, url, username, password);
       setName('');
       setUrl('');
       setUsername('');
       setPassword('');
-      setShowAdd(false);
+      setShowSetup(false);
       await loadServers();
       if (server.is_active) {
         onServerAdded?.(server);
@@ -83,35 +88,38 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (confirmDeleteId !== id) {
-      setConfirmDeleteId(id);
+  const handleDisconnect = async () => {
+    if (!confirmDisconnect) {
+      setConfirmDisconnect(true);
       return;
     }
+    if (!activeServer) return;
     try {
-      setConfirmDeleteId(null);
-      await deleteServer(id);
+      setConfirmDisconnect(false);
+      await deleteServer(activeServer.id);
       await loadServers();
     } catch (err) {
       setError((err as Error).message);
     }
   };
 
-  const handleTest = async (id: number) => {
-    setTestResults(prev => ({ ...prev, [id]: null }));
+  const handleTest = async () => {
+    if (!activeServer) return;
+    setTestResult(null);
     try {
-      const result = await testServer(id);
-      setTestResults(prev => ({ ...prev, [id]: result }));
+      const result = await testServer(activeServer.id);
+      setTestResult(result);
     } catch {
-      setTestResults(prev => ({ ...prev, [id]: { connected: false, authenticated: false } }));
+      setTestResult({ connected: false, authenticated: false });
     }
   };
 
-  const handleReauthenticate = async (id: number) => {
+  const handleReauthenticate = async () => {
+    if (!activeServer) return;
     try {
       setError('');
-      await reauthenticateServer(id, reauthPassword);
-      setReauthId(null);
+      await reauthenticateServer(activeServer.id, reauthPassword);
+      setReauthOpen(false);
       setReauthPassword('');
       await loadServers();
     } catch (err) {
@@ -119,36 +127,26 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     }
   };
 
-  const handleActivate = async (id: number) => {
-    try {
-      await activateServer(id);
-      await loadServers();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const handleResync = async (id: number) => {
+  const handleResync = async () => {
+    if (!activeServer) return;
     try {
       setError('');
-      setResyncingId(id);
-      await resyncServer(id);
+      setResyncing(true);
+      await resyncServer(activeServer.id);
       await loadServers();
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setResyncingId(null);
+      setResyncing(false);
     }
   };
 
-  const renderTestResult = (id: number) => {
-    const result = testResults[id];
-    if (result === null) return <span className="server-test-pending" />;
-    if (!result) return null;
-    if (result.connected && result.authenticated) {
+  const renderTestBadge = () => {
+    if (testResult === null) return null;
+    if (testResult.connected && testResult.authenticated) {
       return <span className="server-test-ok">Connected</span>;
     }
-    if (result.connected) {
+    if (testResult.connected) {
       return <span className="server-test-warn">No Auth</span>;
     }
     return <span className="server-test-fail">Failed</span>;
@@ -156,19 +154,124 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
 
   if (loading) return <div className="settings-loading">Loading...</div>;
 
+  const needsAuth = activeServer ? !activeServer.is_authenticated : false;
+
   return (
     <div className="settings-section">
-      <div className="settings-section-header">
-        <h3>Jellyfin Servers</h3>
-        <button className="settings-btn-primary" onClick={() => { setShowAdd(!showAdd); setError(''); }}>
-          {showAdd ? 'CANCEL' : '+ ADD SERVER'}
-        </button>
-      </div>
+      <h3>Jellyfin Server</h3>
 
       {error && <div className="settings-error">{error}</div>}
 
-      {showAdd && (
+      {/* ── Connected server ── */}
+      {activeServer && !showSetup && (
+        <div className={`server-card ${needsAuth ? 'server-card-warning' : 'server-card-active'}`}>
+          <div className="server-card-header">
+            <div className="server-card-info">
+              <div className="server-card-name">
+                {activeServer.name}
+                {!needsAuth && <span className="server-status-dot server-status-active" title="Connected" />}
+                {needsAuth && <span className="server-status-dot server-status-warning" title="Needs authentication" />}
+              </div>
+              <div className="server-card-details">
+                <span className="server-card-url">{activeServer.url}</span>
+                <span className="server-card-user">{activeServer.username}</span>
+              </div>
+            </div>
+            {renderTestBadge()}
+          </div>
+
+          <div className="server-card-actions">
+            <button className="server-action-btn" onClick={handleTest}>
+              TEST
+            </button>
+
+            {needsAuth && (
+              <button
+                className="server-action-btn server-action-warning"
+                onClick={() => { setReauthOpen(!reauthOpen); setReauthPassword(''); }}
+              >
+                {reauthOpen ? 'CANCEL' : 'RE-AUTH'}
+              </button>
+            )}
+
+            {!needsAuth && (
+              <button
+                className="server-action-btn server-action-accent"
+                onClick={handleResync}
+                disabled={resyncing}
+              >
+                {resyncing ? 'SYNCING...' : 'RESYNC'}
+              </button>
+            )}
+
+            <button
+              className="server-action-btn"
+              onClick={() => { setShowSetup(true); setError(''); }}
+            >
+              CHANGE
+            </button>
+
+            <button
+              className={`server-action-btn server-action-danger ${confirmDisconnect ? 'server-action-danger-confirm' : ''}`}
+              onClick={handleDisconnect}
+              onBlur={() => setConfirmDisconnect(false)}
+            >
+              {confirmDisconnect ? 'CONFIRM' : 'DISCONNECT'}
+            </button>
+          </div>
+
+          {reauthOpen && (
+            <div className="server-reauth">
+              <input
+                type="password"
+                value={reauthPassword}
+                onChange={e => setReauthPassword(e.target.value)}
+                placeholder="Enter password"
+                className="server-reauth-input"
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && reauthPassword) {
+                    handleReauthenticate();
+                  }
+                }}
+                autoFocus
+              />
+              <button
+                className="server-action-btn server-action-accent"
+                onClick={handleReauthenticate}
+                disabled={!reauthPassword}
+              >
+                LOGIN
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Empty state ── */}
+      {!activeServer && !showSetup && (
+        <div className="server-empty-state">
+          <div className="server-empty-icon">⬡</div>
+          <p>No server connected</p>
+          <span>Connect your Jellyfin server to get started</span>
+          <button
+            className="settings-btn-primary"
+            onClick={() => { setShowSetup(true); setError(''); }}
+            style={{ marginTop: 16 }}
+          >
+            CONNECT SERVER
+          </button>
+        </div>
+      )}
+
+      {/* ── Setup / Change form ── */}
+      {showSetup && (
         <div className="server-add-card">
+          {activeServer && (
+            <p className="settings-field-hint" style={{ marginBottom: 12 }}>
+              This will replace your current server connection.
+            </p>
+          )}
+
           <div className="server-add-step">
             <span className="server-add-step-num">1</span>
             <span className="server-add-step-label">Find your server</span>
@@ -259,122 +362,23 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
             </div>
           </div>
 
-          <button
-            className="settings-btn-primary server-add-connect-btn"
-            onClick={handleAdd}
-            disabled={!name || !url || !username || connecting}
-          >
-            {connecting ? 'CONNECTING...' : 'CONNECT'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="settings-btn-primary server-add-connect-btn"
+              onClick={handleConnect}
+              disabled={!name || !url || !username || connecting}
+            >
+              {connecting ? 'CONNECTING...' : 'CONNECT'}
+            </button>
+            <button
+              className="settings-btn-sm"
+              onClick={() => { setShowSetup(false); setError(''); setName(''); setUrl(''); setUsername(''); setPassword(''); }}
+            >
+              CANCEL
+            </button>
+          </div>
         </div>
       )}
-
-      {servers.length === 0 && !showAdd && (
-        <div className="server-empty-state">
-          <div className="server-empty-icon">⬡</div>
-          <p>No servers configured</p>
-          <span>Add a Jellyfin server to get started</span>
-        </div>
-      )}
-
-      <div className="settings-list">
-        {servers.map(server => {
-          const isActive = server.is_active;
-          const needsAuth = !server.is_authenticated;
-          const isReauthing = reauthId === server.id;
-          const isResyncing = resyncingId === server.id;
-          const isConfirmingDelete = confirmDeleteId === server.id;
-
-          return (
-            <div key={server.id} className={`server-card ${isActive ? 'server-card-active' : ''} ${needsAuth ? 'server-card-warning' : ''}`}>
-              <div className="server-card-header">
-                <div className="server-card-info">
-                  <div className="server-card-name">
-                    {server.name}
-                    {isActive && <span className="server-status-dot server-status-active" title="Active" />}
-                    {needsAuth && <span className="server-status-dot server-status-warning" title="Needs authentication" />}
-                  </div>
-                  <div className="server-card-details">
-                    <span className="server-card-url">{server.url}</span>
-                    <span className="server-card-user">{server.username}</span>
-                  </div>
-                </div>
-                {renderTestResult(server.id)}
-              </div>
-
-              <div className="server-card-actions">
-                <button className="server-action-btn" onClick={() => handleTest(server.id)}>
-                  TEST
-                </button>
-
-                {needsAuth && (
-                  <button
-                    className="server-action-btn server-action-warning"
-                    onClick={() => {
-                      if (isReauthing) { setReauthId(null); setReauthPassword(''); }
-                      else { setReauthId(server.id); setReauthPassword(''); }
-                    }}
-                  >
-                    {isReauthing ? 'CANCEL' : 'RE-AUTH'}
-                  </button>
-                )}
-
-                {!needsAuth && !isActive && (
-                  <button
-                    className="server-action-btn server-action-accent"
-                    onClick={() => handleActivate(server.id)}
-                  >
-                    ACTIVATE
-                  </button>
-                )}
-
-                {isActive && !needsAuth && (
-                  <button
-                    className="server-action-btn server-action-accent"
-                    onClick={() => handleResync(server.id)}
-                    disabled={isResyncing}
-                  >
-                    {isResyncing ? 'SYNCING...' : 'RESYNC'}
-                  </button>
-                )}
-
-                <button
-                  className={`server-action-btn server-action-danger ${isConfirmingDelete ? 'server-action-danger-confirm' : ''}`}
-                  onClick={() => handleDelete(server.id)}
-                  onBlur={() => setConfirmDeleteId(null)}
-                >
-                  {isConfirmingDelete ? 'CONFIRM' : 'DELETE'}
-                </button>
-              </div>
-
-              {isReauthing && (
-                <div className="server-reauth">
-                  <input
-                    type="password"
-                    value={reauthPassword}
-                    onChange={e => setReauthPassword(e.target.value)}
-                    placeholder="Enter password"
-                    className="server-reauth-input"
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && reauthPassword) {
-                        handleReauthenticate(server.id);
-                      }
-                    }}
-                    autoFocus
-                  />
-                  <button
-                    className="server-action-btn server-action-accent"
-                    onClick={() => handleReauthenticate(server.id)}
-                    disabled={!reauthPassword}
-                  >
-                    LOGIN
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

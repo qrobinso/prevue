@@ -280,10 +280,14 @@
   font-family: var(--font-retro);
   font-size: 10px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 6px;
   z-index: 15;
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity 0.3s, background 0.2s, border-color 0.2s;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .player-back-btn.visible {
@@ -557,6 +561,18 @@
   );
   animation: kenBurnsNear 20s ease-in-out alternate infinite;
   pointer-events: none;
+}
+
+.interstitial-video-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.1;
+  z-index: 2;
+  pointer-events: none;
+  will-change: opacity;
 }
 
 @keyframes kenBurnsFar {
@@ -1211,11 +1227,139 @@
   .credits-backdrop { display: none; }
 }
 
+/* ── Promo Overlay (2E broadcast-style promo) ────────── */
+.promo-overlay {
+  position: absolute;
+  bottom: 32px;
+  right: 32px;
+  z-index: 20;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 1.2s ease, transform 1.2s ease;
+}
+
+.promo-overlay-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.promo-overlay-clickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.promo-overlay-clickable .promo-overlay-card:hover {
+  background: rgba(0, 0, 0, 0.9);
+  border-color: var(--accent-cyan);
+}
+
+.promo-overlay-card {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: rgba(0, 0, 0, 0.82);
+  border-radius: 10px;
+  padding: 20px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-width: 320px;
+  max-width: 460px;
+  animation: promo-slot-enter 0.8s ease-out;
+}
+
+@keyframes promo-slot-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.promo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.promo-label {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  letter-spacing: 2.5px;
+  color: var(--text-gold);
+  text-transform: uppercase;
+}
+
+.promo-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.promo-subtitle {
+  font-size: 14px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.promo-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.promo-time {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--accent-cyan);
+}
+
+.promo-channel {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  color: var(--accent-cyan);
+  letter-spacing: 0.5px;
+}
+
+.promo-year,
+.promo-rating {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.promo-backdrop {
+  width: 160px;
+  height: 90px;
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 600px) {
+  .promo-overlay { bottom: 16px; right: 16px; }
+  .promo-overlay-card { padding: 14px 16px; gap: 14px; min-width: 220px; max-width: 340px; }
+  .promo-title { font-size: 16px; }
+  .promo-subtitle { font-size: 12px; }
+  .promo-backdrop { width: 120px; height: 68px; }
+}
+
+@media (max-width: 380px) {
+  .promo-backdrop { display: none; }
+}
+
 /* ── Controls Container (right side) ────────────────── */
 .player-controls-right {
   position: absolute;
-  bottom: 100px; /* Above the info overlay */
-  right: 54px; /* 24 + 50 - 20 offset */
+  top: 16px;
+  right: 16px;
   display: flex;
   flex-direction: row;
   gap: 8px;
@@ -1230,24 +1374,26 @@
 
 /* ── Control Buttons (shared styles) ──────────────── */
 .player-control-btn {
-  padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.7);
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  color: var(--text-secondary);
+  border-radius: 6px;
+  color: var(--text-primary);
   font-family: var(--font-retro);
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
-  min-width: 44px;
-  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .player-control-btn:hover {
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.8);
   border-color: var(--accent-cyan);
   color: var(--text-primary);
 }
@@ -1259,8 +1405,9 @@
 }
 
 .player-btn-icon {
-  font-size: 14px;
-  font-weight: bold;
+  font-size: 16px;
+  font-weight: normal;
+  line-height: 1;
 }
 
 /* ── Volume Control ───────────────────────────────── */
@@ -1271,7 +1418,7 @@
 }
 
 .player-volume-btn .player-btn-icon {
-  font-size: 16px;
+  font-size: 16px; /* matches base */
 }
 
 .player-volume-btn.muted {
@@ -1341,8 +1488,7 @@
 
 /* ── Subtitles Button ──────────────────────────────── */
 .player-subtitles-btn .player-btn-icon {
-  font-size: 12px;
-  letter-spacing: -1px;
+  font-size: 16px;
 }
 
 .player-subtitles-btn.active {
@@ -1351,7 +1497,7 @@
 
 /* ── Video Fit Button ──────────────────────────────── */
 .player-fit-btn .player-btn-icon {
-  font-size: 16px;
+  font-size: 16px; /* matches base */
 }
 
 /* ── Quality Button ────────────────────────────────── */
@@ -1455,7 +1601,7 @@
 
 /* ── Audio Track Button ───────────────────────────── */
 .player-audio-btn .player-btn-icon {
-  font-size: 14px;
+  font-size: 16px; /* matches base */
 }
 
 /* ── Audio Track Menu ─────────────────────────────── */
@@ -1591,16 +1737,7 @@
   color: var(--text-muted);
 }
 
-/* ── Fullscreen button ───────────────────────────── */
-.player-fullscreen-btn .player-btn-icon {
-  font-size: 16px;
-  font-weight: bold;
-}
-
 /* ── Unified Settings Panel ──────────────────────── */
-.player-settings-btn .player-btn-icon {
-  font-size: 18px;
-}
 
 .player-settings-backdrop {
   position: fixed;
@@ -2070,20 +2207,20 @@
 /* ── Responsive - Tablet ─────────────────────────── */
 @media (max-width: 1023px) {
   .player-back-btn {
-    min-width: 48px;
-    min-height: 48px;
-    padding: 12px 20px;
-    font-size: 11px;
+    min-height: 40px;
+    padding: 8px 16px;
+    font-size: 10px;
   }
 
   .player-controls-right {
-    gap: 10px;
+    gap: 8px;
   }
 
   .player-control-btn {
-    min-width: 48px;
-    min-height: 48px;
-    padding: 10px 14px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
   }
 
   .player-volume-slider-container {
@@ -2116,26 +2253,26 @@
   .player-back-btn {
     top: 12px;
     left: 12px;
-    min-width: 48px;
-    min-height: 48px;
-    padding: 12px 16px;
-    font-size: 10px;
+    min-height: 36px;
+    padding: 8px 14px;
+    font-size: 9px;
   }
 
   .player-controls-right {
-    bottom: 95px;
-    right: 42px;
-    gap: 8px;
+    top: 12px;
+    right: 12px;
+    gap: 6px;
   }
 
   .player-control-btn {
-    min-width: 44px;
-    min-height: 44px;
-    padding: 8px 10px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
   }
 
   .player-btn-icon {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .player-quality-btn {
@@ -2256,24 +2393,26 @@
   .player-back-btn {
     top: 8px;
     left: 8px;
-    padding: 10px 14px;
-    font-size: 9px;
+    min-height: 32px;
+    padding: 6px 12px;
+    font-size: 8px;
   }
 
   .player-controls-right {
-    bottom: 85px;
-    right: 38px;
+    top: 8px;
+    right: 8px;
     gap: 6px;
   }
 
   .player-control-btn {
-    min-width: 40px;
-    min-height: 40px;
-    padding: 6px 8px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
   }
 
   .player-btn-icon {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   .player-quality-btn {
@@ -2325,9 +2464,15 @@
 @media (hover: none) and (pointer: coarse) {
   /* Larger touch targets */
   .player-back-btn,
-  .player-control-btn,
   .player-quality-option {
-    min-height: 48px;
+    min-height: 44px;
+  }
+
+  .player-control-btn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
   }
 
   /* Larger volume slider for touch */
@@ -2363,29 +2508,26 @@
   .player-back-btn {
     top: 8px;
     left: 8px;
-    padding: 8px 12px;
-    font-size: 9px;
-    min-width: 40px;
-    min-height: 40px;
+    min-height: 32px;
+    padding: 6px 12px;
+    font-size: 8px;
   }
 
-  /* Controls: move to top-right so the video is unobstructed */
   .player-controls-right {
-    bottom: auto;
     top: 8px;
     right: 8px;
     gap: 6px;
-    flex-direction: row;
   }
 
   .player-control-btn {
-    min-width: 38px;
-    min-height: 38px;
-    padding: 6px 8px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
   }
 
   .player-btn-icon {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   /* Hint & progress */
@@ -2679,8 +2821,7 @@
   .player-back-btn {
     top: 12px;
     left: 12px;
-    min-width: 48px;
-    min-height: 48px;
+    min-height: 36px;
   }
 
   .info-overlay {
@@ -2733,10 +2874,9 @@
   .player-back-btn {
     top: 20px;
     left: 20px;
-    padding: 14px 24px;
-    font-size: 12px;
-    min-width: 56px;
-    min-height: 56px;
+    padding: 8px 16px;
+    font-size: 10px;
+    min-height: 40px;
   }
 
   .info-overlay {
@@ -2887,8 +3027,8 @@
   }
 
   .player-controls-right {
-    right: max(54px, calc(env(safe-area-inset-right) + 38px));
-    bottom: max(100px, calc(env(safe-area-inset-bottom) + 88px));
+    top: max(16px, calc(env(safe-area-inset-top) + 8px));
+    right: max(16px, calc(env(safe-area-inset-right) + 8px));
   }
 
   .player-settings-backdrop {
@@ -2925,10 +3065,9 @@
     }
   }
 
-  /* Landscape phone: controls moved to top-right */
+  /* Landscape phone: tighter top-right spacing */
   @media (orientation: landscape) and (max-height: 500px) {
     .player-controls-right {
-      bottom: auto;
       top: max(8px, calc(env(safe-area-inset-top) + 4px));
       right: max(8px, calc(env(safe-area-inset-right) + 4px));
     }

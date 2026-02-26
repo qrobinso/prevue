@@ -548,6 +548,31 @@ export class ChannelManager {
           item_ids: filteredItems.map(i => i.Id),
         });
       }
+    } else if (preset.dynamicType === 'networks') {
+      const networks = this.getNetworksFromLibrary(libraryItems);
+      for (const network of networks) {
+        if (configs.length >= maxCount) break;
+        const filteredItems = network.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
+        const name = this.getUniqueChannelName(network.name, usedNames);
+        configs.push({
+          name,
+          type: 'preset',
+          preset_id: `${preset.id}:${network.name.toLowerCase().replace(/\s+/g, '-')}`,
+          filter: { ...preset.filter, studios: [network.name] },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+      }
     }
     return configs;
   }
@@ -965,6 +990,49 @@ export class ChannelManager {
         created.push(channel);
         console.log(`[ChannelManager] Created studio channel: ${channelName} (${filteredItems.length} items, ${Math.round(totalDuration / 3600000)}h)`);
       }
+    } else if (preset.dynamicType === 'networks') {
+      // Generate network-based channels (TV episodes only)
+      const networks = this.getNetworksFromLibrary(libraryItems);
+      const settings = this.getFilterSettings();
+
+      console.log(`[ChannelManager] Found ${networks.length} eligible networks`);
+
+      for (const network of networks) {
+        if (created.length >= maxCount) break;
+
+        const filteredItems = network.items.filter(item => {
+          if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, settings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
+          }
+          return true;
+        });
+
+        const totalDuration = filteredItems.reduce(
+          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          0
+        );
+
+        if (totalDuration < MIN_CHANNEL_DURATION_MS) {
+          console.log(`[ChannelManager] Skipping network ${network.name}: insufficient duration (${Math.round(totalDuration / 3600000)}h < 4h required)`);
+          continue;
+        }
+
+        const channelName = this.getUniqueChannelName(network.name, usedNames);
+        const channel = queries.createChannel(this.db, {
+          name: channelName,
+          type: 'preset',
+          preset_id: `${preset.id}:${network.name.toLowerCase().replace(/\s+/g, '-')}`,
+          filter: { ...preset.filter, studios: [network.name] },
+          item_ids: filteredItems.map(i => i.Id),
+        });
+
+        created.push(channel);
+        console.log(`[ChannelManager] Created network channel: ${channelName} (${filteredItems.length} items, ${Math.round(totalDuration / 3600000)}h)`);
+      }
     }
 
     return created;
@@ -1178,6 +1246,46 @@ export class ChannelManager {
     // Sort by count (most prolific first) and limit to top 10
     const result = studios.sort((a, b) => b.count - a.count).slice(0, 10);
     console.log(`[ChannelManager] Top 10 studios: ${result.map(s => `${s.name} (${s.count})`).join(', ')}`);
+    return result;
+  }
+
+  /**
+   * Analyze library to find TV networks with multiple shows.
+   * Uses the same Studios field as getStudiosFromLibrary but only considers episodes.
+   */
+  private getNetworksFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
+    const networkMap = new Map<string, JellyfinItem[]>();
+    let episodesWithStudios = 0;
+
+    for (const item of items) {
+      if (item.Type !== 'Episode') continue;
+      if (!item.Studios || item.Studios.length === 0) continue;
+      episodesWithStudios++;
+
+      for (const studio of item.Studios) {
+        if (!studio.Name) continue;
+        const existing = networkMap.get(studio.Name) || [];
+        existing.push(item);
+        networkMap.set(studio.Name, existing);
+      }
+    }
+
+    console.log(`[ChannelManager] Found ${episodesWithStudios} episodes with Studios/Network data, ${networkMap.size} unique networks`);
+
+    const networks: { name: string; items: JellyfinItem[]; count: number }[] = [];
+
+    for (const [name, networkItems] of networkMap) {
+      if (networkItems.length < 3) continue;
+
+      networks.push({
+        name,
+        items: networkItems,
+        count: networkItems.length,
+      });
+    }
+
+    const result = networks.sort((a, b) => b.count - a.count).slice(0, 15);
+    console.log(`[ChannelManager] Top networks: ${result.map(n => `${n.name} (${n.count})`).join(', ')}`);
     return result;
   }
 
@@ -1805,6 +1913,29 @@ export class ChannelManager {
         const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
         if (duration >= MIN_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: studio.name, count: filteredItems.length });
+          totalItems += filteredItems.length;
+          totalDuration += duration;
+        }
+      }
+    } else if (preset.dynamicType === 'networks') {
+      const networks = this.getNetworksFromLibrary(libraryItems);
+      const networkSettings = this.getFilterSettings();
+
+      for (const network of networks) {
+        const filteredItems = network.items.filter(item => {
+          if (item.Type === 'Movie' && !networkSettings.contentTypes.movies) return false;
+          if (item.Type === 'Episode' && !networkSettings.contentTypes.tv_shows) return false;
+          if (!this.isRatingAllowed(item.OfficialRating, networkSettings.ratingFilter)) return false;
+          const itemGenres = item.Genres || [];
+          for (const genre of itemGenres) {
+            if (!this.isGenreAllowed(genre, networkSettings.genreFilter)) return false;
+          }
+          return true;
+        });
+
+        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        if (duration >= MIN_CHANNEL_DURATION_MS) {
+          dynamicChannels.push({ name: network.name, count: filteredItems.length });
           totalItems += filteredItems.length;
           totalDuration += duration;
         }

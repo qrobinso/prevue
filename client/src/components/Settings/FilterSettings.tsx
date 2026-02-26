@@ -390,6 +390,41 @@ export default function FilterSettings() {
         )}
       </div>
 
+      {/* Content Types */}
+      <div className="settings-subsection">
+        <h4>Content Types</h4>
+        <p className="settings-field-hint">
+          Choose which types of content to include in your channels.
+        </p>
+        <div className="settings-content-type-group">
+          {(['both', 'movies', 'tv_shows'] as const).map(option => {
+            const isActive =
+              option === 'both' ? contentTypes.movies && contentTypes.tv_shows :
+              option === 'movies' ? contentTypes.movies && !contentTypes.tv_shows :
+              !contentTypes.movies && contentTypes.tv_shows;
+            const label = option === 'both' ? 'Both' : option === 'movies' ? 'Movies' : 'TV Shows';
+            return (
+              <button
+                key={option}
+                className={`settings-content-type-btn ${isActive ? 'active' : ''}`}
+                onClick={() => {
+                  const newContentTypes =
+                    option === 'both' ? { movies: true, tv_shows: true } :
+                    option === 'movies' ? { movies: true, tv_shows: false } :
+                    { movies: false, tv_shows: true };
+                  setContentTypes(newContentTypes);
+                  if (!initialLoadRef.current) {
+                    autoSave(genreFilter, newContentTypes, ratingFilter, unwatchedOnly);
+                  }
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Unwatched Only Toggle */}
       <div className="settings-subsection">
         <div className="settings-toggle-row">

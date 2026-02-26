@@ -7,6 +7,31 @@ import { broadcast } from '../websocket/index.js';
 
 export const scheduleRoutes = Router();
 
+// ── Item details cache (TTL 5 minutes) ──────────────
+const ITEM_CACHE_TTL_MS = 5 * 60 * 1000;
+const itemDetailsCache = new Map<string, { data: unknown; expiresAt: number }>();
+
+function getCachedItem(itemId: string): unknown | null {
+  const entry = itemDetailsCache.get(itemId);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    itemDetailsCache.delete(itemId);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedItem(itemId: string, data: unknown): void {
+  itemDetailsCache.set(itemId, { data, expiresAt: Date.now() + ITEM_CACHE_TTL_MS });
+  // Evict stale entries periodically (keep cache bounded)
+  if (itemDetailsCache.size > 500) {
+    const now = Date.now();
+    for (const [key, entry] of itemDetailsCache) {
+      if (now > entry.expiresAt) itemDetailsCache.delete(key);
+    }
+  }
+}
+
 // GET /api/schedule/item/:itemId - Get program/item details (overview, genres) for guide modal
 scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
   try {
@@ -16,7 +41,16 @@ scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'itemId required' });
       return;
     }
+
+    // Serve from cache if available
+    const cached = getCachedItem(itemId);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const details = await (jellyfinClient as JellyfinClient).getItemDetails(itemId);
+    setCachedItem(itemId, details);
     res.json(details);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

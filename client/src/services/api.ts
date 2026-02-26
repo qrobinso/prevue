@@ -4,6 +4,10 @@ const API_BASE = '/api';
 const REQUEST_TIMEOUT_MS = 20000; // 20s - default timeout
 const LONG_REQUEST_TIMEOUT_MS = 120000; // 120s - for long operations like channel generation
 
+// ─── Request deduplication ───────────────────────────
+// Concurrent GET requests to the same URL share a single in-flight promise.
+const inflightGets = new Map<string, Promise<unknown>>();
+
 // ─── API Key auth ─────────────────────────────────────
 
 let apiKey: string | null = sessionStorage.getItem('prevue_api_key');
@@ -55,7 +59,10 @@ function safeErrorMessage(raw: string): string {
   return raw;
 }
 
-async function request<T>(url: string, options?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
+/** Maximum retries for rate-limited (429) responses. */
+const MAX_RETRIES = 3;
+
+async function requestOnce<T>(url: string, options?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -80,6 +87,16 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs: number 
       throw new Error('Unauthorized');
     }
 
+    // Surface 429 so the retry wrapper can handle it
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('Retry-After');
+      const err = new Error('Too many requests, please try again later.');
+      (err as Error & { retryAfterMs?: number }).retryAfterMs =
+        retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined;
+      (err as Error & { status?: number }).status = 429;
+      throw err;
+    }
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(safeErrorMessage(error.error || response.statusText));
@@ -96,6 +113,42 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs: number 
     }
     throw err;
   }
+}
+
+async function request<T>(url: string, options?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
+  const method = (options?.method ?? 'GET').toUpperCase();
+
+  // Deduplicate concurrent GET requests to the same URL
+  if (method === 'GET') {
+    const existing = inflightGets.get(url);
+    if (existing) return existing as Promise<T>;
+  }
+
+  const execute = async (): Promise<T> => {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await requestOnce<T>(url, options, timeoutMs);
+      } catch (err) {
+        lastError = err as Error;
+        const status = (err as Error & { status?: number }).status;
+        if (status !== 429 || attempt === MAX_RETRIES) throw err;
+        // Exponential backoff: 1s, 2s, 4s (or Retry-After header)
+        const retryMs = (err as Error & { retryAfterMs?: number }).retryAfterMs
+          ?? (1000 * Math.pow(2, attempt));
+        await new Promise(r => setTimeout(r, retryMs));
+      }
+    }
+    throw lastError!;
+  };
+
+  if (method === 'GET') {
+    const promise = execute().finally(() => inflightGets.delete(url));
+    inflightGets.set(url, promise);
+    return promise;
+  }
+
+  return execute();
 }
 
 // ─── Channels ─────────────────────────────────────────
@@ -366,6 +419,10 @@ export async function updateSettings(settings: Record<string, unknown>): Promise
 
 export async function factoryReset(): Promise<{ success: boolean }> {
   return request('/settings/factory-reset', { method: 'POST' });
+}
+
+export async function restartServer(): Promise<{ success: boolean }> {
+  return request('/settings/restart', { method: 'POST' });
 }
 
 // ─── Servers ──────────────────────────────────────────

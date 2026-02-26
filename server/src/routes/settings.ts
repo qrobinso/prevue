@@ -28,6 +28,8 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'iptv_base_url',
   'iptv_timezone',
   'schedule_alignment',
+  'guide_dividers',
+  'channel_colors',
 ]);
 
 // GET /api/settings - Get all settings
@@ -99,4 +101,25 @@ settingsRoutes.post('/factory-reset', (req: Request, res: Response) => {
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// POST /api/settings/restart - Restart the server process
+settingsRoutes.post('/restart', (_req: Request, res: Response) => {
+  console.log('[Prevue] Restart requested via API. Shutting down...');
+  res.json({ success: true });
+
+  // Flush the response, then close the HTTP server gracefully before exiting.
+  // The process manager (Docker, systemd, tsx watch) will restart the process.
+  res.once('finish', () => {
+    const server = _req.socket?.server;
+    if (server) {
+      server.close(() => {
+        process.exit(0);
+      });
+      // Force exit if close hangs
+      setTimeout(() => process.exit(0), 2000);
+    } else {
+      setTimeout(() => process.exit(0), 1000);
+    }
+  });
 });

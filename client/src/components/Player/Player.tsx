@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Hls from 'hls.js';
 import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings, metricsStart, metricsStop } from '../../services/api';
 import { getClientId } from '../../services/clientIdentity';
@@ -13,10 +14,13 @@ import {
   updateActivePlaybackSession,
   updatePlaybackPosition,
 } from '../../services/playbackHandoff';
-import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset } from '../Settings/DisplaySettings';
+import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset, getPromoOverlayEnabled } from '../Settings/DisplaySettings';
 import InfoOverlay from './InfoOverlay';
 import CreditsOverlay from './CreditsOverlay';
+import PromoOverlay from './PromoOverlay';
+import type { PromoOverlayHandle } from './PromoOverlay';
 import InterstitialScreen from './InterstitialScreen';
+import { useSchedule } from '../../hooks/useSchedule';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from '../Guide/audioTrackUtils';
@@ -205,6 +209,7 @@ function collectNerdStats(video: HTMLVideoElement | null, hls: Hls | null): Nerd
 }
 
 export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, enterFullscreenOnMount }: PlayerProps) {
+  const navigate = useNavigate();
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(getVideoElement());
   const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -215,6 +220,14 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [nextProgram, setNextProgram] = useState<ScheduleProgram | null>(null);
   const [isInterstitial, setIsInterstitial] = useState(false);
   const [showCreditsOverlay, setShowCreditsOverlay] = useState(false);
+  const [promoOverlayEnabled, setPromoOverlayEnabled] = useState(getPromoOverlayEnabled);
+  const promoTriggerRef = useRef<PromoOverlayHandle | null>(null);
+  const { scheduleByChannel, channels: allChannels } = useSchedule();
+
+  const handlePromoTune = useCallback((channelId: number) => {
+    const target = allChannels.find(ch => ch.id === channelId);
+    if (target) navigate(`/channel/${target.number}`);
+  }, [allChannels, navigate]);
   const outroStartMsRef = useRef<number | null>(null);
   // If a shared stream is already active (guide → player transition), start in the ready state
   // immediately so the TUNING screen never flashes for even one frame.
@@ -266,6 +279,25 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const watchStartRef = useRef<number>(0);           // wall-clock when this item started playing
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressActivatedRef = useRef(false);        // whether we've passed the 5-min threshold
+
+  // Listen for promo overlay setting changes
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setPromoOverlayEnabled((e as CustomEvent).detail.enabled);
+    };
+    window.addEventListener('promooverlaychange', handler);
+    return () => window.removeEventListener('promooverlaychange', handler);
+  }, []);
+
+  // Compute upcoming programs for promo overlay
+  const upcomingPrograms = (() => {
+    const programs = scheduleByChannel.get(channel.id);
+    if (!programs) return [];
+    const now = Date.now();
+    return programs
+      .filter((p) => p.type === 'program' && (p.start_ms ?? new Date(p.start_time).getTime()) > now)
+      .slice(0, 3);
+  })();
 
   // Show overlay briefly on tune-in
   const showOverlayBriefly = useCallback(() => {
@@ -978,6 +1010,19 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     onDown: onChannelDown,
   });
 
+  // 'P' key triggers promo overlay on demand
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        promoTriggerRef.current?.trigger();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
   // Toggle video fit between letterbox (contain) and fill (cover)
   const toggleVideoFit = useCallback(() => {
     setVideoFit(prev => {
@@ -1339,6 +1384,22 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       {/* Credits / Coming Up Next overlay — shown when outro segment is reached */}
       {showCreditsOverlay && nextProgram && nextProgram.type !== 'interstitial' && !isInterstitial && (
         <CreditsOverlay nextProgram={nextProgram} currentProgram={currentProgram} />
+      )}
+
+      {/* 2E Promo overlay — periodic broadcast-style promo */}
+      {currentProgram && !isInterstitial && videoReady && (
+        <PromoOverlay
+          currentProgram={currentProgram}
+          upcomingPrograms={upcomingPrograms}
+          isInterstitial={isInterstitial}
+          enabled={promoOverlayEnabled}
+          creditsVisible={showCreditsOverlay}
+          scheduleByChannel={scheduleByChannel}
+          channels={allChannels}
+          currentChannelId={channel.id}
+          triggerRef={promoTriggerRef}
+          onTuneChannel={handlePromoTune}
+        />
       )}
 
       {/* Non-interactive progress bar — updated via ref to avoid re-renders */}

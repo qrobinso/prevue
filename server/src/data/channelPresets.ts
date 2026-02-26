@@ -12,7 +12,7 @@ export const PRESET_CATEGORIES: PresetCategoryInfo[] = [
   {
     id: 'auto',
     name: 'Auto',
-    description: 'Automatically generated based on your library (genres, eras, collections, directors, actors, composers)',
+    description: 'Automatically generated based on your library (genres, eras, collections, directors, actors, composers, networks)',
     icon: '✨',
   },
   {
@@ -479,6 +479,19 @@ export const CHANNEL_PRESETS: ChannelPreset[] = [
     dynamicType: 'studios',
     filter: {
       includeMovies: true,
+      includeEpisodes: true,
+    },
+  },
+  {
+    id: 'auto-networks',
+    name: 'Network Channels',
+    description: 'Creates channels for TV networks in your library (HBO, Netflix, AMC, etc.)',
+    category: 'auto',
+    icon: '📡',
+    isDynamic: true,
+    dynamicType: 'networks',
+    filter: {
+      includeMovies: false,
       includeEpisodes: true,
     },
   },

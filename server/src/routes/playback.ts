@@ -6,6 +6,10 @@ import type { JellyfinClient } from '../services/JellyfinClient.js';
 
 export const playbackRoutes = Router();
 
+// ── Tracks/session cache (TTL 60s) — prevents redundant Jellyfin calls on rapid channel switches ──
+const TRACKS_CACHE_TTL_MS = 60_000;
+const tracksCache = new Map<string, { data: Awaited<ReturnType<typeof getTracksAndSession>>; expiresAt: number }>();
+
 // Extract audio/subtitle tracks and session info from Jellyfin in a single API call.
 // Returns PlaySessionId and MediaSourceId so the stream endpoint can skip a redundant call.
 async function getTracksAndSession(
@@ -100,7 +104,22 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     let playSessionId = '';
     let mediaSourceId = '';
     try {
-      ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = await getTracksAndSession(jf, program.jellyfin_item_id));
+      const cacheKey = program.jellyfin_item_id;
+      const cached = tracksCache.get(cacheKey);
+      if (cached && Date.now() < cached.expiresAt) {
+        ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = cached.data);
+      } else {
+        const result = await getTracksAndSession(jf, program.jellyfin_item_id);
+        tracksCache.set(cacheKey, { data: result, expiresAt: Date.now() + TRACKS_CACHE_TTL_MS });
+        ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = result);
+        // Evict stale entries
+        if (tracksCache.size > 100) {
+          const now = Date.now();
+          for (const [k, v] of tracksCache) {
+            if (now > v.expiresAt) tracksCache.delete(k);
+          }
+        }
+      }
     } catch (e) {
       console.warn('[Playback] Could not fetch tracks:', (e as Error).message);
     }
