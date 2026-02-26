@@ -111,7 +111,7 @@ settingsRoutes.post('/restart', (_req: Request, res: Response) => {
   // Flush the response, then close the HTTP server gracefully before exiting.
   // The process manager (Docker, systemd, tsx watch) will restart the process.
   res.once('finish', () => {
-    const server = _req.socket?.server;
+    const server = (_req.socket as any)?.server;
     if (server) {
       server.close(() => {
         process.exit(0);
