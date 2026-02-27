@@ -36,6 +36,7 @@ const GUIDE_ARTWORK_KEY = 'prevue_guide_artwork';
 const PREVIEW_STYLE_KEY = 'prevue_preview_style';
 const CLOCK_FORMAT_KEY = 'prevue_clock_format';
 const PROMO_OVERLAY_KEY = 'prevue_promo_overlay';
+const STARTING_SOON_KEY = 'prevue_starting_soon';
 
 export type PreviewBgOption = 'theme' | 'black' | 'white';
 export type PreviewStyle = 'modern' | 'classic-left' | 'classic-right';
@@ -65,6 +66,19 @@ export function getPromoOverlayEnabled(): boolean {
 export function setPromoOverlayEnabled(enabled: boolean): void {
   localStorage.setItem(PROMO_OVERLAY_KEY, String(enabled));
   window.dispatchEvent(new CustomEvent('promooverlaychange', { detail: { enabled } }));
+}
+
+export function getStartingSoonEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(STARTING_SOON_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return true; // default: enabled
+}
+
+export function setStartingSoonEnabled(enabled: boolean): void {
+  localStorage.setItem(STARTING_SOON_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('startingsoonchange', { detail: { enabled } }));
 }
 
 export function applyPreviewBg(value: PreviewBgOption): void {
@@ -433,6 +447,7 @@ export default function DisplaySettings() {
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(getAutoScroll);
   const [autoScrollSpeed, setAutoScrollSpeedState] = useState(getAutoScrollSpeed);
   const [promoOverlay, setPromoOverlay] = useState(getPromoOverlayEnabled);
+  const [startingSoon, setStartingSoon] = useState(getStartingSoonEnabled);
   const [sharePlaybackProgress, setSharePlaybackProgress] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -996,9 +1011,9 @@ export default function DisplaySettings() {
       </div>
 
       <div className="settings-subsection">
-        <h4>PROMO OVERLAY</h4>
+        <h4>IN-VIDEO NOTIFICATIONS</h4>
         <p className="settings-field-hint">
-          Periodically shows what you're watching and what's coming up next, just like broadcast TV promos.
+          Broadcast-style notifications that appear over the video during playback.
         </p>
         <div className="settings-toggle-row">
           <label className="settings-toggle">
@@ -1013,7 +1028,23 @@ export default function DisplaySettings() {
             <span className="settings-toggle-slider" />
           </label>
           <span className="settings-toggle-label">
-            {promoOverlay ? 'ON' : 'OFF'}
+            Now watching / Up next
+          </span>
+        </div>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={startingSoon}
+              onChange={(e) => {
+                setStartingSoon(e.target.checked);
+                setStartingSoonEnabled(e.target.checked);
+              }}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            Starting soon on other channels
           </span>
         </div>
       </div>

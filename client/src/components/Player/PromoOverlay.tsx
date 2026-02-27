@@ -15,6 +15,8 @@ interface PromoOverlayProps {
   upcomingPrograms: ScheduleProgram[];
   isInterstitial: boolean;
   enabled: boolean;
+  /** Separate toggle for "Starting Soon" cross-channel notifications */
+  startingSoonEnabled: boolean;
   creditsVisible: boolean;
   /** Full schedule map for cross-channel "Starting Soon" lookup */
   scheduleByChannel?: Map<number, ScheduleProgram[]>;
@@ -28,38 +30,79 @@ interface PromoOverlayProps {
   onTuneChannel?: (channelId: number) => void;
 }
 
-/** Compute 2-3 random appearance times spread across remaining program duration. */
+/** Return the next :00 and :30 wall-clock marks that fall within the program window.
+ *  Skips marks too close to the start (< 30s in) or end (< 2 min left). */
 function schedulePromoTimes(startMs: number, endMs: number): number[] {
   const now = Date.now();
-  const effectiveStart = Math.max(startMs, now) + 30_000;
-  const effectiveEnd = endMs - 120_000;
-  const window = effectiveEnd - effectiveStart;
+  const effectiveStart = Math.max(startMs, now) + 30_000;   // skip first 30s
+  const effectiveEnd = endMs - 120_000;                      // stop 2 min before end
 
-  if (window < 180_000) return [];
+  if (effectiveEnd <= effectiveStart) return [];
 
-  const count = window < 1_200_000 ? 2 : 3;
-  const segmentSize = window / count;
+  // Find the first :00 or :30 mark at or after effectiveStart
+  const firstMark = new Date(effectiveStart);
+  firstMark.setSeconds(0, 0);
+  if (firstMark.getMinutes() % 30 !== 0) {
+    // Round up to next :00 or :30
+    const m = firstMark.getMinutes();
+    firstMark.setMinutes(m < 30 ? 30 : 60);
+  }
+  if (firstMark.getTime() < effectiveStart) {
+    firstMark.setMinutes(firstMark.getMinutes() + 30);
+  }
 
   const times: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const segStart = effectiveStart + i * segmentSize;
-    const t = segStart + Math.random() * segmentSize;
-    times.push(Math.round(t));
+  let t = firstMark.getTime();
+  while (t <= effectiveEnd) {
+    times.push(t);
+    t += 30 * 60 * 1000; // next :00 or :30
   }
 
   return times;
 }
 
-/** Find a program starting soon on another channel that matches the current content type. */
+/** Score how relevant a candidate program is to the current program.
+ *  Higher = more relevant. Genre overlap is weighted most, then rating match. */
+function relevanceScore(
+  candidate: ScheduleProgram,
+  currentGenres: string[],
+  currentRating: string | null,
+): number {
+  let score = 0;
+
+  // Genre overlap: +2 per shared genre
+  if (currentGenres.length > 0 && candidate.genres?.length) {
+    for (const g of candidate.genres) {
+      if (currentGenres.includes(g)) score += 2;
+    }
+  }
+
+  // Rating match: +1
+  if (currentRating && candidate.rating === currentRating) {
+    score += 1;
+  }
+
+  return score;
+}
+
+/** Find a program starting soon on another channel, prioritizing genre/rating relevance. */
 function findStartingSoon(
   scheduleByChannel: Map<number, ScheduleProgram[]>,
   currentChannelId: number,
-  contentType: string | null,
+  currentProgram: ScheduleProgram,
 ): { program: ScheduleProgram; channelId: number } | null {
   const now = Date.now();
   const oneMinFromNow = now + 60_000;
+  const currentGenres = currentProgram.genres ?? [];
+  const currentRating = currentProgram.rating;
+  const contentType = currentProgram.content_type;
 
-  let best: { program: ScheduleProgram; channelId: number; startsAt: number } | null = null;
+  let best: {
+    program: ScheduleProgram;
+    channelId: number;
+    score: number;
+    startsAt: number;
+  } | null = null;
 
   for (const [channelId, programs] of scheduleByChannel) {
     if (channelId === currentChannelId) continue;
@@ -67,13 +110,15 @@ function findStartingSoon(
     for (const p of programs) {
       if (p.type !== 'program') continue;
       const startMs = p.start_ms ?? new Date(p.start_time).getTime();
-      // Must be starting within the next 60 seconds
       if (startMs <= now || startMs > oneMinFromNow) continue;
       // Content type must match: movie→movie, episode→episode
       if (contentType && p.content_type !== contentType) continue;
-      // Pick the soonest one
-      if (!best || startMs < best.startsAt) {
-        best = { program: p, channelId, startsAt: startMs };
+
+      const score = relevanceScore(p, currentGenres, currentRating);
+
+      // Pick highest relevance, break ties by soonest start
+      if (!best || score > best.score || (score === best.score && startMs < best.startsAt)) {
+        best = { program: p, channelId, score, startsAt: startMs };
       }
     }
   }
@@ -91,6 +136,7 @@ export default function PromoOverlay({
   upcomingPrograms,
   isInterstitial,
   enabled,
+  startingSoonEnabled,
   creditsVisible,
   scheduleByChannel,
   channels,
@@ -109,6 +155,10 @@ export default function PromoOverlay({
   const sequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startAppearanceRef = useRef<() => void>(() => {});
   const startingSoonShownRef = useRef<string | null>(null);
+  const startingSoonLastShownAt = useRef<number>(0);
+  const dismissTimerStartedAt = useRef<number>(0);
+  const dismissDurationMs = useRef<number>(0);
+  const dismissRemainingMs = useRef<number>(0);
 
   const clearSequenceTimer = useCallback(() => {
     if (sequenceTimerRef.current) {
@@ -194,17 +244,23 @@ export default function PromoOverlay({
 
   // "Starting Soon" — check every second for a matching program about to start on another channel
   useEffect(() => {
-    if (!enabled || !scheduleByChannel || !channels || currentChannelId == null) return;
+    if (!startingSoonEnabled || !scheduleByChannel || !channels || currentChannelId == null) return;
+
+    const COOLDOWN_MS = 3 * 60 * 1000; // 3-minute cooldown between notifications
 
     const interval = setInterval(() => {
       if (isInterstitial || creditsVisible || visible) return;
 
-      const match = findStartingSoon(scheduleByChannel, currentChannelId, currentProgram.content_type);
+      // Enforce cooldown between starting-soon notifications
+      if (Date.now() - startingSoonLastShownAt.current < COOLDOWN_MS) return;
+
+      const match = findStartingSoon(scheduleByChannel, currentChannelId, currentProgram);
       if (!match) return;
 
       // Don't show the same starting-soon program twice
       if (match.program.jellyfin_item_id === startingSoonShownRef.current) return;
       startingSoonShownRef.current = match.program.jellyfin_item_id;
+      startingSoonLastShownAt.current = Date.now();
 
       const ch = channels.find((c) => c.id === match.channelId);
       setStartingSoonProgram(match.program);
@@ -214,6 +270,9 @@ export default function PromoOverlay({
       setVisible(true);
 
       clearSequenceTimer();
+      dismissTimerStartedAt.current = Date.now();
+      dismissDurationMs.current = STARTING_SOON_DURATION_MS;
+      dismissRemainingMs.current = STARTING_SOON_DURATION_MS;
       sequenceTimerRef.current = setTimeout(() => {
         setVisible(false);
       }, STARTING_SOON_DURATION_MS);
@@ -221,7 +280,7 @@ export default function PromoOverlay({
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, scheduleByChannel, channels, currentChannelId, currentProgram.content_type, isInterstitial, creditsVisible, clearSequenceTimer]);
+  }, [startingSoonEnabled, scheduleByChannel, channels, currentChannelId, currentProgram, isInterstitial, creditsVisible, clearSequenceTimer]);
 
   // Suppress immediately if conditions change mid-display
   useEffect(() => {
@@ -230,6 +289,25 @@ export default function PromoOverlay({
       clearSequenceTimer();
     }
   }, [visible, isInterstitial, creditsVisible, enabled, clearSequenceTimer]);
+
+  // Pause dismiss timer on mouse hover (starting-soon only)
+  const handlePromoMouseEnter = useCallback(() => {
+    if (phase !== 'starting-soon' || !sequenceTimerRef.current) return;
+    // Calculate remaining time and pause
+    const elapsed = Date.now() - dismissTimerStartedAt.current;
+    dismissRemainingMs.current = Math.max(0, dismissDurationMs.current - elapsed);
+    clearSequenceTimer();
+  }, [phase, clearSequenceTimer]);
+
+  // Resume dismiss timer on mouse leave
+  const handlePromoMouseLeave = useCallback(() => {
+    if (phase !== 'starting-soon' || !visible || dismissRemainingMs.current <= 0) return;
+    sequenceTimerRef.current = setTimeout(() => {
+      setVisible(false);
+    }, dismissRemainingMs.current);
+    dismissTimerStartedAt.current = Date.now();
+    dismissDurationMs.current = dismissRemainingMs.current;
+  }, [phase, visible]);
 
   const handleStartingSoonClick = useCallback(() => {
     if (phase === 'starting-soon' && startingSoonChannelId != null && onTuneChannel) {
@@ -272,6 +350,8 @@ export default function PromoOverlay({
         role={isClickable ? 'button' : undefined}
         tabIndex={isClickable ? 0 : undefined}
         onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleStartingSoonClick(); } : undefined}
+        onMouseEnter={handlePromoMouseEnter}
+        onMouseLeave={handlePromoMouseLeave}
       >
         <div className="promo-info">
           <span className="promo-label">{label}</span>

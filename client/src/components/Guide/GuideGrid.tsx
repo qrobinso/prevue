@@ -218,7 +218,10 @@ const GuideProgramCell = memo(function GuideProgramCell({
   const artworkSpace = cellShowArtwork ? artworkSize + 6 : 0;
 
   const padding = 8;
-  const scrollPastCell = scrollLeft - left;
+  // Compute scroll position from time rather than DOM scrollLeft to avoid
+  // iOS momentum-scroll desync that causes text to pop right then snap back.
+  const computedScrollLeft = ((Date.now() - rangeStartMs) / SLOT_MS) * timeSlotWidth;
+  const scrollPastCell = computedScrollLeft - left;
   const reservedForText = Math.min(150, width * 0.4);
   const maxOffset = Math.max(0, width - padding * 2 - reservedForText - artworkSpace);
   const titleOffset = Math.max(0, Math.min(scrollPastCell, maxOffset));
@@ -241,7 +244,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
       onClick={() => onProgramClick(chIdx, progIdx)}
       title={prog.title + (prog.subtitle ? ` - ${prog.subtitle}` : '')}
     >
-      <div className="guide-program-content" style={{ transform: `translateX(${titleOffset}px)` }}>
+      <div className="guide-program-content" style={{ transform: `translate3d(${titleOffset}px,0,0)` }}>
         {continuationArrow && <span className="guide-continuation-arrow">{continuationArrow}</span>}
         {cellShowArtwork && (
           <ArtworkThumbnail itemId={prog.jellyfin_item_id} size={artworkSize} />

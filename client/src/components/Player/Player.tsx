@@ -14,7 +14,7 @@ import {
   updateActivePlaybackSession,
   updatePlaybackPosition,
 } from '../../services/playbackHandoff';
-import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset, getPromoOverlayEnabled } from '../Settings/DisplaySettings';
+import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset, getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
 import InfoOverlay from './InfoOverlay';
 import CreditsOverlay from './CreditsOverlay';
 import PromoOverlay from './PromoOverlay';
@@ -221,6 +221,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [isInterstitial, setIsInterstitial] = useState(false);
   const [showCreditsOverlay, setShowCreditsOverlay] = useState(false);
   const [promoOverlayEnabled, setPromoOverlayEnabled] = useState(getPromoOverlayEnabled);
+  const [startingSoonEnabled, setStartingSoonEnabledState] = useState(getStartingSoonEnabled);
   const promoTriggerRef = useRef<PromoOverlayHandle | null>(null);
   const { scheduleByChannel, channels: allChannels } = useSchedule();
 
@@ -287,6 +288,15 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     };
     window.addEventListener('promooverlaychange', handler);
     return () => window.removeEventListener('promooverlaychange', handler);
+  }, []);
+
+  // Listen for starting soon setting changes
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setStartingSoonEnabledState((e as CustomEvent).detail.enabled);
+    };
+    window.addEventListener('startingsoonchange', handler);
+    return () => window.removeEventListener('startingsoonchange', handler);
   }, []);
 
   // Compute upcoming programs for promo overlay
@@ -1393,6 +1403,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           upcomingPrograms={upcomingPrograms}
           isInterstitial={isInterstitial}
           enabled={promoOverlayEnabled}
+          startingSoonEnabled={startingSoonEnabled}
           creditsVisible={showCreditsOverlay}
           scheduleByChannel={scheduleByChannel}
           channels={allChannels}

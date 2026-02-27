@@ -1177,7 +1177,8 @@ html[data-preview-bg="white"] .preview-video-container {
 /* ── Grid Body ───────────────────────────────────── */
 .guide-grid {
   flex: 1;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   position: relative;
   /* iOS: lock to vertical scroll so vertical swipes don't trigger horizontal scroll */
   touch-action: pan-y;
@@ -1228,6 +1229,8 @@ html[data-preview-bg="white"] .preview-video-container {
   z-index: 10; /* Higher z-index to ensure it stays on top */
   box-sizing: border-box;
   box-shadow: 2px 0 4px rgba(0, 0, 0, 0.3); /* Shadow to separate from programs */
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .guide-row-focused .guide-channel-col {
@@ -1274,6 +1277,8 @@ html[data-preview-bg="white"] .preview-video-container {
   text-overflow: ellipsis;
   padding: 0 16px;
   box-sizing: border-box;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 /* ── Programs Row ────────────────────────────────── */
@@ -1312,8 +1317,10 @@ html[data-preview-bg="white"] .preview-video-container {
   align-items: center;
   min-width: 0;
   overflow: hidden;
-  /* GPU acceleration for smooth sticky title sliding */
+  /* GPU compositing layer — prevents iOS text popping during scroll */
   will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .guide-program-text {

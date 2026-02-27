@@ -62,6 +62,7 @@ export default function Guide({
   const [autoScrollSpeed, setAutoScrollSpeed] = useState(getAutoScrollSpeed);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const autoScrollPauseTimeoutRef = useRef<number | null>(null);
+  const mouseOverGuideRef = useRef(false);
 
   // Update preview time at low frequency so the entire guide tree does not rerender every second.
   useEffect(() => {
@@ -181,29 +182,56 @@ export default function Guide({
     return () => clearInterval(timer);
   }, [autoScrollEnabled, autoScrollPaused, autoScrollSpeed, channels.length, visibleChannels]);
 
-  // Reset auto-scroll offset when user interacts (so display follows their selection)
+  // Keep auto-scroll offset in sync with user's position:
+  // - While paused, follow the focused channel
+  // - When resuming (paused -> unpaused), start from the user's current position
+  const wasPausedRef = useRef(autoScrollPaused);
   useEffect(() => {
     if (autoScrollPaused) {
       setAutoScrollOffset(focusedChannelIdx);
+    } else if (wasPausedRef.current) {
+      // Just resumed — start auto-scroll from where the user left off
+      setAutoScrollOffset(focusedChannelIdx);
     }
+    wasPausedRef.current = autoScrollPaused;
   }, [autoScrollPaused, focusedChannelIdx]);
+
+  // Start (or restart) the inactivity resume timer
+  const startResumeTimer = useCallback(() => {
+    if (autoScrollPauseTimeoutRef.current) {
+      clearTimeout(autoScrollPauseTimeoutRef.current);
+    }
+    // Don't start timer while mouse is hovering over the guide
+    if (mouseOverGuideRef.current) return;
+    autoScrollPauseTimeoutRef.current = window.setTimeout(() => {
+      setAutoScrollPaused(false);
+    }, 60000);
+  }, []);
 
   // Pause auto-scroll on user interaction
   const pauseAutoScroll = useCallback(() => {
     if (!autoScrollEnabled) return;
-    
     setAutoScrollPaused(true);
-    
-    // Clear any existing timeout
+    startResumeTimer();
+  }, [autoScrollEnabled, startResumeTimer]);
+
+  // Mouse hover over guide grid: pause indefinitely (no resume timer)
+  const handleGuideMouseEnter = useCallback(() => {
+    mouseOverGuideRef.current = true;
+    if (!autoScrollEnabled) return;
+    setAutoScrollPaused(true);
     if (autoScrollPauseTimeoutRef.current) {
       clearTimeout(autoScrollPauseTimeoutRef.current);
+      autoScrollPauseTimeoutRef.current = null;
     }
-    
-    // Resume after 20 seconds of inactivity
-    autoScrollPauseTimeoutRef.current = window.setTimeout(() => {
-      setAutoScrollPaused(false);
-    }, 20000);
   }, [autoScrollEnabled]);
+
+  // Mouse leaves guide grid: start inactivity timer
+  const handleGuideMouseLeave = useCallback(() => {
+    mouseOverGuideRef.current = false;
+    if (!autoScrollEnabled || !autoScrollPaused) return;
+    startResumeTimer();
+  }, [autoScrollEnabled, autoScrollPaused, startResumeTimer]);
 
   // Clean up timeout on unmount
   useEffect(() => {
@@ -516,18 +544,26 @@ export default function Guide({
           onClose={() => setSearchOpen(false)}
         />
       )}
-      <GuideGrid
-        channels={channels}
-        scheduleByChannel={scheduleByChannel}
-        focusedChannelIdx={focusedChannelIdx}
-        focusedProgramIdx={focusedProgramIdx}
-        visibleChannels={visibleChannels}
-        guideHours={guideHours}
-        scrollToChannelIdx={scrollToChannelIdxOnce ?? (autoScrollEnabled && !autoScrollPaused ? autoScrollOffset : undefined)}
-        smoothScroll={scrollToChannelIdxOnce === undefined && autoScrollEnabled && !autoScrollPaused}
-        onChannelClick={handleGridChannelClick}
-        onProgramClick={handleGridProgramClick}
-      />
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+      <div
+        onMouseEnter={handleGuideMouseEnter}
+        onMouseLeave={handleGuideMouseLeave}
+        onWheel={pauseAutoScroll}
+        style={{ display: 'contents' }}
+      >
+        <GuideGrid
+          channels={channels}
+          scheduleByChannel={scheduleByChannel}
+          focusedChannelIdx={focusedChannelIdx}
+          focusedProgramIdx={focusedProgramIdx}
+          visibleChannels={visibleChannels}
+          guideHours={guideHours}
+          scrollToChannelIdx={scrollToChannelIdxOnce ?? (autoScrollEnabled && !autoScrollPaused ? autoScrollOffset : undefined)}
+          smoothScroll={scrollToChannelIdxOnce === undefined && autoScrollEnabled && !autoScrollPaused}
+          onChannelClick={handleGridChannelClick}
+          onProgramClick={handleGridProgramClick}
+        />
+      </div>
     </div>
   );
 }

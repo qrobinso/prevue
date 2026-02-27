@@ -24,7 +24,7 @@ import {
 } from '../../services/sharedVideo';
 import InterstitialScreen from '../Player/InterstitialScreen';
 import PromoOverlay from '../Player/PromoOverlay';
-import { getPromoOverlayEnabled } from '../Settings/DisplaySettings';
+import { getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
 import './Guide.css';
 
 /** Delay before starting preview stream (user may be browsing) */
@@ -118,6 +118,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [isBuffering, setIsBuffering] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [promoOverlayEnabled, setPromoOverlayEnabledState] = useState(getPromoOverlayEnabled);
+  const [startingSoonEnabled, setStartingSoonEnabledState] = useState(getStartingSoonEnabled);
 
   // Listen for promo overlay setting changes
   useEffect(() => {
@@ -126,6 +127,15 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     };
     window.addEventListener('promooverlaychange', handler);
     return () => window.removeEventListener('promooverlaychange', handler);
+  }, []);
+
+  // Listen for starting soon setting changes
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setStartingSoonEnabledState((e as CustomEvent).detail.enabled);
+    };
+    window.addEventListener('startingsoonchange', handler);
+    return () => window.removeEventListener('startingsoonchange', handler);
   }, []);
 
   // Compute upcoming programs for promo overlay
@@ -885,6 +895,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             upcomingPrograms={upcomingPrograms}
             isInterstitial={false}
             enabled={promoOverlayEnabled}
+            startingSoonEnabled={startingSoonEnabled}
             creditsVisible={false}
             scheduleByChannel={scheduleByChannel}
             channels={allChannels}
