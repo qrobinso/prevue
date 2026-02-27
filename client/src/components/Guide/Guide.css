@@ -1151,12 +1151,14 @@ html[data-preview-bg="white"] .preview-video-container {
 
 .guide-time-header-slots {
   display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge */
-  /* iOS: lock to horizontal so vertical swipes on header don't cause scroll confusion */
-  touch-action: pan-x;
+  touch-action: none;
+  transform: translateX(var(--guide-scroll-x, 0px));
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .guide-time-header-slots::-webkit-scrollbar {
@@ -1294,6 +1296,12 @@ html[data-preview-bg="white"] .preview-video-container {
     transparent 1px,
     transparent 200px
   );
+  /* Use CSS transform for horizontal movement instead of scrollLeft
+     to prevent iOS momentum-scroll desync */
+  transform: translateX(var(--guide-scroll-x, 0px));
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .guide-program-cell {

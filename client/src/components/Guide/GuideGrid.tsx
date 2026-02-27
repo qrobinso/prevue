@@ -631,9 +631,8 @@ function GuideGrid({
   }, []);
 
   useEffect(() => {
-    const grid = gridRef.current;
-    const timeHeader = timeHeaderRef.current;
-    if (!grid || !timeHeader || availableWidth <= 0 || timeSlotWidth <= 0) return;
+    const container = containerRef.current;
+    if (!container || availableWidth <= 0 || timeSlotWidth <= 0) return;
 
     let rafId: number;
     let lastScroll = -1;
@@ -642,8 +641,9 @@ function GuideGrid({
       const scrollPosition = (elapsedMs / SLOT_MS) * timeSlotWidth;
       const scroll = Math.round(Math.max(0, Math.min(maxScroll, scrollPosition)));
       if (scroll !== lastScroll) {
-        grid.scrollLeft = scroll;
-        timeHeader.scrollLeft = scroll;
+        // Use CSS custom property + transforms instead of scrollLeft to avoid
+        // iOS momentum-scroll desync that causes text to pop right then snap back.
+        container.style.setProperty('--guide-scroll-x', `-${scroll}px`);
         scrollLeftRef.current = scroll;
         lastScroll = scroll;
       }
