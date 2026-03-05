@@ -598,7 +598,7 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
 
     return () => {
       cancelAnimationFrame(fadeFrame);
-      cancelAnimationFrame(analyserAnimFrame!);
+      if (analyserAnimFrame !== undefined) cancelAnimationFrame(analyserAnimFrame);
       audio.removeEventListener('ended', handleEnded);
       window.removeEventListener('prevue_volume_change', handleVolumeChange);
       releaseAudio(myId);
@@ -609,22 +609,23 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
         audioContext.close().catch(() => {});
       }
 
-      // Fade out over 500ms before cleanup
+      // Fade out over 500ms before cleanup — track RAF so it can't orphan
+      let fadeOutFrame: number;
       const fadeOutStart = Date.now();
       const FADE_OUT_MS = 500;
       const startVol = audio.volume;
       const fadeOut = () => {
         const elapsed = Date.now() - fadeOutStart;
         const progress = Math.min(1, elapsed / FADE_OUT_MS);
-        audio.volume = startVol * (1 - progress);
+        try { audio.volume = startVol * (1 - progress); } catch { /* audio may be disposed */ }
         if (progress < 1) {
-          requestAnimationFrame(fadeOut);
+          fadeOutFrame = requestAnimationFrame(fadeOut);
         } else {
           audio.pause();
           audio.src = '';
         }
       };
-      requestAnimationFrame(fadeOut);
+      fadeOutFrame = requestAnimationFrame(fadeOut);
     };
   }, [musicTracks]);
 

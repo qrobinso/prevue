@@ -26,8 +26,12 @@ export function initWebSocket(server: Server): WebSocketServer {
       }
     }
 
+    // Mark connection as alive for ping/pong zombie detection
+    (ws as WebSocket & { isAlive: boolean }).isAlive = true;
+    ws.on('pong', () => { (ws as WebSocket & { isAlive: boolean }).isAlive = true; });
+
     ws.on('close', () => {
-      // client disconnected
+      console.log('[WS] Client disconnected');
     });
 
     ws.on('error', (err) => {
@@ -38,9 +42,17 @@ export function initWebSocket(server: Server): WebSocketServer {
     ws.send(JSON.stringify({ type: 'connected', payload: { timestamp: new Date().toISOString() } }));
   });
 
-  // Heartbeat to keep connections alive
+  // Heartbeat: send data heartbeat + ping/pong to detect zombie connections
   const heartbeat = setInterval(() => {
     wss.clients.forEach((ws) => {
+      const wsAlive = ws as WebSocket & { isAlive: boolean };
+      // Terminate zombie connections that didn't respond to last ping
+      if (wsAlive.isAlive === false) {
+        console.log('[WS] Terminating zombie connection');
+        return ws.terminate();
+      }
+      wsAlive.isAlive = false;
+      ws.ping();
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'heartbeat', payload: { timestamp: new Date().toISOString() } }));
       }

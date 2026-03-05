@@ -14,7 +14,7 @@ import {
   updateActivePlaybackSession,
   updatePlaybackPosition,
 } from '../../services/playbackHandoff';
-import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset, getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
+import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset, getPromoOverlayEnabled, getStartingSoonEnabled, getSubtitleSize, setSubtitleSizeStorage, SUBTITLE_SIZE_PRESETS, type SubtitleSizePreset } from '../Settings/DisplaySettings';
 import InfoOverlay from './InfoOverlay';
 import CreditsOverlay from './CreditsOverlay';
 import PromoOverlay from './PromoOverlay';
@@ -47,12 +47,13 @@ interface PlayerProps {
   onBack: () => void;
   onChannelUp?: () => void;
   onChannelDown?: () => void;
+  onLastChannel?: () => void;
   enterFullscreenOnMount?: boolean;
 }
 
 const MAX_RETRIES = 2;
 const DOUBLE_TAP_DELAY = 300; // ms to detect double tap
-const PLAYER_REVEAL_DELAY_MS = 300;
+const PLAYER_REVEAL_DELAY_MS = 150;
 const NETWORK_RETRY_DELAY_MS = 2000;
 const NETWORK_RELOAD_DELAY_MS = 750;
 
@@ -208,7 +209,7 @@ function collectNerdStats(video: HTMLVideoElement | null, hls: Hls | null): Nerd
   };
 }
 
-export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, enterFullscreenOnMount }: PlayerProps) {
+export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, onLastChannel, enterFullscreenOnMount }: PlayerProps) {
   const navigate = useNavigate();
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(getVideoElement());
@@ -248,6 +249,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getVideoFit);
+  const [subtitleSize, setSubtitleSizeState] = useState<SubtitleSizePreset>(getSubtitleSize);
+  const [activeCueText, setActiveCueText] = useState('');
+  const activeCueRef = useRef('');
   const [autoplayMutedLock, setAutoplayMutedLock] = useState(!hasSharedStream);
   const { volume, muted, setVolume, toggleMute } = useVolume();
   const mutedRef = useRef(muted);
@@ -264,6 +268,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const currentItemIdRef = useRef<string | null>(null);
   const lastTapTimeRef = useRef(0);
   const selectedSubtitleIndexRef = useRef<number | null>(getStoredSubtitleIndex());
+  const subtitleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedAudioStreamIndexRef = useRef<number | null>(null);
   const removePlayingListenersRef = useRef<(() => void) | null>(null);
   const stopPlaybackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -316,24 +321,36 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     overlayTimer.current = setTimeout(() => setShowOverlay(false), 5000);
   }, []);
 
-  const tryAutoplayMuted = useCallback((video: HTMLVideoElement) => {
-    let attempts = 0;
-    const maxAttempts = 3;
-
-    const attemptPlay = () => {
-      attempts += 1;
-      setAutoplayMutedLock(true);
-      video.muted = true;
-      video
-        .play()
-        .catch(() => {
-          if (attempts < maxAttempts) {
-            setTimeout(attemptPlay, 200);
-          }
-        });
-    };
-
-    attemptPlay();
+  // Try playing unmuted first; only fall back to muted autoplay if the browser
+  // rejects the unmuted attempt (e.g. no prior user interaction).
+  const tryAutoplay = useCallback((video: HTMLVideoElement) => {
+    // First: try unmuted with user's preferred volume
+    video.muted = mutedRef.current;
+    video.volume = isMobile() ? 1.0 : volumeRef.current;
+    video
+      .play()
+      .then(() => {
+        // Unmuted play succeeded — no lock needed
+        setAutoplayMutedLock(false);
+      })
+      .catch(() => {
+        // Unmuted play rejected — fall back to muted autoplay
+        let attempts = 0;
+        const maxAttempts = 3;
+        const attemptMuted = () => {
+          attempts += 1;
+          setAutoplayMutedLock(true);
+          video.muted = true;
+          video
+            .play()
+            .catch(() => {
+              if (attempts < maxAttempts) {
+                setTimeout(attemptMuted, 200);
+              }
+            });
+        };
+        attemptMuted();
+      });
   }, []);
 
   // Load and start playback (optionally with a specific audio track)
@@ -452,6 +469,13 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           fragLoadingRetryDelay: NETWORK_RETRY_DELAY_MS,
           manifestLoadingRetryDelay: NETWORK_RETRY_DELAY_MS,
           levelLoadingRetryDelay: NETWORK_RETRY_DELAY_MS,
+          // Faster startup: don't retain back-buffer, tolerate small gaps
+          backBufferLength: 0,
+          maxBufferHole: 0.5,
+          // Use HLS.js-managed subtitle timing instead of native browser TextTrack
+          // rendering. Native rendering has known sync issues with Jellyfin HLS
+          // subtitles due to X-TIMESTAMP-MAP PTS offset mismatches.
+          renderTextTracksNatively: false,
         });
 
         hlsRef.current = hls;
@@ -503,37 +527,50 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         video.addEventListener('stalled', onWaiting);
         video.addEventListener('canplay', onCanPlayBuffering);
 
-        // Helper to set native text track mode
-        const setNativeSubtitleMode = (posIdx: number | null) => {
-          if (video.textTracks) {
-            let subtitleTrackCount = 0;
-            for (let i = 0; i < video.textTracks.length; i++) {
-              const kind = video.textTracks[i]?.kind;
-              if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
-            }
-            const wantedSubtitleOrdinal =
-              posIdx !== null && posIdx >= 0
-                ? Math.min(
-                    posIdx,
-                    Math.max(0, subtitleTrackCount - 1)
-                  )
-                : null;
-            let subtitleOrdinal = 0;
-            for (let i = 0; i < video.textTracks.length; i++) {
-              const track = video.textTracks[i];
-              if (track.kind === 'subtitles' || track.kind === 'captions') {
-                track.mode = wantedSubtitleOrdinal !== null && subtitleOrdinal === wantedSubtitleOrdinal ? 'showing' : 'hidden';
-                subtitleOrdinal += 1;
-              }
+        // Helper to set text track mode to 'hidden' (activeCues populated but not
+        // browser-rendered — we render our own overlay for correct sync + sizing).
+        const setSubtitleTrackMode = (posIdx: number | null) => {
+          if (!video.textTracks) return;
+          let subtitleTrackCount = 0;
+          for (let i = 0; i < video.textTracks.length; i++) {
+            const kind = video.textTracks[i]?.kind;
+            if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
+          }
+          const wantedOrdinal =
+            posIdx !== null && posIdx >= 0
+              ? Math.min(posIdx, Math.max(0, subtitleTrackCount - 1))
+              : null;
+          let ordinal = 0;
+          for (let i = 0; i < video.textTracks.length; i++) {
+            const track = video.textTracks[i];
+            if (track.kind === 'subtitles' || track.kind === 'captions') {
+              track.mode = wantedOrdinal !== null && ordinal === wantedOrdinal ? 'hidden' : 'disabled';
+              ordinal += 1;
             }
           }
         };
+
+        // Apply HLS.js subtitle selection helper
+        const applyHlsSubtitleSelection = () => {
+          const idx = selectedSubtitleIndexRef.current;
+          if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
+            const wantOn = idx !== null && idx >= 0;
+            hls.subtitleDisplay = wantOn;
+            hls.subtitleTrack = wantOn ? Math.min(idx, hls.subtitleTracks.length - 1) : -1;
+          }
+          const trackIdx = idx !== null && idx >= 0 && hls.subtitleTracks?.length
+            ? Math.min(idx, hls.subtitleTracks.length - 1) : null;
+          // Delay slightly for HLS.js to add tracks to the video element
+          if (subtitleTimeoutRef.current) clearTimeout(subtitleTimeoutRef.current);
+          subtitleTimeoutRef.current = setTimeout(() => setSubtitleTrackMode(trackIdx), 150);
+        };
+
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelledRef?.current) return;
           errorCountRef.current = 0; // Reset on success
           const beginPlayback = () => {
             if (cancelledRef?.current) return;
-            tryAutoplayMuted(video);
+            tryAutoplay(video);
             setLoading(false);
             showOverlayBriefly();
           };
@@ -552,27 +589,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           } else {
             beginPlayback();
           }
-          // Apply subtitle selection via hls.js (so subtitles actually display).
-          // When stream was requested with one subtitle, manifest may have a single track at index 0.
-          const idx = selectedSubtitleIndexRef.current;
-          if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-            const wantOn = idx !== null && idx >= 0;
-            hls.subtitleDisplay = wantOn;
-            hls.subtitleTrack = wantOn ? Math.min(idx, hls.subtitleTracks.length - 1) : -1;
-          }
-          // Set native track mode after a brief delay for HLS.js to add tracks
-          const trackIdx = idx !== null && idx >= 0 && hls.subtitleTracks?.length ? Math.min(idx, hls.subtitleTracks.length - 1) : null;
-          setTimeout(() => setNativeSubtitleMode(trackIdx), 100);
+          applyHlsSubtitleSelection();
         });
         hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
-          const idx = selectedSubtitleIndexRef.current;
-          if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-            const wantOn = idx !== null && idx >= 0;
-            hls.subtitleDisplay = wantOn;
-            hls.subtitleTrack = wantOn ? Math.min(idx, hls.subtitleTracks.length - 1) : -1;
-          }
-          const trackIdx = idx !== null && idx >= 0 && hls.subtitleTracks?.length ? Math.min(idx, hls.subtitleTracks.length - 1) : null;
-          setTimeout(() => setNativeSubtitleMode(trackIdx), 100);
+          applyHlsSubtitleSelection();
         });
 
         hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -671,7 +691,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           video.removeEventListener('canplay', onCanPlay);
           const startPlay = () => {
             if (cancelledRef?.current) return;
-            tryAutoplayMuted(video);
+            tryAutoplay(video);
             setIsBuffering(false);
             setLoading(false);
             showOverlayBriefly();
@@ -699,7 +719,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       setError(formatPlaybackError(err instanceof Error ? err : String(err)));
       setLoading(false);
     }
-  }, [channel.id, currentQuality, showOverlayBriefly, tryAutoplayMuted]);
+  }, [channel.id, currentQuality, showOverlayBriefly, tryAutoplay]);
 
   // Load stream on mount and when channel/quality changes. Cleanup runs when channel
   // changes or on unmount: we tell Jellyfin to stop the transcode session (saves resources).
@@ -1018,6 +1038,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     onEnter: showOverlayBriefly,
     onUp: onChannelUp,
     onDown: onChannelDown,
+    onLastChannel,
   });
 
   // 'P' key triggers promo overlay on demand
@@ -1042,21 +1063,20 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     });
   }, []);
 
-  // Apply volume settings to video element
-  useVideoVolume(videoRef, volume, autoplayMutedLock ? true : muted);
+  // Apply volume settings to video element.
+  // Skip while autoplay mute lock is held — onFirstPlaying handles the unmute
+  // directly on the video element to avoid a race where this effect re-applies
+  // muted=true between the lock release and the next React render.
+  useVideoVolume(videoRef, volume, muted, autoplayMutedLock);
 
   // Click/tap handler with double-tap detection
   const handleClick = useCallback(() => {
     // iOS fallback: if video loaded but is paused (autoplay blocked), tap-to-play
     const video = videoRef.current;
     if (video && !isInterstitial && video.paused && video.readyState >= 2) {
-      setAutoplayMutedLock(true);
-      video.muted = true;
-      video.play().then(() => {
-        setAutoplayMutedLock(false);
-        video.muted = mutedRef.current;
-        video.volume = volumeRef.current;
-      }).catch(() => {});
+      video.muted = mutedRef.current;
+      video.volume = isMobile() ? 1.0 : volumeRef.current;
+      video.play().catch(() => {});
       return;
     }
 
@@ -1091,13 +1111,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     if (video && !isInterstitial) {
       autoAdvanceDisabledRef.current = true; // Disable auto-advance to next program
       video.currentTime = 0;
-      setAutoplayMutedLock(true);
-      video.muted = true; // iOS: autoplay requires muted
-      video.play().then(() => {
-        setAutoplayMutedLock(false);
-        video.muted = mutedRef.current;
-        video.volume = volumeRef.current;
-      }).catch(() => {});
+      video.muted = mutedRef.current;
+      video.volume = isMobile() ? 1.0 : volumeRef.current;
+      video.play().catch(() => {});
       setShowSettingsOpen(false);
     }
   }, [isInterstitial]);
@@ -1218,25 +1234,30 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       hls.subtitleDisplay = wantOn;
       hls.subtitleTrack = wantOn ? Math.min(positionIndex, hls.subtitleTracks.length - 1) : -1;
     }
-    // Also set native text track mode for browser rendering
+    // Set text track to 'hidden' so activeCues are populated (we render our own overlay)
     if (video && video.textTracks) {
       let subtitleTrackCount = 0;
       for (let i = 0; i < video.textTracks.length; i++) {
         const kind = video.textTracks[i]?.kind;
         if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
       }
-      const wantedSubtitleOrdinal =
+      const wantedOrdinal =
         positionIndex !== null && positionIndex >= 0 && subtitleTrackCount > 0
           ? Math.min(positionIndex, subtitleTrackCount - 1)
           : null;
-      let subtitleOrdinal = 0;
+      let ordinal = 0;
       for (let i = 0; i < video.textTracks.length; i++) {
         const track = video.textTracks[i];
         if (track.kind === 'subtitles' || track.kind === 'captions') {
-          track.mode = wantedSubtitleOrdinal !== null && subtitleOrdinal === wantedSubtitleOrdinal ? 'showing' : 'hidden';
-          subtitleOrdinal += 1;
+          track.mode = wantedOrdinal !== null && ordinal === wantedOrdinal ? 'hidden' : 'disabled';
+          ordinal += 1;
         }
       }
+    }
+    // Clear cues when subtitles are turned off
+    if (positionIndex === null || positionIndex < 0) {
+      activeCueRef.current = '';
+      setActiveCueText('');
     }
   }, []);
 
@@ -1261,6 +1282,55 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     selectedSubtitleIndexRef.current = selectedSubtitleIndex;
     applySubtitleTrack(selectedSubtitleIndex);
   }, [selectedSubtitleIndex, applySubtitleTrack]);
+
+  // Poll active subtitle cues from hidden text tracks and render in our overlay.
+  // Uses the same interval as progress tracking to stay efficient.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const pollCues = () => {
+      if (selectedSubtitleIndexRef.current === null || selectedSubtitleIndexRef.current < 0) {
+        if (activeCueRef.current !== '') {
+          activeCueRef.current = '';
+          setActiveCueText('');
+        }
+        return;
+      }
+      const cueTexts: string[] = [];
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const track = video.textTracks[i];
+        if ((track.kind === 'subtitles' || track.kind === 'captions') && track.mode === 'hidden' && track.activeCues) {
+          for (let j = 0; j < track.activeCues.length; j++) {
+            const cue = track.activeCues[j] as VTTCue;
+            if (cue.text) cueTexts.push(cue.text);
+          }
+        }
+      }
+      const joined = cueTexts.join('\n');
+      if (joined !== activeCueRef.current) {
+        activeCueRef.current = joined;
+        setActiveCueText(joined);
+      }
+    };
+    const id = setInterval(pollCues, 250);
+    return () => clearInterval(id);
+  }, []);
+
+  // Listen for subtitle size changes from Settings
+  useEffect(() => {
+    const handler = () => setSubtitleSizeState(getSubtitleSize());
+    window.addEventListener('subtitlesizechange', handler);
+    return () => window.removeEventListener('subtitlesizechange', handler);
+  }, []);
+
+  // Handle subtitle size change from player settings
+  const handleSubtitleSizeChange = useCallback((sizeId: string) => {
+    const preset = SUBTITLE_SIZE_PRESETS.find(p => p.id === sizeId);
+    if (preset) {
+      setSubtitleSizeState(preset);
+      setSubtitleSizeStorage(sizeId);
+    }
+  }, []);
 
   // Handle quality change
   const handleQualityChange = useCallback(async (preset: QualityPreset) => {
@@ -1310,6 +1380,15 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       {/* Video element — shared video is reparented here */}
       {!isInterstitial && (
         <div ref={videoContainerRef} className="player-video-host" />
+      )}
+
+      {/* Custom subtitle overlay — rendered from activeCues for correct sync */}
+      {!isInterstitial && activeCueText && (
+        <div className="player-subtitle-overlay" style={{ fontSize: subtitleSize.fontSize }}>
+          {activeCueText.split('\n').map((line, i) => (
+            <span key={i}>{line}{i < activeCueText.split('\n').length - 1 && <br />}</span>
+          ))}
+        </div>
       )}
 
       {/* Interstitial screen with countdown, lineup, and spotlight */}
@@ -1585,6 +1664,22 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                       </button>
                     ))
                   )}
+                </div>
+              </div>
+
+              <div className="player-settings-section">
+                <div className="player-settings-section-title">Subtitle size</div>
+                <div className="player-settings-options-row">
+                  {SUBTITLE_SIZE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`player-settings-size-btn ${subtitleSize.id === preset.id ? 'active' : ''}`}
+                      onClick={() => handleSubtitleSizeChange(preset.id)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 

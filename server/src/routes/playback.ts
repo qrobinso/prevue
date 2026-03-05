@@ -3,8 +3,13 @@ import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { JellyfinClient } from '../services/JellyfinClient.js';
+import { activeSessions, trackSession, lastActivityByItemId } from './stream.js';
 
 export const playbackRoutes = Router();
+
+// Track the last pre-warmed session so we can stop it when a new one starts.
+// This prevents orphaned FFmpeg transcodes during rapid channel switching.
+let lastPrewarmedSession: { playSessionId: string; itemId: string } | null = null;
 
 // ── Tracks/session cache (TTL 60s) — prevents redundant Jellyfin calls on rapid channel switches ──
 const TRACKS_CACHE_TTL_MS = 60_000;
@@ -112,12 +117,10 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
         const result = await getTracksAndSession(jf, program.jellyfin_item_id);
         tracksCache.set(cacheKey, { data: result, expiresAt: Date.now() + TRACKS_CACHE_TTL_MS });
         ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = result);
-        // Evict stale entries
-        if (tracksCache.size > 100) {
-          const now = Date.now();
-          for (const [k, v] of tracksCache) {
-            if (now > v.expiresAt) tracksCache.delete(k);
-          }
+        // Evict expired entries on every miss to prevent unbounded growth
+        const now = Date.now();
+        for (const [k, v] of tracksCache) {
+          if (now > v.expiresAt) tracksCache.delete(k);
         }
       }
     } catch (e) {
@@ -172,6 +175,57 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     }
     const queryString = streamParams.toString();
     const streamUrl = `/api/stream/${program.jellyfin_item_id}${queryString ? `?${queryString}` : ''}`;
+
+    // Pre-warm: fire-and-forget fetch of Jellyfin master.m3u8 to start FFmpeg
+    // transcoding in the background while the client processes this response.
+    if (playSessionId && mediaSourceId) {
+      // Stop the previous pre-warmed session if it wasn't consumed by /api/stream.
+      // This prevents orphaned FFmpeg transcodes during rapid channel switching.
+      if (lastPrewarmedSession && lastPrewarmedSession.itemId !== program.jellyfin_item_id) {
+        const prev = lastPrewarmedSession;
+        // Only stop if /api/stream never picked it up (still in activeSessions means stream is active)
+        const activeSession = activeSessions.get(prev.itemId);
+        const wasConsumed = activeSession && activeSession.playSessionId === prev.playSessionId;
+        if (!wasConsumed) {
+          console.log(`[Playback] Stopping previous pre-warm session=${prev.playSessionId} item=${prev.itemId}`);
+          void jf.deleteTranscodingJob(prev.playSessionId).catch(() => {});
+          activeSessions.delete(prev.itemId);
+          lastActivityByItemId.delete(prev.itemId);
+        }
+      }
+
+      // Register this session for idle cleanup tracking
+      trackSession(program.jellyfin_item_id, playSessionId, mediaSourceId);
+      lastPrewarmedSession = { playSessionId, itemId: program.jellyfin_item_id };
+
+      const baseUrl = jf.getBaseUrl();
+      const headers = jf.getProxyHeaders();
+      const deviceId = jf.getDeviceId();
+      const hevc = req.query.hevc === '1';
+      const warmParams = new URLSearchParams({
+        DeviceId: deviceId,
+        MediaSourceId: mediaSourceId,
+        PlaySessionId: playSessionId,
+        VideoCodec: hevc ? 'hevc,h264' : 'h264',
+        AudioCodec: 'aac',
+        MaxStreamingBitrate: String(bitrate || 120000000),
+        VideoBitrate: String(bitrate || 120000000),
+        TranscodingMaxAudioChannels: '2',
+        SegmentContainer: hevc ? 'mp4' : 'ts',
+        MinSegments: '2',
+        BreakOnNonKeyFrames: 'true',
+        AllowVideoStreamCopy: 'true',
+        AllowAudioStreamCopy: 'true',
+        EnableAutoStreamCopy: 'true',
+        MaxWidth: maxWidth ? String(maxWidth) : '3840',
+        MaxHeight: '2160',
+      });
+      if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
+        warmParams.set('AudioStreamIndex', String(audioStreamIndex));
+      }
+      const warmUrl = `${baseUrl}/Videos/${program.jellyfin_item_id}/master.m3u8?${warmParams}`;
+      void fetch(warmUrl, { headers }).catch(() => {});
+    }
 
     const seekSeconds = seekMs / 1000;
     console.log(`[Playback] Channel ${channelId}: seekMs=${seekMs}, item=${program.jellyfin_item_id}, audio_tracks=${audio_tracks.length}, audioStreamIndex=${audioStreamIndex ?? 'default'}, subtitle_index=${subtitle_index ?? 'off'}`);

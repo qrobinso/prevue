@@ -112,13 +112,17 @@ export function useVolume() {
   };
 }
 
-// Hook to apply volume to a video element
+// Hook to apply volume to a video element.
+// When `skip` is true the effect is a no-op — the caller is managing the
+// video element's muted/volume state directly (e.g. during autoplay mute lock).
 export function useVideoVolume(
   videoRef: React.RefObject<HTMLVideoElement>,
   volume: number,
-  muted: boolean
+  muted: boolean,
+  skip = false
 ) {
   useEffect(() => {
+    if (skip) return;
     const video = videoRef.current;
     if (video) {
       // On mobile, always use 1.0 so hardware volume buttons work intuitively.
@@ -126,5 +130,5 @@ export function useVideoVolume(
       video.volume = isMobile() ? 1.0 : volume;
       video.muted = muted;
     }
-  }, [videoRef, volume, muted]);
+  }, [videoRef, volume, muted, skip]);
 }

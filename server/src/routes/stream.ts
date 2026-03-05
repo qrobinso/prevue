@@ -701,6 +701,24 @@ export function startTranscodeIdleCleanup(app: Express): void {
         console.error(`[Stream] Idle cleanup failed for ${playSessionId}:`, err);
       }
     }
+
+    // Clean up orphaned IPTV session info entries whose playSessionId
+    // no longer corresponds to any active session
+    const activePlaySessionIds = new Set(
+      Array.from(activeSessions.values()).map(s => s.playSessionId)
+    );
+    for (const psId of iptvSessionInfo.keys()) {
+      if (!activePlaySessionIds.has(psId)) {
+        iptvSessionInfo.delete(psId);
+      }
+    }
+
+    // Clean up orphaned progressStartedSessions
+    for (const psId of progressStartedSessions) {
+      if (!activePlaySessionIds.has(psId)) {
+        progressStartedSessions.delete(psId);
+      }
+    }
   }, IDLE_CLEANUP_INTERVAL_MS);
 
   console.log(`[Stream] Idle transcode cleanup every ${IDLE_CLEANUP_INTERVAL_MS / 1000}s (threshold ${IDLE_THRESHOLD_MS / 1000}s)`);

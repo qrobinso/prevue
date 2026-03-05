@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSchedule, type ChannelWithProgram } from '../services/api';
 import type { ScheduleProgram, ScheduleBlock, WSEvent } from '../types';
 import { useWebSocket } from './useWebSocket';
+import { usePageVisibility } from './usePageVisibility';
 
 /** Minimum gap between schedule reloads (ms). */
 const RELOAD_DEBOUNCE_MS = 2000;
@@ -20,6 +21,7 @@ export function useSchedule(): ScheduleData {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setInterval>>();
+  const pageVisible = usePageVisibility();
 
   const hasLoadedOnce = useRef(false);
   const loadingRef = useRef(false);
@@ -116,13 +118,15 @@ export function useSchedule(): ScheduleData {
   useEffect(() => {
     loadData();
 
-    // Refresh every 60 seconds
-    refreshTimer.current = setInterval(loadData, 60000);
+    if (pageVisible) {
+      // Refresh every 60 seconds when page is visible
+      refreshTimer.current = setInterval(loadData, 60000);
+    }
     return () => {
       if (refreshTimer.current) clearInterval(refreshTimer.current);
       if (debouncedTimer.current) clearTimeout(debouncedTimer.current);
     };
-  }, [loadData]);
+  }, [loadData, pageVisible]);
 
   return { channels, scheduleByChannel, loading, error, refresh: loadData };
 }

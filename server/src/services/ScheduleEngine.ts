@@ -685,8 +685,10 @@ export class ScheduleEngine {
                 tooSoon: prevEnd !== undefined && startMs < prevEnd + MIN_REPEAT_GAP_MS
               };
             })
-            .filter(x => x.duration > 0 && x.duration <= remainingMs && !x.conflicts)
+            .filter(x => x.duration > 0 && x.duration <= remainingMs)
             .sort((a, b) => {
+              // Strongly prefer no-conflict items, but allow conflicts as dead-air fallback.
+              if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
               if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
               // Duration fit: prefer content that fills remaining time well
               const aFit = durationFitScore(a.duration, remainingMs);
@@ -694,8 +696,10 @@ export class ScheduleEngine {
               if (Math.abs(aFit - bFit) > 0.2) return bFit - aFit;
               return b.duration - a.duration;
             });
-          const relaxed = relaxedCandidates.length > 0
-            ? relaxedCandidates[Math.floor(rng() * Math.min(MOVIE_POOL_SIZE, relaxedCandidates.length))]
+          const relaxedNoConflict = relaxedCandidates.filter(c => !c.conflicts);
+          const relaxedPool = relaxedNoConflict.length > 0 ? relaxedNoConflict : relaxedCandidates;
+          const relaxed = relaxedPool.length > 0
+            ? relaxedPool[Math.floor(rng() * Math.min(MOVIE_POOL_SIZE, relaxedPool.length))]
             : null;
           if (relaxed) {
             const endMs = startMs + relaxed.duration;
@@ -828,8 +832,7 @@ export class ScheduleEngine {
               return b.duration - a.duration;
             });
         }
-        // Final resort: skip series-level conflict check — a duplicate series across channels
-        // is far better than dead air / interstitial gaps
+        // Final resort: allow overlap conflicts. Duplicate content is preferable to dead air.
         if (candidates.length === 0) {
           candidates = allItems
             .map(i => {
@@ -844,8 +847,9 @@ export class ScheduleEngine {
                 inCooldown: scheduledInCooldown.has(i.Id)
               };
             })
-            .filter(x => x.duration > 0 && x.duration <= remainingGap && !x.conflicts)
+            .filter(x => x.duration > 0 && x.duration <= remainingGap)
             .sort((a, b) => {
+              if (a.conflicts !== b.conflicts) return a.conflicts ? 1 : -1;
               if (a.tooSoon !== b.tooSoon) return a.tooSoon ? 1 : -1;
               if (a.usedInBlock !== b.usedInBlock) return a.usedInBlock ? 1 : -1;
               const aFit = durationFitScore(a.duration, remainingGap);

@@ -26,6 +26,7 @@ interface GuideProps {
   initialChannelId?: number | null;
   keyboardDisabled?: boolean;
   onFocusedChannelChange?: (channelId: number | null) => void;
+  onLastChannel?: () => void;
 }
 
 export default function Guide({
@@ -35,6 +36,7 @@ export default function Guide({
   initialChannelId,
   keyboardDisabled = false,
   onFocusedChannelChange,
+  onLastChannel,
 }: GuideProps) {
   const { channels, scheduleByChannel, loading, error, refresh } = useSchedule();
   const visibleChannels = getVisibleChannels();
@@ -436,6 +438,7 @@ export default function Guide({
     onRight: handleRight,
     onEnter: handleEnter,
     onEscape: onOpenSettings,
+    onLastChannel,
   }, !keyboardDisabled);
 
   if (loading) {

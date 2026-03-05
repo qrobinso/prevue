@@ -153,12 +153,32 @@ function AppContent() {
     setSettingsOpen(false);
   }, []);
 
+  // Jump back to the last-tuned channel
+  const handleLastChannel = useCallback(() => {
+    if (!lastChannelId || channels.length === 0) return;
+    const target = channels.find(ch => ch.id === lastChannelId);
+    if (!target) return;
+    // Don't switch if already on the last channel
+    if (currentChannel && currentChannel.id === lastChannelId) return;
+    const fromChannel = currentChannel ?? null;
+    setLastChannelId(fromChannel?.id ?? null);
+    navigate(`/channel/${target.number}`);
+    metricsChannelSwitch({
+      client_id: getClientId(),
+      from_channel_id: fromChannel?.id,
+      from_channel_name: fromChannel?.name,
+      to_channel_id: target.id,
+      to_channel_name: target.name,
+    }).catch(() => {});
+  }, [lastChannelId, channels, currentChannel, navigate]);
+
   // Player channel navigation
   const handleChannelUp = useCallback(() => {
     if (channels.length === 0 || !currentChannel) return;
     const idx = channels.findIndex(ch => ch.id === currentChannel.id);
     const prevIdx = idx <= 0 ? channels.length - 1 : idx - 1;
     const target = channels[prevIdx];
+    setLastChannelId(currentChannel.id);
     navigate(`/channel/${target.number}`);
     metricsChannelSwitch({
       client_id: getClientId(),
@@ -174,6 +194,7 @@ function AppContent() {
     const idx = channels.findIndex(ch => ch.id === currentChannel.id);
     const nextIdx = idx < 0 || idx >= channels.length - 1 ? 0 : idx + 1;
     const target = channels[nextIdx];
+    setLastChannelId(currentChannel.id);
     navigate(`/channel/${target.number}`);
     metricsChannelSwitch({
       client_id: getClientId(),
@@ -212,6 +233,7 @@ function AppContent() {
           initialChannelId={lastChannelId}
           keyboardDisabled={playerActive}
           onFocusedChannelChange={setGuideFocusedChannelId}
+          onLastChannel={handleLastChannel}
         />
         {settingsOpen && !playerActive && (
           <Settings onClose={handleCloseSettings} />
@@ -226,6 +248,7 @@ function AppContent() {
               onBack={() => handleBackToGuide(currentChannel)}
               onChannelUp={handleChannelUp}
               onChannelDown={handleChannelDown}
+              onLastChannel={handleLastChannel}
               enterFullscreenOnMount={enterFullscreenOnMount}
             />
           </div>

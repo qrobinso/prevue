@@ -37,6 +37,7 @@ const PREVIEW_STYLE_KEY = 'prevue_preview_style';
 const CLOCK_FORMAT_KEY = 'prevue_clock_format';
 const PROMO_OVERLAY_KEY = 'prevue_promo_overlay';
 const STARTING_SOON_KEY = 'prevue_starting_soon';
+const SUBTITLE_SIZE_KEY = 'prevue_subtitle_size';
 
 export type PreviewBgOption = 'theme' | 'black' | 'white';
 export type PreviewStyle = 'modern' | 'classic-left' | 'classic-right';
@@ -243,6 +244,40 @@ export function getPreviewStyle(): PreviewStyle {
 export function setPreviewStyle(style: PreviewStyle): void {
   localStorage.setItem(PREVIEW_STYLE_KEY, style);
   window.dispatchEvent(new CustomEvent('previewstylechange', { detail: { style } }));
+}
+
+// Subtitle size presets
+export type SubtitleSizeId = 'small' | 'medium' | 'large' | 'xlarge';
+
+export interface SubtitleSizePreset {
+  id: SubtitleSizeId;
+  label: string;
+  fontSize: string; // CSS value for the subtitle overlay
+}
+
+export const SUBTITLE_SIZE_PRESETS: SubtitleSizePreset[] = [
+  { id: 'small',  label: 'S',  fontSize: '0.8em' },
+  { id: 'medium', label: 'M',  fontSize: '1.1em' },
+  { id: 'large',  label: 'L',  fontSize: '1.5em' },
+  { id: 'xlarge', label: 'XL', fontSize: '2em' },
+];
+
+const DEFAULT_SUBTITLE_SIZE: SubtitleSizeId = 'medium';
+
+export function getSubtitleSize(): SubtitleSizePreset {
+  try {
+    const stored = localStorage.getItem(SUBTITLE_SIZE_KEY);
+    if (stored) {
+      const preset = SUBTITLE_SIZE_PRESETS.find(p => p.id === stored);
+      if (preset) return preset;
+    }
+  } catch {}
+  return SUBTITLE_SIZE_PRESETS.find(p => p.id === DEFAULT_SUBTITLE_SIZE)!;
+}
+
+export function setSubtitleSizeStorage(sizeId: string): void {
+  localStorage.setItem(SUBTITLE_SIZE_KEY, sizeId);
+  window.dispatchEvent(new CustomEvent('subtitlesizechange', { detail: { sizeId } }));
 }
 
 // Color theme presets
@@ -464,6 +499,7 @@ export default function DisplaySettings() {
   const [guideResolutionEnabled, setGuideResolutionEnabledState] = useState(getGuideResolution);
   const [guideArtworkEnabled, setGuideArtworkEnabledState] = useState(getGuideArtwork);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
+  const [subtitleSize, setSubtitleSizeState] = useState(getSubtitleSize);
   const closeAbout = useCallback(() => setShowAbout(false), []);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
@@ -593,6 +629,14 @@ export default function DisplaySettings() {
     setClockFormat(format);
   };
 
+  const handleSubtitleSizeChange = (sizeId: string) => {
+    const preset = SUBTITLE_SIZE_PRESETS.find(p => p.id === sizeId);
+    if (preset) {
+      setSubtitleSizeState(preset);
+      setSubtitleSizeStorage(sizeId);
+    }
+  };
+
   const handleVisibleChannelsChange = (value: number) => {
     setVisibleChannels(value);
     localStorage.setItem(VISIBLE_CHANNELS_KEY, String(value));
@@ -690,6 +734,24 @@ export default function DisplaySettings() {
             >
               <span className="settings-quality-label">{preset.label}</span>
               <span className="settings-quality-desc">{preset.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-subsection">
+        <h4>SUBTITLE SIZE</h4>
+        <p className="settings-field-hint">
+          Text size for subtitle tracks when enabled.
+        </p>
+        <div className="settings-channel-count-options">
+          {SUBTITLE_SIZE_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              className={`settings-channel-count-btn ${subtitleSize.id === preset.id ? 'active' : ''}`}
+              onClick={() => handleSubtitleSizeChange(preset.id)}
+            >
+              {preset.label}
             </button>
           ))}
         </div>

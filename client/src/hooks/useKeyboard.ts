@@ -8,6 +8,7 @@ interface KeyboardHandlers {
   onLeft?: () => void;
   onRight?: () => void;
   onEnter?: () => void;
+  onLastChannel?: () => void;
 }
 
 export function useKeyboard(view: AppView, handlers: KeyboardHandlers, enabled = true) {
@@ -48,6 +49,11 @@ export function useKeyboard(view: AppView, handlers: KeyboardHandlers, enabled =
         case 'Enter':
           e.preventDefault();
           handlers.onEnter?.();
+          break;
+        case 'Backspace':
+        case 'Delete':
+          e.preventDefault();
+          handlers.onLastChannel?.();
           break;
       }
     }

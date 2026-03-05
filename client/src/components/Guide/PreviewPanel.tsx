@@ -24,13 +24,13 @@ import {
 } from '../../services/sharedVideo';
 import InterstitialScreen from '../Player/InterstitialScreen';
 import PromoOverlay from '../Player/PromoOverlay';
-import { getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
+import { getPromoOverlayEnabled, getStartingSoonEnabled, getSubtitleSize, setSubtitleSizeStorage, SUBTITLE_SIZE_PRESETS, type SubtitleSizePreset } from '../Settings/DisplaySettings';
 import './Guide.css';
 
 /** Delay before starting preview stream (user may be browsing) */
-const PREVIEW_STREAM_DELAY_MS = 1000;
+const PREVIEW_STREAM_DELAY_MS = 300;
 /** Reveal video after enough frames are decoded for smooth playback. */
-const PREVIEW_REVEAL_DELAY_MS = 500;
+const PREVIEW_REVEAL_DELAY_MS = 200;
 
 const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
 const VIDEO_FIT_KEY = 'prevue_video_fit';
@@ -106,6 +106,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const overlayHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapTimeRef = useRef<number>(0);
   const removePlayingListenersRef = useRef<(() => void) | null>(null);
+  const subtitleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Tracks item we're loading so we don't start a duplicate load (e.g. React Strict Mode or rapid re-runs) */
   const loadingItemIdRef = useRef<string | null>(null);
   // ─── Playback progress tracking ──────────────────────
@@ -169,6 +170,9 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getStoredVideoFit);
+  const [subtitleSize, setSubtitleSizeState] = useState<SubtitleSizePreset>(getSubtitleSize);
+  const [activeCueText, setActiveCueText] = useState('');
+  const activeCueRef = useRef('');
   currentChannelIdRef.current = channel?.id ?? null;
 
   const toggleVideoFit = useCallback(() => {
@@ -306,6 +310,11 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         fragLoadingMaxRetry: 2,
         manifestLoadingMaxRetry: 2,
         levelLoadingMaxRetry: 2,
+        // Faster startup: don't retain back-buffer, tolerate small gaps
+        backBufferLength: 0,
+        maxBufferHole: 0.5,
+        // Use HLS.js-managed subtitle timing for correct sync with Jellyfin HLS
+        renderTextTracksNatively: false,
       });
       hlsRef.current = hls;
       setSharedHls(hls);
@@ -319,28 +328,24 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       video.addEventListener('waiting', onWaiting);
       video.addEventListener('stalled', onWaiting);
       video.addEventListener('canplay', onCanPlayBuffering);
-      // Helper to set native text track mode
-      const setNativeSubtitleMode = (posIdx: number | null) => {
-        if (video.textTracks) {
-          let subtitleTrackCount = 0;
-          for (let i = 0; i < video.textTracks.length; i++) {
-            const kind = video.textTracks[i]?.kind;
-            if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
-          }
-          const wantedSubtitleOrdinal =
-            posIdx !== null && posIdx >= 0
-              ? Math.min(
-                  posIdx,
-                  Math.max(0, subtitleTrackCount - 1)
-                )
-              : null;
-          let subtitleOrdinal = 0;
-          for (let i = 0; i < video.textTracks.length; i++) {
-            const track = video.textTracks[i];
-            if (track.kind === 'subtitles' || track.kind === 'captions') {
-              track.mode = wantedSubtitleOrdinal !== null && subtitleOrdinal === wantedSubtitleOrdinal ? 'showing' : 'hidden';
-              subtitleOrdinal += 1;
-            }
+      // Set text track to 'hidden' (activeCues populated but not browser-rendered)
+      const setSubtitleTrackMode = (posIdx: number | null) => {
+        if (!video.textTracks) return;
+        let subtitleTrackCount = 0;
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const kind = video.textTracks[i]?.kind;
+          if (kind === 'subtitles' || kind === 'captions') subtitleTrackCount += 1;
+        }
+        const wantedOrdinal =
+          posIdx !== null && posIdx >= 0
+            ? Math.min(posIdx, Math.max(0, subtitleTrackCount - 1))
+            : null;
+        let ordinal = 0;
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const track = video.textTracks[i];
+          if (track.kind === 'subtitles' || track.kind === 'captions') {
+            track.mode = wantedOrdinal !== null && ordinal === wantedOrdinal ? 'hidden' : 'disabled';
+            ordinal += 1;
           }
         }
       };
@@ -374,7 +379,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             hls.subtitleDisplay = idx !== null && idx >= 0;
             hls.subtitleTrack = idx !== null && idx >= 0 && idx < hls.subtitleTracks.length ? idx : -1;
           }
-          setTimeout(() => setNativeSubtitleMode(idx), 100);
+          if (subtitleTimeoutRef.current) clearTimeout(subtitleTimeoutRef.current);
+          subtitleTimeoutRef.current = setTimeout(() => setSubtitleTrackMode(idx), 150);
         }
       });
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
@@ -384,7 +390,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           hls.subtitleDisplay = idx !== null && idx >= 0;
           hls.subtitleTrack = idx !== null && idx >= 0 && idx < hls.subtitleTracks.length ? idx : -1;
         }
-        setTimeout(() => setNativeSubtitleMode(idx), 100);
+        if (subtitleTimeoutRef.current) clearTimeout(subtitleTimeoutRef.current);
+        subtitleTimeoutRef.current = setTimeout(() => setSubtitleTrackMode(idx), 150);
       });
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal && !cancelled.current) {
@@ -495,11 +502,15 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     cleanup();
     const cancelled = { current: false };
 
+    // Start fetching playback info immediately (in parallel with debounce timer)
+    // so the Jellyfin transcode session begins warming up while we wait.
+    const handoff = consumePlaybackHandoff('guide', channel.id, itemId);
+    const prefetchPromise = handoff ? null : getPlaybackInfo(channel.id).catch(() => null);
+
     const loadPreview = async () => {
       if (cancelled.current) return;
       loadingItemIdRef.current = itemId;
       try {
-        const handoff = consumePlaybackHandoff('guide', channel.id, itemId);
         if (handoff) {
           setServerAudioTracks(handoff.info.audio_tracks ?? []);
           setSelectedAudioStreamIndex(handoff.info.audio_stream_index ?? null);
@@ -518,8 +529,9 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           return;
         }
 
-        const info = await getPlaybackInfo(channel.id);
-        if (cancelled.current || !info.stream_url || info.is_interstitial) {
+        // Use pre-fetched result instead of a fresh API call
+        const info = await prefetchPromise;
+        if (cancelled.current || !info || !info.stream_url || info.is_interstitial) {
           if (!cancelled.current) loadingItemIdRef.current = null;
           return;
         }
@@ -554,6 +566,15 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       cancelled.current = true;
       loadingItemIdRef.current = null;
       clearTimeout(timer);
+      // If the prefetch resolved but was never used (user navigated away before
+      // debounce fired), stop the orphaned session so the server can free FFmpeg.
+      if (prefetchPromise) {
+        prefetchPromise.then((info) => {
+          if (info && info.stream_url && info.program?.jellyfin_item_id) {
+            stopPlayback(info.program.jellyfin_item_id).catch(() => {});
+          }
+        });
+      }
     };
   }, [channel?.id, program?.jellyfin_item_id, cleanup, streamingPaused, loadStreamWithInfo, videoFit, isIOSDevice]);
 
@@ -638,10 +659,62 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     }
   }, []);
 
+  // Poll active subtitle cues from hidden text tracks and render in our overlay
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const pollCues = () => {
+      if (selectedSubtitleIndexRef.current === null || selectedSubtitleIndexRef.current < 0) {
+        if (activeCueRef.current !== '') {
+          activeCueRef.current = '';
+          setActiveCueText('');
+        }
+        return;
+      }
+      const cueTexts: string[] = [];
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const track = video.textTracks[i];
+        if ((track.kind === 'subtitles' || track.kind === 'captions') && track.mode === 'hidden' && track.activeCues) {
+          for (let j = 0; j < track.activeCues.length; j++) {
+            const cue = track.activeCues[j] as VTTCue;
+            if (cue.text) cueTexts.push(cue.text);
+          }
+        }
+      }
+      const joined = cueTexts.join('\n');
+      if (joined !== activeCueRef.current) {
+        activeCueRef.current = joined;
+        setActiveCueText(joined);
+      }
+    };
+    const id = setInterval(pollCues, 250);
+    return () => clearInterval(id);
+  }, []);
+
+  // Listen for subtitle size changes from Settings
+  useEffect(() => {
+    const handler = () => setSubtitleSizeState(getSubtitleSize());
+    window.addEventListener('subtitlesizechange', handler);
+    return () => window.removeEventListener('subtitlesizechange', handler);
+  }, []);
+
+  const handleSubtitleSizeChange = useCallback((sizeId: string) => {
+    const preset = SUBTITLE_SIZE_PRESETS.find(p => p.id === sizeId);
+    if (preset) {
+      setSubtitleSizeState(preset);
+      setSubtitleSizeStorage(sizeId);
+    }
+  }, []);
+
   const handleSelectSubtitleTrack = useCallback(async (positionIndex: number | null) => {
     if (!channel) return;
     setSelectedSubtitleIndex(positionIndex);
     selectedSubtitleIndexRef.current = positionIndex;
+    // Clear cues when turning off
+    if (positionIndex === null || positionIndex < 0) {
+      activeCueRef.current = '';
+      setActiveCueText('');
+    }
     localStorage.setItem(SUBTITLE_INDEX_KEY, positionIndex === null ? '' : String(positionIndex));
     setShowAudioMoreMenu(false);
     cleanup();
@@ -829,6 +902,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         {showVideo && (
           <div ref={videoContainerRef} className="preview-video-host" />
         )}
+        {/* Custom subtitle overlay */}
+        {showVideo && activeCueText && (
+          <div className="preview-subtitle-overlay" style={{ fontSize: subtitleSize.fontSize }}>
+            {activeCueText.split('\n').map((line, i) => (
+              <span key={i}>{line}{i < activeCueText.split('\n').length - 1 && <br />}</span>
+            ))}
+          </div>
+        )}
         {/* Interstitial screen when in a gap between programs */}
         {program && program.type === 'interstitial' && channel && (
           <InterstitialScreen
@@ -928,11 +1009,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
               </div>
               {program.genres && program.genres.length > 0 && (
                 <div className="preview-genres" style={{ fontSize: previewFontSizes.year }}>{program.genres.join(' · ')}</div>
-              )}
-              {isClassic && (
-                <div className="preview-day" style={{ fontSize: previewFontSizes.time }}>
-                  {new Date(program.start_time).toLocaleDateString([], { weekday: 'long' }).toUpperCase()}
-                </div>
               )}
               <div className="preview-time" style={{ fontSize: previewFontSizes.time }}>
                 {formatTime(program.start_time)} - {formatTime(program.end_time)}
@@ -1043,6 +1119,23 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
                       </button>
                     ))
                   )}
+                </div>
+                <div className="preview-audio-more-section">
+                  <div className="preview-audio-more-section-title">SUBTITLE SIZE</div>
+                  <div className="preview-subtitle-size-row">
+                    {SUBTITLE_SIZE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        className={`preview-subtitle-size-btn ${subtitleSize.id === preset.id ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSubtitleSizeChange(preset.id);
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

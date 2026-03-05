@@ -118,7 +118,26 @@ app.get('/api/auth/status', (_req, res) => {
 
 // Health check (public: exempt from auth middleware)
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  let dbOk = false;
+  try {
+    db.prepare('SELECT 1').get();
+    dbOk = true;
+  } catch { /* db unreachable */ }
+
+  const wsClients = wss.clients.size;
+  const jellyfinConfigured = !!jellyfinClient.getActiveServer();
+  const status = dbOk ? 'ok' : 'degraded';
+
+  res.status(dbOk ? 200 : 503).json({
+    status,
+    timestamp: new Date().toISOString(),
+    db: dbOk,
+    jellyfin_configured: jellyfinConfigured,
+    websocket_clients: wsClients,
+    active_streams: activeSessions.size,
+    uptime_seconds: Math.floor(process.uptime()),
+    memory_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+  });
 });
 
 // ─── API Routes ───────────────────────────────────────
@@ -130,7 +149,7 @@ app.use('/api/servers', serverRoutes);
 app.use('/api/metrics', metricsRoutes);
 
 // Proxy routes for Jellyfin streams and images (mounted at /api root)
-import { streamRoutes, startTranscodeIdleCleanup } from './routes/stream.js';
+import { streamRoutes, startTranscodeIdleCleanup, activeSessions, lastActivityByItemId } from './routes/stream.js';
 import { iptvRoutes } from './routes/iptv.js';
 app.use('/api', streamRoutes);
 app.use('/api/iptv', iptvRoutes);
@@ -230,13 +249,39 @@ async function bootSequence() {
   }
 
   // Schedule maintenance: quick check every 15 minutes
-  setInterval(async () => {
+  let maintenanceRunning = false;
+  const maintenanceId = setInterval(async () => {
+    if (maintenanceRunning) return;
+    maintenanceRunning = true;
     try {
       await scheduleEngine.maintainSchedules();
     } catch (err) {
       console.error('[Prevue] Schedule maintenance error:', err);
+    } finally {
+      maintenanceRunning = false;
     }
   }, 15 * 60 * 1000);
+  activeIntervals.push(maintenanceId);
+
+  // Metrics retention: prune old watch data daily (check every 15 min, run once/day)
+  let lastRetentionRun = 0;
+  const RETENTION_DAYS = 90;
+  const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  const retentionId = setInterval(() => {
+    if (Date.now() - lastRetentionRun < RETENTION_INTERVAL_MS) return;
+    lastRetentionRun = Date.now();
+    try {
+      const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const eventsDeleted = db.prepare('DELETE FROM watch_events WHERE timestamp < ?').run(cutoff);
+      const sessionsDeleted = db.prepare('DELETE FROM watch_sessions WHERE started_at < ?').run(cutoff);
+      if (eventsDeleted.changes || sessionsDeleted.changes) {
+        console.log(`[Prevue] Metrics retention: pruned ${eventsDeleted.changes} events, ${sessionsDeleted.changes} sessions older than ${RETENTION_DAYS} days`);
+      }
+    } catch (err) {
+      console.error('[Prevue] Metrics retention error:', err);
+    }
+  }, 15 * 60 * 1000);
+  activeIntervals.push(retentionId);
 
   startScheduleAutoUpdateJob();
 }
@@ -254,13 +299,16 @@ function getScheduleAutoUpdateConfig(): { enabled: boolean; hours: number } {
   return { enabled, hours };
 }
 
+// Track interval IDs so we can clear them on shutdown
+const activeIntervals: ReturnType<typeof setInterval>[] = [];
+
 function startScheduleAutoUpdateJob(): void {
   const pollMs = 60 * 1000; // check config once per minute
   let lastRunAt = Date.now();
   let previousEnabled: boolean | null = null;
   let previousHours: number | null = null;
 
-  setInterval(async () => {
+  const id = setInterval(async () => {
     try {
       const hasServer = jellyfinClient.getActiveServer();
       if (!hasServer) return;
@@ -287,4 +335,43 @@ function startScheduleAutoUpdateJob(): void {
       console.error('[Prevue] Schedule extension error:', err);
     }
   }, pollMs);
+  activeIntervals.push(id);
 }
+
+// ─── Graceful shutdown ──────────────────────────────
+async function gracefulShutdown(signal: string) {
+  console.log(`[Prevue] ${signal} received — shutting down gracefully...`);
+
+  // Clear all recurring intervals
+  for (const id of activeIntervals) clearInterval(id);
+
+  // Stop active Jellyfin transcoding sessions
+  for (const [itemId, session] of activeSessions.entries()) {
+    try {
+      await jellyfinClient.stopPlaybackSession(session.playSessionId);
+      await jellyfinClient.deleteTranscodingJob(session.playSessionId);
+    } catch { /* best-effort */ }
+    activeSessions.delete(itemId);
+    lastActivityByItemId.delete(itemId);
+  }
+
+  // Close WebSocket server
+  wss.close();
+
+  // Close HTTP server
+  server.close(() => {
+    // Close database
+    db.close();
+    console.log('[Prevue] Shutdown complete.');
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds if graceful shutdown stalls
+  setTimeout(() => {
+    console.error('[Prevue] Forced shutdown after timeout.');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

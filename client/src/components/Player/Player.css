@@ -33,7 +33,7 @@
   height: 100%;
   object-fit: contain;
   opacity: 0;
-  transition: opacity 0.5s ease;
+  transition: opacity 0.15s ease;
   will-change: opacity;
 }
 
@@ -41,16 +41,30 @@
   opacity: 1;
 }
 
-/* ── Subtitles (native text tracks via HLS.js) ────── */
+/* ── Subtitles (custom overlay for correct sync) ────── */
 .player-video::cue {
-  background: rgba(0, 0, 0, 0.75);
+  /* Hide native cue rendering — we render our own overlay */
+  color: transparent;
+  background: transparent;
+  text-shadow: none;
+}
+
+.player-subtitle-overlay {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  text-align: center;
   color: #fff;
   font-family: var(--font-retro), 'Segoe UI', Tahoma, sans-serif;
-  font-size: 1.2em;
   line-height: 1.4;
-  padding: 4px 8px;
-  border-radius: 2px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.75);
+  border-radius: 3px;
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+  z-index: 15;
+  pointer-events: none;
 }
 
 /* Fill mode - crops to fill screen */
@@ -70,7 +84,7 @@
   z-index: 10;
   overflow: hidden;
   opacity: 1;
-  transition: opacity 0.6s ease-out;
+  transition: opacity 0.15s ease-out;
   animation: player-artwork-fade-in 0.5s ease-out;
   will-change: opacity;
 }
@@ -530,9 +544,6 @@
   position: relative;
   overflow: hidden;
   background: var(--bg-primary);
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
   cursor: default;
 }
 
@@ -2004,6 +2015,34 @@
   color: var(--text-muted);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.player-settings-options-row {
+  display: flex;
+  gap: 6px;
+}
+
+.player-settings-size-btn {
+  flex: 1;
+  padding: 8px 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-family: var(--font-retro);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.player-settings-size-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.player-settings-size-btn.active {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.1);
 }
 
 .player-settings-nerd-btn {
