@@ -66,8 +66,8 @@ function getVisiblePrograms(
   programs: ScheduleProgram[],
   rangeStartMs: number,
   rangeEndMs: number,
-): ScheduleProgram[] {
-  if (programs.length === 0) return programs;
+): { programs: ScheduleProgram[]; startOffset: number } {
+  if (programs.length === 0) return { programs, startOffset: 0 };
 
   // Find first program whose end_ms > rangeStartMs
   let lo = 0, hi = programs.length;
@@ -86,7 +86,7 @@ function getVisiblePrograms(
     else lo = mid + 1;
   }
 
-  return programs.slice(startIdx, lo);
+  return { programs: programs.slice(startIdx, lo), startOffset: startIdx };
 }
 
 const ArtworkThumbnail = memo(function ArtworkThumbnail({ itemId, size }: { itemId: string; size: number }) {
@@ -775,7 +775,7 @@ function GuideGrid({
 
             const { channel, chIdx } = item;
             const allPrograms = scheduleByChannel.get(channel.id) || EMPTY_PROGRAMS;
-            const programs = getVisiblePrograms(allPrograms, rangeStartMs, rangeEndMs);
+            const { programs, startOffset } = getVisiblePrograms(allPrograms, rangeStartMs, rangeEndMs);
             return (
               <div key={channel.id} className="guide-row-virtual-item" style={{ top }}>
                 <GuideRow
@@ -784,7 +784,7 @@ function GuideGrid({
                   programs={programs}
                   rowHeight={rowHeight}
                   isFocusedRow={chIdx === focusedChannelIdx}
-                  focusedProgramIdx={focusedProgramIdx}
+                  focusedProgramIdx={focusedProgramIdx - startOffset}
                   airingKeys={airingKeys}
                   rangeStartMs={rangeStartMs}
                   rangeEndMs={rangeEndMs}
