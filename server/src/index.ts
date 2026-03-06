@@ -14,7 +14,8 @@ import { playbackRoutes } from './routes/playback.js';
 import { settingsRoutes } from './routes/settings.js';
 import { serverRoutes } from './routes/servers.js';
 import { metricsRoutes } from './routes/metrics.js';
-import { JellyfinClient } from './services/JellyfinClient.js';
+import { createProvider } from './services/providerFactory.js';
+import type { MediaProvider } from './services/MediaProvider.js';
 import { ScheduleEngine } from './services/ScheduleEngine.js';
 import { ChannelManager } from './services/ChannelManager.js';
 import { MetricsService } from './services/MetricsService.js';
@@ -71,6 +72,8 @@ const strictLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
+  // Exempt Plex PIN polling from rate limiting (high-frequency polling during auth)
+  skip: (req) => req.path.includes('/plex/pin/') && req.path.endsWith('/check'),
 });
 app.use('/api/servers', strictLimiter);
 app.use('/api/settings/factory-reset', strictLimiter);
@@ -85,9 +88,9 @@ app.use('/api', authMiddleware);
 const db = initDatabase();
 
 // Initialize services
-const jellyfinClient = new JellyfinClient(db);
-const scheduleEngine = new ScheduleEngine(db, jellyfinClient);
-const channelManager = new ChannelManager(db, jellyfinClient, scheduleEngine);
+let mediaProvider: MediaProvider = createProvider(db);
+const scheduleEngine = new ScheduleEngine(db, mediaProvider);
+const channelManager = new ChannelManager(db, mediaProvider, scheduleEngine);
 const metricsService = new MetricsService(db);
 
 // Initialize WebSocket
@@ -95,9 +98,17 @@ const wss = initWebSocket(server);
 
 // Make services available to routes
 app.locals.db = db;
-app.locals.jellyfinClient = jellyfinClient;
+app.locals.mediaProvider = mediaProvider;
 app.locals.scheduleEngine = scheduleEngine;
 app.locals.channelManager = channelManager;
+
+// Allow routes to swap the provider when the active server type changes
+app.locals.swapProvider = () => {
+  mediaProvider = createProvider(db);
+  app.locals.mediaProvider = mediaProvider;
+  scheduleEngine.setProvider(mediaProvider);
+  channelManager.setProvider(mediaProvider);
+};
 app.locals.metricsService = metricsService;
 app.locals.wss = wss;
 
@@ -125,7 +136,7 @@ app.get('/api/health', (_req, res) => {
   } catch { /* db unreachable */ }
 
   const wsClients = wss.clients.size;
-  const jellyfinConfigured = !!jellyfinClient.getActiveServer();
+  const jellyfinConfigured = !!mediaProvider.getActiveServer();
   const status = dbOk ? 'ok' : 'degraded';
 
   res.status(dbOk ? 200 : 503).json({
@@ -207,21 +218,22 @@ server.listen(PORT, '0.0.0.0', () => {
 
 async function bootSequence() {
   try {
-    const hasServer = jellyfinClient.getActiveServer();
+    const hasServer = mediaProvider.getActiveServer();
     if (!hasServer) {
-      console.log('[Prevue] No Jellyfin server configured. Waiting for setup...');
+      console.log('[Prevue] No media server configured. Waiting for setup...');
       return;
     }
 
-    console.log('[Prevue] Testing Jellyfin connection...');
-    const connected = await jellyfinClient.testConnection();
+    const providerName = mediaProvider.providerType.charAt(0).toUpperCase() + mediaProvider.providerType.slice(1);
+    console.log(`[Prevue] Testing ${providerName} connection...`);
+    const connected = await mediaProvider.testConnection();
     if (!connected) {
-      console.log('[Prevue] Could not connect to Jellyfin. Will retry when accessed.');
+      console.log(`[Prevue] Could not connect to ${providerName}. Will retry when accessed.`);
       return;
     }
 
-    console.log('[Prevue] Syncing Jellyfin library...');
-    await jellyfinClient.syncLibrary();
+    console.log(`[Prevue] Syncing ${providerName} library...`);
+    await mediaProvider.syncLibrary();
 
     // Only auto-generate channels if none exist (preserve user's preset selections)
     const existingChannels = db.prepare('SELECT COUNT(*) as count FROM channels').get() as { count: number };
@@ -310,7 +322,7 @@ function startScheduleAutoUpdateJob(): void {
 
   const id = setInterval(async () => {
     try {
-      const hasServer = jellyfinClient.getActiveServer();
+      const hasServer = mediaProvider.getActiveServer();
       if (!hasServer) return;
 
       const { enabled, hours } = getScheduleAutoUpdateConfig();
@@ -348,8 +360,8 @@ async function gracefulShutdown(signal: string) {
   // Stop active Jellyfin transcoding sessions
   for (const [itemId, session] of activeSessions.entries()) {
     try {
-      await jellyfinClient.stopPlaybackSession(session.playSessionId);
-      await jellyfinClient.deleteTranscodingJob(session.playSessionId);
+      await mediaProvider.stopPlaybackSession(session.playSessionId);
+      await mediaProvider.deleteTranscodingJob(session.playSessionId);
     } catch { /* best-effort */ }
     activeSessions.delete(itemId);
     lastActivityByItemId.delete(itemId);

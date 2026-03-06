@@ -116,13 +116,26 @@ function extractFirstChildPlaylistPath(masterPlaylist: string): string | null {
 // Client should call this when user leaves video or closes page
 streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
   try {
-    const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as MediaProvider;
+    const { mediaProvider } = req.app.locals;
+    const provider = mediaProvider as MediaProvider;
     const { itemId, playSessionId, positionMs } = req.body;
-    
+
     // Use provided playSessionId or look up from active sessions
     const session = activeSessions.get(itemId);
     const sessionId = playSessionId || session?.playSessionId;
+
+    // Guard: when stop is called by itemId only (no specific playSessionId),
+    // protect sessions that were just created or are actively streaming.
+    // This prevents a race where the guide's PreviewPanel cleanup kills the
+    // Player's newly-created stream session for the same item.
+    if (sessionId && !playSessionId && session) {
+      const lastActivity = lastActivityByItemId.get(itemId);
+      if (lastActivity && (Date.now() - lastActivity) < 3000) {
+        console.log(`[Stream] Ignoring stop for item=${itemId} — session is actively streaming (created ${Date.now() - lastActivity}ms ago)`);
+        res.json({ success: true, stopped: null, reason: 'session_active' });
+        return;
+      }
+    }
     
     if (sessionId) {
       // Report playback stopped to Jellyfin if progress sharing is enabled and we have position data
@@ -138,11 +151,11 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
           // so we send PlaybackStart here first.
           if (!progressStartedSessions.has(sessionId)) {
             console.log(`[Stream Progress] Sending PlaybackStart (on stop) item=${itemId} session=${sessionId} positionMs=${numericPositionMs}`);
-            await jf.reportPlaybackStart(itemId, sessionId, session.mediaSourceId, numericPositionMs).catch(() => {});
+            await provider.reportPlaybackStart(itemId, sessionId, session.mediaSourceId, numericPositionMs).catch(() => {});
             progressStartedSessions.add(sessionId);
           }
           console.log(`[Stream Progress] Sending PlaybackStopped item=${itemId} session=${sessionId} positionMs=${numericPositionMs}`);
-          await jf.reportPlaybackStopped(itemId, sessionId, session.mediaSourceId, numericPositionMs).catch(() => {});
+          await provider.reportPlaybackStopped(itemId, sessionId, session.mediaSourceId, numericPositionMs).catch(() => {});
           reportedStop = true;
         } else if (enabled && !hasMeaningfulProgress) {
           console.log(`[Stream Progress] Skipping stop progress report (position too small) item=${itemId} session=${sessionId} positionMs=${numericPositionMs}`);
@@ -151,9 +164,9 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
       // Only send a bare session stop if reportPlaybackStopped didn't already hit
       // the same /Sessions/Playing/Stopped endpoint (avoids overwriting position data).
       if (!reportedStop) {
-        await jf.stopPlaybackSession(sessionId);
+        await provider.stopPlaybackSession(sessionId);
       }
-      await jf.deleteTranscodingJob(sessionId);
+      await provider.deleteTranscodingJob(sessionId);
       progressStartedSessions.delete(sessionId);
       activeSessions.delete(itemId);
       lastActivityByItemId.delete(itemId);
@@ -174,8 +187,8 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
 // Client sends this periodically after the 5-minute watch threshold
 streamRoutes.post('/stream/progress', async (req: Request, res: Response) => {
   try {
-    const { jellyfinClient, db } = req.app.locals;
-    const jf = jellyfinClient as MediaProvider;
+    const { mediaProvider, db } = req.app.locals;
+    const provider = mediaProvider as MediaProvider;
 
     // Check if progress sharing is enabled
     const enabled = isProgressSharingEnabled(queries.getSetting(db, 'share_playback_progress'));
@@ -201,12 +214,12 @@ streamRoutes.post('/stream/progress', async (req: Request, res: Response) => {
     // Jellyfin expects PlaybackStart before progress updates for robust watch tracking.
     if (!progressStartedSessions.has(session.playSessionId)) {
       console.log(`[Stream Progress] Starting playback share item=${itemId} session=${session.playSessionId} positionMs=${positionMs}`);
-      await jf.reportPlaybackStart(itemId, session.playSessionId, session.mediaSourceId, positionMs);
+      await provider.reportPlaybackStart(itemId, session.playSessionId, session.mediaSourceId, positionMs);
       progressStartedSessions.add(session.playSessionId);
     }
 
     console.log(`[Stream Progress] Reporting playback progress item=${itemId} session=${session.playSessionId} positionMs=${positionMs}`);
-    await jf.reportPlaybackProgress(
+    await provider.reportPlaybackProgress(
       itemId,
       session.playSessionId,
       session.mediaSourceId,
@@ -230,16 +243,16 @@ streamRoutes.get('/stream/sessions', (_req: Request, res: Response) => {
 
 // DELETE /api/stream/sessions - Stop all active sessions
 streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
-  const { jellyfinClient } = req.app.locals;
-  const jf = jellyfinClient as MediaProvider;
+  const { mediaProvider } = req.app.locals;
+  const provider = mediaProvider as MediaProvider;
   
   const count = activeSessions.size;
   const stopped: string[] = [];
   
   for (const [itemId, session] of activeSessions.entries()) {
     try {
-      await jf.stopPlaybackSession(session.playSessionId);
-      await jf.deleteTranscodingJob(session.playSessionId);
+      await provider.stopPlaybackSession(session.playSessionId);
+      await provider.deleteTranscodingJob(session.playSessionId);
       stopped.push(session.playSessionId);
     } catch (err) {
       console.error(`[Stream] Failed to stop session ${session.playSessionId}:`, err);
@@ -320,10 +333,13 @@ export function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: st
   );
 }
 
-// Allowed proxy path patterns — only Jellyfin video/subtitle paths
+// Allowed proxy path patterns — Jellyfin and Plex video/subtitle paths
 const ALLOWED_PROXY_PATTERNS = [
-  /^\/Videos\//,
-  /^\/video\//i,
+  /^\/Videos\//,                    // Jellyfin HLS segments & playlists
+  /^\/video\//i,                    // Jellyfin video paths (case-insensitive)
+  /^\/video\/:\//i,                 // Plex transcode paths
+  /^\/library\/parts\//i,           // Plex direct stream parts
+  /^\/photo\/:\//i,                 // Plex image transcode
 ];
 
 // GET /api/stream/proxy/* - Proxy HLS sub-requests (child playlists & segments)
@@ -331,15 +347,15 @@ const ALLOWED_PROXY_PATTERNS = [
 // Must be registered before /stream/:itemId to avoid :itemId matching "proxy".
 streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
   try {
-    const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as MediaProvider;
-    const baseUrl = jf.getBaseUrl();
-    const authHeaders = jf.getProxyHeaders();
-    const deviceId = jf.getDeviceId();
+    const { mediaProvider } = req.app.locals;
+    const provider = mediaProvider as MediaProvider;
+    const baseUrl = provider.getBaseUrl();
+    const authHeaders = provider.getProxyHeaders();
+    const deviceId = provider.getDeviceId();
 
     const jellyfinPath = '/' + req.params[0];
 
-    // Security: only allow known Jellyfin media paths through the proxy
+    // Security: only allow known media server paths through the proxy
     if (!ALLOWED_PROXY_PATTERNS.some(re => re.test(jellyfinPath))) {
       res.status(403).json({ error: 'Proxy path not allowed' });
       return;
@@ -407,19 +423,21 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
     }
 
     if (!responseData.ok) {
-      console.error(`[Stream Proxy] Jellyfin returned ${responseData.status}`);
+      console.error(`[Stream Proxy] Server returned ${responseData.status}`);
 
-      // On 500 errors, tell Jellyfin to stop the transcode job so cache can be freed
+      // On 500 errors, stop the transcode job so cache can be freed
       if (responseData.status === 500) {
+        // Try to identify the item from Jellyfin URL pattern or active session lookup
         const match = jellyfinPath.match(/\/Videos\/([^/]+)\//);
-        const params = new URLSearchParams(queryString.substring(1));
-        const playSessionId = params.get('PlaySessionId');
-        if (match && playSessionId) {
-          const itemId = match[1];
-          console.log(`[Stream Proxy] Stopping Jellyfin transcode for ${itemId} due to 500 error`);
+        const qp = new URLSearchParams(queryString.substring(1));
+        const playSessionId = qp.get('PlaySessionId') || qp.get('session');
+        const itemId = match?.[1]
+          || (playSessionId ? [...activeSessions.entries()].find(([, s]) => s.playSessionId === playSessionId)?.[0] : undefined);
+        if (itemId && playSessionId) {
+          console.log(`[Stream Proxy] Stopping transcode for ${itemId} due to 500 error`);
           try {
-            await jf.stopPlaybackSession(playSessionId);
-            await jf.deleteTranscodingJob(playSessionId);
+            await provider.stopPlaybackSession(playSessionId);
+            await provider.deleteTranscodingJob(playSessionId);
           } catch (err) {
             console.error(`[Stream Proxy] Failed to stop session ${playSessionId}:`, err);
           }
@@ -433,9 +451,27 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
     }
 
     // Track activity so idle cleanup doesn't stop active streams
-    const pathMatch = jellyfinPath.match(/\/Videos\/([^/]+)\//);
-    if (pathMatch) {
-      lastActivityByItemId.set(pathMatch[1], Date.now());
+    const jellyfinItemMatch = jellyfinPath.match(/\/Videos\/([^/]+)\//);
+    if (jellyfinItemMatch) {
+      // Jellyfin: item ID is in the URL path
+      lastActivityByItemId.set(jellyfinItemMatch[1], Date.now());
+    } else {
+      // Plex: extract session from query params OR from the URL path.
+      // Plex segment URLs (e.g. /video/:/transcode/universal/session/{uuid}/base/0)
+      // are extension-less and don't get PlaySessionId added by the URL rewriter,
+      // so we also check the path for the session UUID.
+      const qParams = new URLSearchParams(queryString.substring(1));
+      const sessionParam = qParams.get('PlaySessionId') || qParams.get('session');
+      const plexPathSession = jellyfinPath.match(/\/session\/([0-9a-f-]+)\//i)?.[1];
+      const resolvedSession = sessionParam || plexPathSession;
+      if (resolvedSession) {
+        for (const [proxyItemId, s] of activeSessions.entries()) {
+          if (s.playSessionId === resolvedSession) {
+            lastActivityByItemId.set(proxyItemId, Date.now());
+            break;
+          }
+        }
+      }
     }
 
     // Forward relevant headers
@@ -482,7 +518,96 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/stream/:itemId - Initiate HLS stream and return master playlist
+// ─── Plex: stream handler ─────────────────────────────
+// Plex uses its own universal transcode endpoint. The URL is built entirely by
+// PlexClient.getHlsStreamUrl() — we just fetch it, rewrite the child URLs
+// through our proxy, and return the playlist. On 400 (stale session), we retry
+// once after a short delay with a fresh session.
+async function handlePlexStream(provider: MediaProvider, itemId: string, req: Request, res: Response): Promise<void> {
+  const headers = provider.getProxyHeaders();
+
+  // Plex typically allows only one transcode at a time. Stop ALL active sessions
+  // before starting a new one — not just the session for this item. When the user
+  // switches channels (item A → item B), the client's stopPlayback(A) may still be
+  // in flight while the new stream request for B arrives, causing a 400.
+  const stopPromises: Promise<void>[] = [];
+  for (const [activeItemId, session] of activeSessions) {
+    console.log(`[Stream Plex] Stopping session ${session.playSessionId} (item=${activeItemId}) before new stream for item=${itemId}`);
+    stopPromises.push(provider.stopPlaybackSession(session.playSessionId).catch(() => {}));
+    activeSessions.delete(activeItemId);
+    lastActivityByItemId.delete(activeItemId);
+  }
+  if (stopPromises.length > 0) {
+    await Promise.all(stopPromises);
+    // Give Plex time to release the transcode resources
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Read quality, subtitle, and audio params from request
+  const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : undefined;
+  const maxWidth = req.query.maxWidth ? parseInt(req.query.maxWidth as string, 10) : undefined;
+  const subtitleStreamIndex = req.query.subtitleStreamIndex != null
+    ? parseInt(req.query.subtitleStreamIndex as string, 10) : undefined;
+  const audioStreamIndex = req.query.audioStreamIndex != null
+    ? parseInt(req.query.audioStreamIndex as string, 10) : undefined;
+  const streamOpts = {
+    ...(bitrate != null && { bitrate }),
+    ...(maxWidth != null && { maxWidth }),
+    ...(subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex) && { subtitleStreamIndex }),
+    ...(audioStreamIndex != null && !Number.isNaN(audioStreamIndex) && { audioStreamIndex }),
+  };
+
+  let hlsInfo = await provider.getHlsStreamUrl(itemId, undefined, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
+  let { playSessionId, mediaSourceId } = hlsInfo;
+  let masterUrl = hlsInfo.url;
+
+  activeSessions.set(itemId, { playSessionId, mediaSourceId });
+  lastActivityByItemId.set(itemId, Date.now());
+  console.log(`[Stream Plex] Session ${playSessionId} item=${itemId} bitrate=${bitrate ?? 'default'} maxWidth=${maxWidth ?? 'auto'} subtitles=${subtitleStreamIndex ?? 'off'} audio=${audioStreamIndex ?? 'default'}`);
+  console.log(`[Stream Plex] Fetching master playlist for item=${itemId}`);
+
+  let response = await fetch(masterUrl, { headers });
+
+  // Plex may return 400 if a transcode session hasn't fully released.
+  // Stop the failed session explicitly before retrying with a fresh one.
+  for (let retry = 0; !response.ok && response.status === 400 && retry < 2; retry++) {
+    const delay = (retry + 1) * 1500;
+    console.log(`[Stream Plex] Plex returned 400, stopping session ${playSessionId} and retrying (${retry + 1}/2) after ${delay}ms...`);
+    await provider.stopPlaybackSession(playSessionId).catch(() => {});
+    await new Promise(r => setTimeout(r, delay));
+    hlsInfo = await provider.getHlsStreamUrl(itemId, undefined, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
+    playSessionId = hlsInfo.playSessionId;
+    mediaSourceId = hlsInfo.mediaSourceId;
+    masterUrl = hlsInfo.url;
+    activeSessions.set(itemId, { playSessionId, mediaSourceId });
+    lastActivityByItemId.set(itemId, Date.now());
+    response = await fetch(masterUrl, { headers });
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    console.error(`[Stream Plex] Plex returned ${response.status}: ${errorText.slice(0, 500)}`);
+    await provider.stopPlaybackSession(playSessionId).catch(() => {});
+    activeSessions.delete(itemId);
+    lastActivityByItemId.delete(itemId);
+    res.status(response.status).json({ error: 'Plex stream unavailable' });
+    return;
+  }
+
+  const contentType = response.headers.get('content-type');
+  if (contentType) res.setHeader('Content-Type', contentType);
+
+  const body = await response.text();
+  // Derive baseDir from master URL path so relative child URLs resolve correctly.
+  const masterPath = new URL(masterUrl).pathname;
+  const baseDir = masterPath.substring(0, masterPath.lastIndexOf('/') + 1);
+  const deviceId = provider.getDeviceId();
+  const rewrittenMaster = rewriteM3u8Urls(body, baseDir, playSessionId, deviceId);
+
+  res.send(rewrittenMaster);
+}
+
+// ─── Jellyfin: stream handler ─────────────────────────
 // Note: We do NOT pass StartTimeTicks to Jellyfin because:
 // 1. Jellyfin uses static HLS transcoding (not dynamic/on-demand)
 // 2. StartTimeTicks causes FFmpeg conflicts (exit code 234) when switching videos
@@ -491,163 +616,178 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
 // If Jellyfin logs "FFmpeg exited with code 234" during VAAPI transcoding, that is a
 // Jellyfin/FFmpeg/VAAPI issue (e.g. try disabling "Low power encoding" in Jellyfin
 // transcoding settings). The client recovers by requesting a new stream session on 500s.
+async function handleJellyfinStream(provider: MediaProvider, itemId: string, req: Request, res: Response): Promise<void> {
+  const hasExplicitQuality = req.query.bitrate != null || req.query.maxWidth != null;
+  const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : 120000000;
+  const maxWidth = req.query.maxWidth ? parseInt(req.query.maxWidth as string, 10) : undefined;
+  const audioStreamIndex = req.query.audioStreamIndex != null
+    ? parseInt(req.query.audioStreamIndex as string, 10)
+    : undefined;
+  const subtitleStreamIndex = req.query.subtitleStreamIndex != null
+    ? parseInt(req.query.subtitleStreamIndex as string, 10)
+    : undefined;
+  const clientSupportsHevc = req.query.hevc === '1';
+
+  const baseUrl = provider.getBaseUrl();
+  const headers = provider.getProxyHeaders();
+  const deviceId = provider.getDeviceId();
+
+  // Reuse session from /api/playback when available (avoids a redundant Jellyfin
+  // getPlaybackInfo round-trip). Fall back to getHlsStreamUrl for direct requests.
+  const prefetchedPlaySessionId = req.query.playSessionId as string | undefined;
+  const prefetchedMediaSourceId = req.query.mediaSourceId as string | undefined;
+
+  let playSessionId: string;
+  let mediaSourceId: string;
+  let isHdrSource: boolean;
+  if (prefetchedPlaySessionId && prefetchedMediaSourceId) {
+    playSessionId = prefetchedPlaySessionId;
+    mediaSourceId = prefetchedMediaSourceId;
+    isHdrSource = false; // HDR detection only used for logging
+  } else {
+    const hlsInfo = await provider.getHlsStreamUrl(itemId);
+    playSessionId = hlsInfo.playSessionId;
+    mediaSourceId = hlsInfo.mediaSourceId;
+    isHdrSource = hlsInfo.isHdrSource;
+  }
+
+  activeSessions.set(itemId, { playSessionId, mediaSourceId });
+  lastActivityByItemId.set(itemId, Date.now());
+  console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} hevc=${clientSupportsHevc} hdr=${isHdrSource} audioStreamIndex=${audioStreamIndex ?? 'default'} subtitleStreamIndex=${subtitleStreamIndex ?? 'off'}`);
+
+  // Build Jellyfin HLS URL for browser playback via HLS.js.
+  // Match Jellyfin Web behavior on capable clients: prefer direct-stream HEVC (including HDR).
+  // If the browser can't do HEVC, fall back to h264 transcoding.
+  // AllowStreamCopy tells FFmpeg to copy streams when input codec matches output.
+  // VideoBitrate explicitly sets the encoding bitrate (Jellyfin bug: resolution is calculated
+  // from bitrate, so setting a high VideoBitrate ensures high resolution output).
+  const allowHevcStreamCopy = clientSupportsHevc;
+  const videoCodec = allowHevcStreamCopy ? 'hevc,h264' : 'h264';
+  const segmentContainer = allowHevcStreamCopy ? 'mp4' : 'ts';
+  const params = new URLSearchParams({
+    DeviceId: deviceId,
+    MediaSourceId: mediaSourceId,
+    PlaySessionId: playSessionId,
+    VideoCodec: videoCodec,
+    AudioCodec: 'aac',
+    MaxStreamingBitrate: String(bitrate),
+    VideoBitrate: String(bitrate),
+    TranscodingMaxAudioChannels: '2',
+    SegmentContainer: segmentContainer,
+    MinSegments: '2',
+    BreakOnNonKeyFrames: 'true',
+  });
+
+  if (!hasExplicitQuality) {
+    // Auto: allow stream copy where possible (same as Jellyfin web direct-stream preference).
+    // MaxWidth/MaxHeight 3840x2160 tells Jellyfin to allow up to 4K resolution.
+    params.set('AllowVideoStreamCopy', 'true');
+    params.set('AllowAudioStreamCopy', 'true');
+    params.set('EnableAutoStreamCopy', 'true');
+    params.set('MaxWidth', '3840');
+    params.set('MaxHeight', '2160');
+  } else if (maxWidth) {
+    params.set('MaxWidth', String(maxWidth));
+  }
+  if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
+    params.set('AudioStreamIndex', String(audioStreamIndex));
+  }
+  if (subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex)) {
+    params.set('SubtitleStreamIndex', String(subtitleStreamIndex));
+    // Ask Jellyfin to expose subtitles as HLS text tracks instead of only burning/embedding.
+    params.set('SubtitleMethod', 'Hls');
+    params.set('EnableSubtitlesInManifest', 'true');
+  }
+
+  const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
+  console.log(`[Stream Master] Fetching master playlist for item=${itemId}`);
+
+  const response = await fetch(jellyfinUrl, { headers });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    console.error(`[Stream Master] Jellyfin returned ${response.status}: ${errorText.slice(0, 500)}`);
+    try {
+      await provider.stopPlaybackSession(playSessionId);
+      await provider.deleteTranscodingJob(playSessionId);
+    } catch (_err) { /* best-effort */ }
+    activeSessions.delete(itemId);
+    lastActivityByItemId.delete(itemId);
+    res.status(response.status).json({ error: 'Jellyfin stream unavailable' });
+    return;
+  }
+
+  // Forward content type
+  const contentType = response.headers.get('content-type');
+  if (contentType) res.setHeader('Content-Type', contentType);
+
+  // Rewrite internal URLs to route through our proxy with session info
+  const body = await response.text();
+  const baseDir = `/Videos/${itemId}/`;
+  const rewrittenMaster = rewriteM3u8Urls(body, baseDir, playSessionId, deviceId);
+
+  // Prewarm first child playlist request in the background so the first segment
+  // can be ready by the time the client asks for it.
+  const firstChild = extractFirstChildPlaylistPath(body);
+  if (firstChild) {
+    try {
+      const qIndex = firstChild.indexOf('?');
+      const rawPath = qIndex >= 0 ? firstChild.substring(0, qIndex) : firstChild;
+      const rawQuery = qIndex >= 0 ? firstChild.substring(qIndex + 1) : '';
+      const childPath = rawPath.startsWith('/') ? rawPath : `${baseDir}${rawPath}`;
+      const childParams = new URLSearchParams(rawQuery);
+      if (!childParams.has('PlaySessionId')) childParams.set('PlaySessionId', playSessionId);
+      if (!childParams.has('DeviceId')) childParams.set('DeviceId', deviceId);
+      const childUrl = `${baseUrl}${childPath}?${childParams.toString()}`;
+      void fetch(childUrl, { headers }).catch(() => {});
+    } catch {
+      // best-effort warmup only
+    }
+  }
+
+  res.send(rewrittenMaster);
+}
+
+// GET /api/stream/:itemId - Initiate HLS stream and return master playlist
 streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
   try {
-    const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as MediaProvider;
+    const { mediaProvider } = req.app.locals;
+    const provider = mediaProvider as MediaProvider;
     const itemId = req.params.itemId as string;
-    
-    // Get quality, audio track, and subtitle track from query string. Omit for "auto" = prefer direct stream (no transcoding).
-    const hasExplicitQuality = req.query.bitrate != null || req.query.maxWidth != null;
-    const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : 120000000;
-    const maxWidth = req.query.maxWidth ? parseInt(req.query.maxWidth as string, 10) : undefined;
-    const audioStreamIndex = req.query.audioStreamIndex != null
-      ? parseInt(req.query.audioStreamIndex as string, 10)
-      : undefined;
-    const subtitleStreamIndex = req.query.subtitleStreamIndex != null
-      ? parseInt(req.query.subtitleStreamIndex as string, 10)
-      : undefined;
-    const clientSupportsHevc = req.query.hevc === '1';
 
-    const baseUrl = jf.getBaseUrl();
-    const headers = jf.getProxyHeaders();
-    const deviceId = jf.getDeviceId();
-
-    // Reuse session from /api/playback when available (avoids a redundant Jellyfin
-    // getPlaybackInfo round-trip). Fall back to getHlsStreamUrl for direct requests.
-    const prefetchedPlaySessionId = req.query.playSessionId as string | undefined;
-    const prefetchedMediaSourceId = req.query.mediaSourceId as string | undefined;
-
-    let playSessionId: string;
-    let mediaSourceId: string;
-    let isHdrSource: boolean;
-    if (prefetchedPlaySessionId && prefetchedMediaSourceId) {
-      playSessionId = prefetchedPlaySessionId;
-      mediaSourceId = prefetchedMediaSourceId;
-      isHdrSource = false; // HDR detection only used for logging
+    if (provider.providerType === 'plex') {
+      await handlePlexStream(provider, itemId, req, res);
     } else {
-      const hlsInfo = await jf.getHlsStreamUrl(itemId);
-      playSessionId = hlsInfo.playSessionId;
-      mediaSourceId = hlsInfo.mediaSourceId;
-      isHdrSource = hlsInfo.isHdrSource;
+      await handleJellyfinStream(provider, itemId, req, res);
     }
-
-    activeSessions.set(itemId, { playSessionId, mediaSourceId });
-    lastActivityByItemId.set(itemId, Date.now());
-    console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} hevc=${clientSupportsHevc} hdr=${isHdrSource} audioStreamIndex=${audioStreamIndex ?? 'default'} subtitleStreamIndex=${subtitleStreamIndex ?? 'off'}`);
-
-    // Build Jellyfin HLS URL for browser playback via HLS.js.
-    // Match Jellyfin Web behavior on capable clients: prefer direct-stream HEVC (including HDR).
-    // If the browser can't do HEVC, fall back to h264 transcoding.
-    // AllowStreamCopy tells FFmpeg to copy streams when input codec matches output.
-    // VideoBitrate explicitly sets the encoding bitrate (Jellyfin bug: resolution is calculated
-    // from bitrate, so setting a high VideoBitrate ensures high resolution output).
-    const allowHevcStreamCopy = clientSupportsHevc;
-    const videoCodec = allowHevcStreamCopy ? 'hevc,h264' : 'h264';
-    const segmentContainer = allowHevcStreamCopy ? 'mp4' : 'ts';
-    const params = new URLSearchParams({
-      DeviceId: deviceId,
-      MediaSourceId: mediaSourceId,
-      PlaySessionId: playSessionId,
-      VideoCodec: videoCodec,
-      AudioCodec: 'aac',
-      MaxStreamingBitrate: String(bitrate),
-      VideoBitrate: String(bitrate),
-      TranscodingMaxAudioChannels: '2',
-      SegmentContainer: segmentContainer,
-      MinSegments: '2',
-      BreakOnNonKeyFrames: 'true',
-    });
-
-    if (!hasExplicitQuality) {
-      // Auto: allow stream copy where possible (same as Jellyfin web direct-stream preference).
-      // MaxWidth/MaxHeight 3840x2160 tells Jellyfin to allow up to 4K resolution.
-      params.set('AllowVideoStreamCopy', 'true');
-      params.set('AllowAudioStreamCopy', 'true');
-      params.set('EnableAutoStreamCopy', 'true');
-      params.set('MaxWidth', '3840');
-      params.set('MaxHeight', '2160');
-    } else if (maxWidth) {
-      params.set('MaxWidth', String(maxWidth));
-    }
-    if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
-      params.set('AudioStreamIndex', String(audioStreamIndex));
-    }
-    if (subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex)) {
-      params.set('SubtitleStreamIndex', String(subtitleStreamIndex));
-      // Ask Jellyfin to expose subtitles as HLS text tracks instead of only burning/embedding.
-      params.set('SubtitleMethod', 'Hls');
-      params.set('EnableSubtitlesInManifest', 'true');
-    }
-
-    const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
-    console.log(`[Stream Master] Fetching master playlist for item=${itemId}`);
-
-    const response = await fetch(jellyfinUrl, { headers });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      console.error(`[Stream Master] Jellyfin returned ${response.status}: ${errorText.slice(0, 500)}`);
-      try {
-        await jf.stopPlaybackSession(playSessionId);
-        await jf.deleteTranscodingJob(playSessionId);
-      } catch (_err) { /* best-effort */ }
-      activeSessions.delete(itemId);
-      lastActivityByItemId.delete(itemId);
-      res.status(response.status).json({ error: 'Jellyfin stream unavailable' });
-      return;
-    }
-
-    // Forward content type
-    const contentType = response.headers.get('content-type');
-    if (contentType) res.setHeader('Content-Type', contentType);
-
-    // Rewrite internal URLs to route through our proxy with session info
-    const body = await response.text();
-    const baseDir = `/Videos/${itemId}/`;
-    const rewrittenMaster = rewriteM3u8Urls(body, baseDir, playSessionId, deviceId);
-
-    // Prewarm first child playlist request in the background so the first segment
-    // can be ready by the time the client asks for it.
-    const firstChild = extractFirstChildPlaylistPath(body);
-    if (firstChild) {
-      try {
-        const qIndex = firstChild.indexOf('?');
-        const rawPath = qIndex >= 0 ? firstChild.substring(0, qIndex) : firstChild;
-        const rawQuery = qIndex >= 0 ? firstChild.substring(qIndex + 1) : '';
-        const childPath = rawPath.startsWith('/') ? rawPath : `${baseDir}${rawPath}`;
-        const childParams = new URLSearchParams(rawQuery);
-        if (!childParams.has('PlaySessionId')) childParams.set('PlaySessionId', playSessionId);
-        if (!childParams.has('DeviceId')) childParams.set('DeviceId', deviceId);
-        const childUrl = `${baseUrl}${childPath}?${childParams.toString()}`;
-        void fetch(childUrl, { headers }).catch(() => {});
-      } catch {
-        // best-effort warmup only
-      }
-    }
-
-    res.send(rewrittenMaster);
   } catch (err) {
     console.error(`[Stream Master] Error:`, err);
     res.status(500).json({ error: (err as Error).message });
   }
 });
 
-// GET /api/images/:itemId/:imageType - Proxy Jellyfin images
+// GET /api/images/:itemId/:imageType - Proxy media server images (Jellyfin & Plex)
 streamRoutes.get('/images/:itemId/:imageType', async (req: Request, res: Response) => {
   try {
-    const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as MediaProvider;
+    const { mediaProvider } = req.app.locals;
+    const provider = mediaProvider as MediaProvider;
     const itemId = req.params.itemId as string;
     const imageType = req.params.imageType as string;
     const maxWidth = parseInt(req.query.maxWidth as string || '400', 10);
 
-    const baseUrl = jf.getBaseUrl();
-    const headers = jf.getProxyHeaders();
-    const url = `${baseUrl}/Items/${itemId}/Images/${imageType}?maxWidth=${maxWidth}&quality=90`;
+    // Use provider's getImageUrl which handles both Jellyfin and Plex URL formats
+    const imageUrl = provider.getImageUrl(itemId, imageType, maxWidth);
+    if (!imageUrl) {
+      res.status(404).end();
+      return;
+    }
+    const headers = provider.getProxyHeaders();
 
-    const response = await fetch(url, { headers });
+    const response = await fetch(imageUrl, { headers });
     if (!response.ok) {
+      if (provider.providerType === 'plex') {
+        console.warn(`[Images] Plex image failed: ${response.status} for item=${itemId} type=${imageType} url=${imageUrl.substring(0, 120)}`);
+      }
       res.status(response.status).end();
       return;
     }
@@ -676,8 +816,8 @@ streamRoutes.get('/images/:itemId/:imageType', async (req: Request, res: Respons
  */
 export function startTranscodeIdleCleanup(app: Express): void {
   setInterval(async () => {
-    const jf = app.locals.jellyfinClient as MediaProvider | undefined;
-    if (!jf) return;
+    const provider = app.locals.mediaProvider as MediaProvider | undefined;
+    if (!provider) return;
 
     const now = Date.now();
     const toStop: { itemId: string; playSessionId: string }[] = [];
@@ -691,8 +831,8 @@ export function startTranscodeIdleCleanup(app: Express): void {
 
     for (const { itemId, playSessionId } of toStop) {
       try {
-        await jf.stopPlaybackSession(playSessionId);
-        await jf.deleteTranscodingJob(playSessionId);
+        await provider.stopPlaybackSession(playSessionId);
+        await provider.deleteTranscodingJob(playSessionId);
         progressStartedSessions.delete(playSessionId);
         activeSessions.delete(itemId);
         lastActivityByItemId.delete(itemId);

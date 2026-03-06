@@ -135,7 +135,7 @@ describe('database queries', () => {
 
     it('should upsert and retrieve a schedule block', () => {
       const programs = [
-        { jellyfin_item_id: 'x', title: 'Movie X', start_time: '2026-02-11T00:00:00Z', end_time: '2026-02-11T02:00:00Z', duration_ms: 7200000, type: 'program', subtitle: null, thumbnail_url: null },
+        { media_item_id: 'x', title: 'Movie X', start_time: '2026-02-11T00:00:00Z', end_time: '2026-02-11T02:00:00Z', duration_ms: 7200000, type: 'program', subtitle: null, thumbnail_url: null },
       ];
       const block = queries.upsertScheduleBlock(db, channelId, '2026-02-11T00:00:00.000Z', '2026-02-11T08:00:00.000Z', programs, 'seed123');
       expect(block.channel_id).toBe(channelId);

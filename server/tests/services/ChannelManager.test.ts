@@ -4,19 +4,19 @@ import { createTestDb, createMockMovieLibrary, createMockEpisodeSeries } from '.
 import { ChannelManager } from '../../src/services/ChannelManager.js';
 import { ScheduleEngine } from '../../src/services/ScheduleEngine.js';
 import * as queries from '../../src/db/queries.js';
-import type { JellyfinItem } from '../../src/types/index.js';
+import type { MediaItem } from '../../src/types/index.js';
 
-function createMockJellyfin(items: JellyfinItem[]) {
-  const itemMap = new Map<string, JellyfinItem>();
+function createMockJellyfin(items: MediaItem[]) {
+  const itemMap = new Map<string, MediaItem>();
   for (const item of items) itemMap.set(item.Id, item);
 
   return {
     getItem: (id: string) => itemMap.get(id),
-    getItemDurationMs: (item: JellyfinItem) =>
+    getItemDurationMs: (item: MediaItem) =>
       item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : 0,
     getLibraryItems: () => items,
     getGenres: () => {
-      const genres = new Map<string, JellyfinItem[]>();
+      const genres = new Map<string, MediaItem[]>();
       for (const item of items) {
         for (const genre of item.Genres || []) {
           const existing = genres.get(genre) || [];

@@ -431,6 +431,7 @@ export interface ServerInfo {
   id: number;
   name: string;
   url: string;
+  server_type: 'jellyfin' | 'plex';
   username: string;
   is_active: boolean;
   is_authenticated: boolean;
@@ -488,6 +489,58 @@ export async function reauthenticateServer(id: number, password: string): Promis
   return request(`/servers/${id}/reauthenticate`, {
     method: 'POST',
     body: JSON.stringify({ password }),
+  });
+}
+
+// ─── Plex Authentication ──────────────────────────────
+
+export interface PlexPinResponse {
+  pin_id: number;
+  pin_code: string;
+  client_id: string;
+  auth_url: string;
+}
+
+export interface PlexPinCheckResponse {
+  authorized: boolean;
+  auth_token?: string;
+}
+
+export interface PlexServerInfo {
+  name: string;
+  url: string;
+  is_local: boolean;
+  is_relay: boolean;
+  connections: { uri: string; local: boolean; relay: boolean }[];
+}
+
+export async function requestPlexPin(): Promise<PlexPinResponse> {
+  return request('/servers/plex/pin', { method: 'POST' });
+}
+
+export async function checkPlexPin(pinId: number, clientId: string): Promise<PlexPinCheckResponse> {
+  return request(`/servers/plex/pin/${pinId}/check`, {
+    method: 'POST',
+    body: JSON.stringify({ client_id: clientId }),
+  });
+}
+
+export async function getPlexServers(authToken: string, clientId: string): Promise<PlexServerInfo[]> {
+  return request('/servers/plex/servers', {
+    method: 'POST',
+    body: JSON.stringify({ auth_token: authToken, client_id: clientId }),
+  });
+}
+
+export async function connectPlexServer(data: {
+  name: string;
+  url: string;
+  auth_token: string;
+  client_id: string;
+}): Promise<ServerInfo> {
+  return request('/servers/plex/connect', {
+    method: 'POST',
+    body: JSON.stringify(data),
   });
 }
 

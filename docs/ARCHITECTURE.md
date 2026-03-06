@@ -235,8 +235,8 @@ metrics(
 )
 
 library_cache(
-  jellyfin_item_id TEXT PRIMARY KEY,
-  data TEXT (JSON JellyfinItem)
+  media_item_id TEXT PRIMARY KEY,
+  data TEXT (JSON MediaItem)
 )
 ```
 
@@ -338,7 +338,7 @@ Stored in DB:
 A single program (movie, episode, or interstitial):
 ```typescript
 {
-  jellyfin_item_id: string;
+  media_item_id: string;
   title: string;
   subtitle: string | null;     // Season/episode info
   start_time: string;          // ISO string

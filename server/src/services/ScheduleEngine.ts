@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import seedrandom from 'seedrandom';
-import type { ChannelParsed, ScheduleProgram, ScheduleBlockParsed, JellyfinItem } from '../types/index.js';
+import type { ChannelParsed, ScheduleProgram, ScheduleBlockParsed, MediaItem } from '../types/index.js';
 import type { MediaProvider } from './MediaProvider.js';
 import * as queries from '../db/queries.js';
 import { generateSeed } from '../utils/crypto.js';
@@ -34,7 +34,7 @@ function isUnratedOrNotRated(rating: string | undefined): boolean {
 
 /** Extract a human-readable resolution label from Jellyfin MediaSources.
  *  Checks all MediaSources and picks the highest resolution video stream. */
-function getResolutionLabel(item: JellyfinItem): string | null {
+function getResolutionLabel(item: MediaItem): string | null {
   if (!Array.isArray(item.MediaSources) || item.MediaSources.length === 0) return null;
   let maxHeight = 0;
   for (const source of item.MediaSources) {
@@ -95,7 +95,7 @@ function durationFitScore(durationMs: number, remainingMs: number): number {
  * Compute a selection weight for an item combining community rating and genre freshness.
  */
 function computeSelectionWeight(
-  item: JellyfinItem,
+  item: MediaItem,
   recentGenres: string[][],
   usedInBlock: boolean,
   inCooldown: boolean
@@ -135,11 +135,15 @@ interface GlobalScheduleTracker {
 
 export class ScheduleEngine {
   private db: Database.Database;
-  private jellyfin: MediaProvider;
+  private provider: MediaProvider;
 
-  constructor(db: Database.Database, jellyfin: MediaProvider) {
+  constructor(db: Database.Database, provider: MediaProvider) {
     this.db = db;
-    this.jellyfin = jellyfin;
+    this.provider = provider;
+  }
+
+  setProvider(provider: MediaProvider): void {
+    this.provider = provider;
   }
 
   /**
@@ -156,17 +160,17 @@ export class ScheduleEngine {
 
     for (const block of allBlocks) {
       for (const prog of block.programs) {
-        if (prog.type === 'interstitial' || !prog.jellyfin_item_id) continue;
+        if (prog.type === 'interstitial' || !prog.media_item_id) continue;
 
         const startMs = new Date(prog.start_time).getTime();
         const endMs = new Date(prog.end_time).getTime();
 
-        const existing = tracker.itemSlots.get(prog.jellyfin_item_id) || [];
+        const existing = tracker.itemSlots.get(prog.media_item_id) || [];
         existing.push([startMs, endMs]);
-        tracker.itemSlots.set(prog.jellyfin_item_id, existing);
+        tracker.itemSlots.set(prog.media_item_id, existing);
 
         // Track series-level slots for cross-channel diversity
-        const item = this.jellyfin.getItem(prog.jellyfin_item_id);
+        const item = this.provider.getItem(prog.media_item_id);
         if (item?.Type === 'Episode' && item.SeriesId) {
           const seriesExisting = tracker.seriesSlots.get(item.SeriesId) || [];
           seriesExisting.push([startMs, endMs, block.channel_id]);
@@ -463,7 +467,7 @@ export class ScheduleEngine {
           const firstEp = eps[0];
           const freshness = genreFreshnessScore(firstEp?.Genres, recentGenres);
           // Penalize series already airing on other channels (soft preference, not hard block)
-          const avgEpDurForScore = eps.reduce((sum, ep) => sum + this.jellyfin.getItemDurationMs(ep), 0) / (eps.length || 1);
+          const avgEpDurForScore = eps.reduce((sum, ep) => sum + this.provider.getItemDurationMs(ep), 0) / (eps.length || 1);
           const diversity = this.seriesDiversityScore(tracker, sid, channel.id, startMs, startMs + avgEpDurForScore);
           return { sid, score: freshness * diversity };
         });
@@ -474,7 +478,7 @@ export class ScheduleEngine {
         if (episodes.length > 0) {
           let runLength = EPISODE_RUN_LENGTH_MIN + Math.floor(rng() * (EPISODE_RUN_LENGTH_MAX - EPISODE_RUN_LENGTH_MIN + 1));
           // Dynamic run length: reduce if remaining time is tight
-          const avgEpDur = episodes.reduce((sum, ep) => sum + this.jellyfin.getItemDurationMs(ep), 0) / episodes.length;
+          const avgEpDur = episodes.reduce((sum, ep) => sum + this.provider.getItemDurationMs(ep), 0) / episodes.length;
           if (avgEpDur > 0 && runLength * avgEpDur > remainingMs * 0.8) {
             runLength = Math.max(EPISODE_RUN_LENGTH_MIN, Math.floor((remainingMs * 0.8) / avgEpDur));
           }
@@ -486,11 +490,11 @@ export class ScheduleEngine {
             // Try multiple episodes to find one that doesn't conflict and isn't in cooldown
             // Prefer episodes not yet used in this block for diversity
             let found = false;
-            let bestCandidate: { episode: JellyfinItem; attempt: number; durationMs: number; usedInBlock: boolean } | null = null;
+            let bestCandidate: { episode: MediaItem; attempt: number; durationMs: number; usedInBlock: boolean } | null = null;
 
             for (let attempt = 0; attempt < episodes.length; attempt++) {
               const episode = episodes[(episodeIdx + attempt) % episodes.length];
-              const durationMs = this.jellyfin.getItemDurationMs(episode);
+              const durationMs = this.provider.getItemDurationMs(episode);
               if (durationMs === 0) continue;
 
               const epStartMs = currentTime.getTime();
@@ -568,11 +572,11 @@ export class ScheduleEngine {
         // Never schedule an item that would play at the same time on another channel.
         const movieCandidates = moviePool
           .filter(i => {
-            const dur = this.jellyfin.getItemDurationMs(i);
+            const dur = this.provider.getItemDurationMs(i);
             return dur > 0 && dur <= remainingMs;
           })
           .map(i => {
-            const dur = this.jellyfin.getItemDurationMs(i);
+            const dur = this.provider.getItemDurationMs(i);
             const prevEnd = lastScheduledEndMs.get(i.Id);
             return {
               item: i,
@@ -608,11 +612,11 @@ export class ScheduleEngine {
         if (movieCandidatesToUse.length === 0 && isMovieOnlyChannel) {
           movieCandidatesToUse = moviePool
             .filter(i => {
-              const dur = this.jellyfin.getItemDurationMs(i);
+              const dur = this.provider.getItemDurationMs(i);
               return dur > 0 && dur <= remainingMs;
             })
             .map(i => {
-              const dur = this.jellyfin.getItemDurationMs(i);
+              const dur = this.provider.getItemDurationMs(i);
               const prevEnd = lastScheduledEndMs.get(i.Id);
               return {
                 item: i,
@@ -674,7 +678,7 @@ export class ScheduleEngine {
 
           // Smart gap detection: check if ANY content physically fits before wasting iterations
           const anyFits = allItemsForRelaxed.some(i => {
-            const dur = this.jellyfin.getItemDurationMs(i);
+            const dur = this.provider.getItemDurationMs(i);
             return dur > 0 && dur <= remainingMs;
           });
           if (!anyFits) {
@@ -684,7 +688,7 @@ export class ScheduleEngine {
 
           const relaxedCandidates = allItemsForRelaxed
             .map(i => {
-              const dur = this.jellyfin.getItemDurationMs(i);
+              const dur = this.provider.getItemDurationMs(i);
               const prevEnd = lastScheduledEndMs.get(i.Id);
               return {
                 item: i,
@@ -740,7 +744,7 @@ export class ScheduleEngine {
             }
             // Find the shortest content available to size the interstitial skip
             const shortestDur = allItemsForRelaxed
-              .map(i => this.jellyfin.getItemDurationMs(i))
+              .map(i => this.provider.getItemDurationMs(i))
               .filter(d => d > 0)
               .sort((a, b) => a - b)[0];
             const skipMs = shortestDur && shortestDur <= remainingToEnd
@@ -789,7 +793,7 @@ export class ScheduleEngine {
         const buildGapCandidates = (allowCooldown: boolean) =>
           itemsForGap
             .map(i => {
-              const dur = this.jellyfin.getItemDurationMs(i);
+              const dur = this.provider.getItemDurationMs(i);
               const prevEnd = lastScheduledEndMs.get(i.Id);
               return {
                 item: i,
@@ -820,7 +824,7 @@ export class ScheduleEngine {
         if (candidates.length === 0 && itemsForGap.length < allItems.length) {
           candidates = allItems
             .map(i => {
-              const dur = this.jellyfin.getItemDurationMs(i);
+              const dur = this.provider.getItemDurationMs(i);
               const prevEnd = lastScheduledEndMs.get(i.Id);
               return {
                 item: i,
@@ -844,7 +848,7 @@ export class ScheduleEngine {
         if (candidates.length === 0) {
           candidates = allItems
             .map(i => {
-              const dur = this.jellyfin.getItemDurationMs(i);
+              const dur = this.provider.getItemDurationMs(i);
               const prevEnd = lastScheduledEndMs.get(i.Id);
               return {
                 item: i,
@@ -1032,17 +1036,17 @@ export class ScheduleEngine {
 
   // ─── Helpers ──────────────────────────────────────────
 
-  private getChannelItems(channel: ChannelParsed): JellyfinItem[] {
-    const items: JellyfinItem[] = [];
+  private getChannelItems(channel: ChannelParsed): MediaItem[] {
+    const items: MediaItem[] = [];
     for (const id of channel.item_ids) {
-      const item = this.jellyfin.getItem(id);
+      const item = this.provider.getItem(id);
       if (item) items.push(item);
     }
     return items;
   }
 
-  private groupBySeries(items: JellyfinItem[]): Map<string, JellyfinItem[]> {
-    const seriesMap = new Map<string, JellyfinItem[]>();
+  private groupBySeries(items: MediaItem[]): Map<string, MediaItem[]> {
+    const seriesMap = new Map<string, MediaItem[]>();
     for (const item of items) {
       if (item.Type === 'Episode' && item.SeriesId) {
         const existing = seriesMap.get(item.SeriesId) || [];
@@ -1066,7 +1070,7 @@ export class ScheduleEngine {
     return pool[Math.floor(rng() * pool.length)];
   }
 
-  private createProgram(item: JellyfinItem, start: Date, end: Date): ScheduleProgram {
+  private createProgram(item: MediaItem, start: Date, end: Date): ScheduleProgram {
     const isEpisode = item.Type === 'Episode';
     const title = isEpisode
       ? (item.SeriesName || item.Name)
@@ -1086,7 +1090,7 @@ export class ScheduleEngine {
         : null;
 
     return {
-      jellyfin_item_id: item.Id,
+      media_item_id: item.Id,
       title,
       subtitle,
       start_time: start.toISOString(),
@@ -1106,7 +1110,7 @@ export class ScheduleEngine {
     };
   }
 
-  private createInterstitial(start: Date, end: Date, nextItem: JellyfinItem | null): ScheduleProgram {
+  private createInterstitial(start: Date, end: Date, nextItem: MediaItem | null): ScheduleProgram {
     const hasBackdrop = nextItem && Array.isArray(nextItem.BackdropImageTags) && nextItem.BackdropImageTags.length > 0;
     const hasParentBackdrop =
       nextItem &&
@@ -1120,7 +1124,7 @@ export class ScheduleEngine {
         : null;
 
     return {
-      jellyfin_item_id: '',
+      media_item_id: '',
       title: nextItem ? `Next Up: ${nextItem.SeriesName || nextItem.Name}` : 'Coming Up Next',
       subtitle: null,
       start_time: start.toISOString(),
@@ -1169,7 +1173,7 @@ export class ScheduleEngine {
   private createInterstitialsForGap(
     start: Date,
     end: Date,
-    nextItem: JellyfinItem | null
+    nextItem: MediaItem | null
   ): ScheduleProgram[] {
     const interstitials: ScheduleProgram[] = [];
     let currentStart = new Date(start);

@@ -35,7 +35,7 @@ function setCachedItem(itemId: string, data: unknown): void {
 // GET /api/schedule/item/:itemId - Get program/item details (overview, genres) for guide modal
 scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
   try {
-    const { jellyfinClient } = req.app.locals;
+    const { mediaProvider } = req.app.locals;
     const itemId = req.params.itemId as string;
     if (!itemId) {
       res.status(400).json({ error: 'itemId required' });
@@ -49,7 +49,7 @@ scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
       return;
     }
 
-    const details = await (jellyfinClient as MediaProvider).getItemDetails(itemId);
+    const details = await (mediaProvider as MediaProvider).getItemDetails(itemId);
     setCachedItem(itemId, details);
     res.json(details);
   } catch (err) {

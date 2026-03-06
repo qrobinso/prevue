@@ -2,15 +2,15 @@ import { describe, it, expect } from 'vitest';
 import type Database from 'better-sqlite3';
 import { createTestDb, createMockMovie } from '../helpers/setup.js';
 import { ScheduleEngine } from '../../src/services/ScheduleEngine.js';
-import type { JellyfinItem } from '../../src/types/index.js';
+import type { MediaItem } from '../../src/types/index.js';
 
-function createMockJellyfin(items: JellyfinItem[]) {
-  const itemMap = new Map<string, JellyfinItem>();
+function createMockJellyfin(items: MediaItem[]) {
+  const itemMap = new Map<string, MediaItem>();
   for (const item of items) itemMap.set(item.Id, item);
 
   return {
     getItem: (id: string) => itemMap.get(id),
-    getItemDurationMs: (item: JellyfinItem) =>
+    getItemDurationMs: (item: MediaItem) =>
       item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : 0,
   } as any;
 }
@@ -19,7 +19,7 @@ describe('ScheduleEngine dead-air fallback', () => {
   it('schedules programs instead of full dead air when only conflict candidates exist', async () => {
     const db: Database.Database = createTestDb();
 
-    const movies: JellyfinItem[] = [
+    const movies: MediaItem[] = [
       createMockMovie({
         Id: 'movie-a',
         Name: 'Movie A',

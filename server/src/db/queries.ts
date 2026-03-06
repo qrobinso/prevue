@@ -21,15 +21,17 @@ export function createServer(
   url: string,
   username: string,
   accessToken: string,
-  userId: string
+  userId: string,
+  serverType: 'jellyfin' | 'plex' = 'jellyfin',
+  plexClientId?: string
 ): ServerConfig {
   // If this is the first server, make it active
   const count = (db.prepare('SELECT COUNT(*) as cnt FROM servers').get() as { cnt: number }).cnt;
   const isActive = count === 0 ? 1 : 0;
 
   const result = db.prepare(
-    'INSERT INTO servers (name, url, username, access_token, user_id, is_active) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(name, url, username, accessToken, userId, isActive);
+    'INSERT INTO servers (name, url, username, access_token, user_id, is_active, server_type, plex_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(name, url, username, accessToken, userId, isActive, serverType, plexClientId ?? null);
 
   return getServerById(db, result.lastInsertRowid as number)!;
 }
@@ -37,7 +39,7 @@ export function createServer(
 export function updateServer(
   db: Database.Database,
   id: number,
-  data: Partial<Pick<ServerConfig, 'name' | 'url' | 'username' | 'access_token' | 'user_id'>>
+  data: Partial<Pick<ServerConfig, 'name' | 'url' | 'username' | 'access_token' | 'user_id' | 'server_type' | 'plex_client_id'>>
 ): ServerConfig | undefined {
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -47,6 +49,8 @@ export function updateServer(
   if (data.username !== undefined) { fields.push('username = ?'); values.push(data.username); }
   if (data.access_token !== undefined) { fields.push('access_token = ?'); values.push(data.access_token); }
   if (data.user_id !== undefined) { fields.push('user_id = ?'); values.push(data.user_id); }
+  if (data.server_type !== undefined) { fields.push('server_type = ?'); values.push(data.server_type); }
+  if (data.plex_client_id !== undefined) { fields.push('plex_client_id = ?'); values.push(data.plex_client_id); }
 
   if (fields.length === 0) return getServerById(db, id);
 
@@ -321,8 +325,8 @@ export function getItemIdsScheduledInRangeForChannel(
   for (const block of blocks) {
     const parsed = parseScheduleBlock(block);
     for (const prog of parsed.programs) {
-      if (prog.jellyfin_item_id && prog.type !== 'interstitial') {
-        itemIds.add(prog.jellyfin_item_id);
+      if (prog.media_item_id && prog.type !== 'interstitial') {
+        itemIds.add(prog.media_item_id);
       }
     }
   }

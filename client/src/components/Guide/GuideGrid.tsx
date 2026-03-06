@@ -247,7 +247,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
       <div className="guide-program-content" style={{ transform: `translate3d(${titleOffset}px,0,0)` }}>
         {continuationArrow && <span className="guide-continuation-arrow">{continuationArrow}</span>}
         {cellShowArtwork && (
-          <ArtworkThumbnail itemId={prog.jellyfin_item_id} size={artworkSize} />
+          <ArtworkThumbnail itemId={prog.media_item_id} size={artworkSize} />
         )}
         <div className="guide-program-text">
           <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>

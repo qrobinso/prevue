@@ -11,14 +11,14 @@ import { serverRoutes } from '../../src/routes/servers.js';
 import { ScheduleEngine } from '../../src/services/ScheduleEngine.js';
 import { ChannelManager } from '../../src/services/ChannelManager.js';
 import * as queries from '../../src/db/queries.js';
-import type { JellyfinItem } from '../../src/types/index.js';
+import type { MediaItem } from '../../src/types/index.js';
 
-function createApiApp(mockItems: JellyfinItem[] = []) {
+function createApiApp(mockItems: MediaItem[] = []) {
   const db = createTestDb();
   const app = express();
   app.use(express.json());
 
-  const itemMap = new Map<string, JellyfinItem>();
+  const itemMap = new Map<string, MediaItem>();
   for (const item of mockItems) itemMap.set(item.Id, item);
 
   const mockJellyfin = {
@@ -30,7 +30,7 @@ function createApiApp(mockItems: JellyfinItem[] = []) {
     getItemsByGenre: (genre: string) =>
       mockItems.filter(i => i.Genres?.some(g => g.toLowerCase() === genre.toLowerCase())),
     getGenres: () => {
-      const genres = new Map<string, JellyfinItem[]>();
+      const genres = new Map<string, MediaItem[]>();
       for (const item of mockItems) {
         for (const genre of item.Genres || []) {
           const existing = genres.get(genre) || [];
@@ -40,7 +40,7 @@ function createApiApp(mockItems: JellyfinItem[] = []) {
       }
       return genres;
     },
-    getItemDurationMs: (item: JellyfinItem) =>
+    getItemDurationMs: (item: MediaItem) =>
       item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : 0,
     getBaseUrl: () => 'http://mock:8096',
     getProxyHeaders: () => ({ 'X-Emby-Token': 'mock' }),
@@ -50,7 +50,7 @@ function createApiApp(mockItems: JellyfinItem[] = []) {
   const channelManager = new ChannelManager(db, mockJellyfin, scheduleEngine);
 
   app.locals.db = db;
-  app.locals.jellyfinClient = mockJellyfin;
+  app.locals.mediaProvider = mockJellyfin;
   app.locals.scheduleEngine = scheduleEngine;
   app.locals.channelManager = channelManager;
   app.locals.wss = { clients: new Set() };

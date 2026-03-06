@@ -74,7 +74,7 @@ channelRoutes.post('/', (req: Request, res: Response) => {
 // POST /api/channels/ai - Create channel via AI prompt
 channelRoutes.post('/ai', async (req: Request, res: Response) => {
   try {
-    const { channelManager, jellyfinClient, wss, db } = req.app.locals;
+    const { channelManager, mediaProvider, wss, db } = req.app.locals;
 
     const userKey = getUserAIKey(db);
     const userModel = getUserAIModel(db);
@@ -91,7 +91,7 @@ channelRoutes.post('/ai', async (req: Request, res: Response) => {
       return;
     }
 
-    const libraryItems = (jellyfinClient as MediaProvider).getLibraryItems();
+    const libraryItems = (mediaProvider as MediaProvider).getLibraryItems();
     const aiResult = await aiService.createChannelFromPrompt(prompt, libraryItems, {
       apiKey: userKey,
       model: userModel,
@@ -113,7 +113,7 @@ channelRoutes.post('/ai', async (req: Request, res: Response) => {
 // PUT /api/channels/:id/ai-refresh - Re-run AI prompt to update channel items from latest library
 channelRoutes.put('/:id/ai-refresh', async (req: Request, res: Response) => {
   try {
-    const { db, jellyfinClient, scheduleEngine } = req.app.locals;
+    const { db, mediaProvider, scheduleEngine } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
     if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
 
@@ -128,7 +128,7 @@ channelRoutes.put('/:id/ai-refresh', async (req: Request, res: Response) => {
       return;
     }
 
-    const libraryItems = (jellyfinClient as MediaProvider).getLibraryItems();
+    const libraryItems = (mediaProvider as MediaProvider).getLibraryItems();
     const aiResult = await aiService.createChannelFromPrompt(channel.ai_prompt, libraryItems, {
       apiKey: userKey,
       model: userModel,
@@ -193,8 +193,8 @@ channelRoutes.delete('/:id', (req: Request, res: Response) => {
 // GET /api/channels/ai/suggestions - Generate sample prompts based on library
 channelRoutes.get('/ai/suggestions', (req: Request, res: Response) => {
   try {
-    const { jellyfinClient } = req.app.locals;
-    const items = (jellyfinClient as MediaProvider).getLibraryItems();
+    const { mediaProvider } = req.app.locals;
+    const items = (mediaProvider as MediaProvider).getLibraryItems();
 
     if (items.length === 0) {
       res.json({ suggestions: [] });
@@ -468,7 +468,7 @@ channelRoutes.get('/selected-presets', (req: Request, res: Response) => {
 // POST /api/channels/generate - Generate channels from selected presets
 channelRoutes.post('/generate', async (req: Request, res: Response) => {
   try {
-    const { channelManager, scheduleEngine, wss, db, jellyfinClient } = req.app.locals;
+    const { channelManager, scheduleEngine, wss, db, mediaProvider } = req.app.locals;
     const { preset_ids, force_sync = false } = req.body;
 
     if (!preset_ids || !Array.isArray(preset_ids)) {
@@ -490,15 +490,15 @@ channelRoutes.post('/generate', async (req: Request, res: Response) => {
     }
 
     // Step 1: Check if library needs sync (only sync if empty or force_sync requested)
-    const jf = jellyfinClient as MediaProvider;
-    const existingItems = jf.getLibraryItems();
+    const provider = mediaProvider as MediaProvider;
+    const existingItems = provider.getLibraryItems();
 
     if (existingItems.length === 0 || force_sync) {
       // No library data or force sync requested
       const reason = force_sync ? 'Force sync requested' : 'No library data';
       broadcast(wss, { type: 'generation:progress', payload: { step: 'syncing', message: 'Syncing library from Jellyfin...' } });
       console.log(`[Channels] ${reason} - syncing from Jellyfin...`);
-      await jf.syncLibrary((message) => {
+      await provider.syncLibrary((message) => {
         broadcast(wss, { type: 'generation:progress', payload: { step: 'syncing', message } });
       });
     } else {

@@ -18,7 +18,7 @@ const tracksCache = new Map<string, { data: Awaited<ReturnType<typeof getTracksA
 // Extract audio/subtitle tracks and session info from Jellyfin in a single API call.
 // Returns PlaySessionId and MediaSourceId so the stream endpoint can skip a redundant call.
 async function getTracksAndSession(
-  jellyfinClient: MediaProvider,
+  mediaProvider: MediaProvider,
   itemId: string
 ): Promise<{
   audio_tracks: { index: number; language: string; name: string }[];
@@ -26,7 +26,7 @@ async function getTracksAndSession(
   playSessionId: string;
   mediaSourceId: string;
 }> {
-  const playbackInfo = await jellyfinClient.getPlaybackInfo(itemId);
+  const playbackInfo = await mediaProvider.getPlaybackInfo(itemId);
   const mediaSource = playbackInfo.MediaSources?.[0];
   const streams = mediaSource?.MediaStreams ?? [];
 
@@ -57,8 +57,8 @@ async function getTracksAndSession(
 // GET /api/playback/:channelId - Get streaming info for current program
 playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
   try {
-    const { db, scheduleEngine, jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as MediaProvider;
+    const { db, scheduleEngine, mediaProvider } = req.app.locals;
+    const provider = mediaProvider as MediaProvider;
     const channelId = parseInt(req.params.channelId as string, 10);
     if (Number.isNaN(channelId) || channelId < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
     const se = scheduleEngine as ScheduleEngine;
@@ -109,12 +109,12 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     let playSessionId = '';
     let mediaSourceId = '';
     try {
-      const cacheKey = program.jellyfin_item_id;
+      const cacheKey = program.media_item_id;
       const cached = tracksCache.get(cacheKey);
       if (cached && Date.now() < cached.expiresAt) {
         ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = cached.data);
       } else {
-        const result = await getTracksAndSession(jf, program.jellyfin_item_id);
+        const result = await getTracksAndSession(provider, program.media_item_id);
         tracksCache.set(cacheKey, { data: result, expiresAt: Date.now() + TRACKS_CACHE_TTL_MS });
         ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = result);
         // Evict expired entries on every miss to prevent unbounded growth
@@ -130,7 +130,7 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     // Fetch media segments for outro/credits detection (non-blocking)
     let outro_start_ms: number | null = null;
     try {
-      const segments = await jf.getMediaSegments(program.jellyfin_item_id);
+      const segments = await provider.getMediaSegments(program.media_item_id);
       outro_start_ms = segments.outroStartMs;
     } catch { /* non-fatal */ }
 
@@ -174,33 +174,37 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
       streamParams.set('hevc', '1');
     }
     const queryString = streamParams.toString();
-    const streamUrl = `/api/stream/${program.jellyfin_item_id}${queryString ? `?${queryString}` : ''}`;
+    const streamUrl = `/api/stream/${program.media_item_id}${queryString ? `?${queryString}` : ''}`;
 
-    // Pre-warm: fire-and-forget fetch of Jellyfin master.m3u8 to start FFmpeg
-    // transcoding in the background while the client processes this response.
-    if (playSessionId && mediaSourceId) {
+    // Pre-warm: fire-and-forget fetch of master.m3u8 to start transcoding
+    // in the background while the client processes this response.
+    // Skip pre-warm for Plex — the stream route will call getHlsStreamUrl which
+    // creates the Plex transcode session on demand. Pre-warming with a Jellyfin URL
+    // would hit a non-existent path and create a conflicting session.
+    const isPlex = provider.providerType === 'plex';
+    if (playSessionId && mediaSourceId && !isPlex) {
       // Stop the previous pre-warmed session if it wasn't consumed by /api/stream.
       // This prevents orphaned FFmpeg transcodes during rapid channel switching.
-      if (lastPrewarmedSession && lastPrewarmedSession.itemId !== program.jellyfin_item_id) {
+      if (lastPrewarmedSession && lastPrewarmedSession.itemId !== program.media_item_id) {
         const prev = lastPrewarmedSession;
         // Only stop if /api/stream never picked it up (still in activeSessions means stream is active)
         const activeSession = activeSessions.get(prev.itemId);
         const wasConsumed = activeSession && activeSession.playSessionId === prev.playSessionId;
         if (!wasConsumed) {
           console.log(`[Playback] Stopping previous pre-warm session=${prev.playSessionId} item=${prev.itemId}`);
-          void jf.deleteTranscodingJob(prev.playSessionId).catch(() => {});
+          void provider.deleteTranscodingJob(prev.playSessionId).catch(() => {});
           activeSessions.delete(prev.itemId);
           lastActivityByItemId.delete(prev.itemId);
         }
       }
 
       // Register this session for idle cleanup tracking
-      trackSession(program.jellyfin_item_id, playSessionId, mediaSourceId);
-      lastPrewarmedSession = { playSessionId, itemId: program.jellyfin_item_id };
+      trackSession(program.media_item_id, playSessionId, mediaSourceId);
+      lastPrewarmedSession = { playSessionId, itemId: program.media_item_id };
 
-      const baseUrl = jf.getBaseUrl();
-      const headers = jf.getProxyHeaders();
-      const deviceId = jf.getDeviceId();
+      const baseUrl = provider.getBaseUrl();
+      const headers = provider.getProxyHeaders();
+      const deviceId = provider.getDeviceId();
       const hevc = req.query.hevc === '1';
       const warmParams = new URLSearchParams({
         DeviceId: deviceId,
@@ -223,12 +227,12 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
       if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
         warmParams.set('AudioStreamIndex', String(audioStreamIndex));
       }
-      const warmUrl = `${baseUrl}/Videos/${program.jellyfin_item_id}/master.m3u8?${warmParams}`;
+      const warmUrl = `${baseUrl}/Videos/${program.media_item_id}/master.m3u8?${warmParams}`;
       void fetch(warmUrl, { headers }).catch(() => {});
     }
 
     const seekSeconds = seekMs / 1000;
-    console.log(`[Playback] Channel ${channelId}: seekMs=${seekMs}, item=${program.jellyfin_item_id}, audio_tracks=${audio_tracks.length}, audioStreamIndex=${audioStreamIndex ?? 'default'}, subtitle_index=${subtitle_index ?? 'off'}`);
+    console.log(`[Playback] Channel ${channelId}: seekMs=${seekMs}, item=${program.media_item_id}, audio_tracks=${audio_tracks.length}, audioStreamIndex=${audioStreamIndex ?? 'default'}, subtitle_index=${subtitle_index ?? 'off'}`);
 
     res.json({
       stream_url: streamUrl,

@@ -260,7 +260,7 @@ function LineupCarousel({
         >
           {programs.map((prog, i) => (
             <div
-              key={`${prog.jellyfin_item_id}-${prog.start_time}`}
+              key={`${prog.media_item_id}-${prog.start_time}`}
               className={`interstitial-lineup-card ${i === activeIndex ? 'active' : ''}`}
             >
               <div className="interstitial-lineup-thumb">
@@ -322,12 +322,12 @@ function ProgramSpotlight({
   // Fetch details for the active program
   const activeProg = programs[activeIndex];
   useEffect(() => {
-    if (!activeProg || details.has(activeProg.jellyfin_item_id)) return;
-    getProgramDetails(activeProg.jellyfin_item_id)
+    if (!activeProg || details.has(activeProg.media_item_id)) return;
+    getProgramDetails(activeProg.media_item_id)
       .then((d) => {
         setDetails((prev) => {
           const next = new Map(prev);
-          next.set(activeProg.jellyfin_item_id, d);
+          next.set(activeProg.media_item_id, d);
           return next;
         });
       })
@@ -336,7 +336,7 @@ function ProgramSpotlight({
 
   if (!activeProg) return null;
 
-  const progDetails = details.get(activeProg.jellyfin_item_id);
+  const progDetails = details.get(activeProg.media_item_id);
 
   return (
     <div className={`interstitial-spotlight ${fade ? 'visible' : ''}`}>

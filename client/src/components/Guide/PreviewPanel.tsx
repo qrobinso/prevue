@@ -236,7 +236,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     const video = videoRef.current;
     if (!video || !info.stream_url || info.is_interstitial) return;
 
-    currentItemIdRef.current = info.program.jellyfin_item_id;
+    currentItemIdRef.current = info.program.media_item_id;
     const startPosition = startPositionOverrideSec ?? (info.seek_position_seconds || 0);
     updateActivePlaybackSession('guide', currentChannelIdRef.current ?? info.channel.id, info, startPosition);
 
@@ -246,7 +246,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       client_id: getClientId(),
       channel_id: currentChannelIdRef.current ?? info.channel.id,
       channel_name: info.channel.name,
-      item_id: info.program.jellyfin_item_id,
+      item_id: info.program.media_item_id,
       title: isEpisode ? (info.program.subtitle || info.program.title) : info.program.title,
       series_name: isEpisode ? info.program.title : undefined,
       content_type: info.program.content_type ?? undefined,
@@ -318,7 +318,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       });
       hlsRef.current = hls;
       setSharedHls(hls);
-      setSharedItemId(info.program.jellyfin_item_id);
+      setSharedItemId(info.program.media_item_id);
       setSharedOwner('guide');
       hls.loadSource(info.stream_url);
       hls.attachMedia(video);
@@ -448,7 +448,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     const video = videoRef.current;
     if (!video) return;
 
-    const itemId = program.jellyfin_item_id;
+    const itemId = program.media_item_id;
     if (currentItemIdRef.current === itemId) {
       return; // already playing this item
     }
@@ -570,13 +570,17 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       // debounce fired), stop the orphaned session so the server can free FFmpeg.
       if (prefetchPromise) {
         prefetchPromise.then((info) => {
-          if (info && info.stream_url && info.program?.jellyfin_item_id) {
-            stopPlayback(info.program.jellyfin_item_id).catch(() => {});
+          if (info && info.stream_url && info.program?.media_item_id) {
+            // Extract playSessionId from stream URL so we only stop THIS specific
+            // session, not a newer one created by the Player for the same item.
+            const psMatch = info.stream_url.match(/[?&]playSessionId=([^&]+)/);
+            const psId = psMatch ? psMatch[1] : undefined;
+            stopPlayback(info.program.media_item_id, psId).catch(() => {});
           }
         });
       }
     };
-  }, [channel?.id, program?.jellyfin_item_id, cleanup, streamingPaused, loadStreamWithInfo, videoFit, isIOSDevice]);
+  }, [channel?.id, program?.media_item_id, cleanup, streamingPaused, loadStreamWithInfo, videoFit, isIOSDevice]);
 
   // Playback progress reporting to Jellyfin (after 5 min watch threshold)
   useEffect(() => {
@@ -734,7 +738,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     if (!channel || !program) return;
     setOverlayVisible(true);
     lastTapTimeRef.current = 0; // Reset so first tap after channel change isn't mistaken for double-tap
-  }, [channel?.id, program?.jellyfin_item_id, program?.type]);
+  }, [channel?.id, program?.media_item_id, program?.type]);
 
   // Auto-hide metadata overlay whenever it is visible.
   // Always schedule the timer even in classic mode: on small screens the CSS
@@ -921,7 +925,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         )}
         {/* Loading overlay (same as full-screen player): banner in background + TUNING text */}
         {!videoReady && !videoError && program && program.type !== 'interstitial' && (
-          <div className="preview-loading" key={program.jellyfin_item_id}>
+          <div className="preview-loading" key={program.media_item_id}>
             {artworkSources.length > 0 ? (
               <img
                 className="preview-loading-banner"
@@ -969,22 +973,22 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             </div>
           </div>
         )}
-        {/* 2E Promo overlay — periodic broadcast-style promo */}
-        {program && program.type !== 'interstitial' && videoReady && (
-          <PromoOverlay
-            currentProgram={program}
-            upcomingPrograms={upcomingPrograms}
-            isInterstitial={false}
-            enabled={promoOverlayEnabled}
-            startingSoonEnabled={startingSoonEnabled}
-            creditsVisible={false}
-            scheduleByChannel={scheduleByChannel}
-            channels={allChannels}
-            currentChannelId={channel.id}
-            onTuneChannel={onSelectChannel}
-          />
-        )}
       </div>
+      {/* 2E Promo overlay — outside video container so z-index 20 beats preview-overlay z-index 10 */}
+      {program && program.type !== 'interstitial' && videoReady && (
+        <PromoOverlay
+          currentProgram={program}
+          upcomingPrograms={upcomingPrograms}
+          isInterstitial={false}
+          enabled={promoOverlayEnabled}
+          startingSoonEnabled={startingSoonEnabled}
+          creditsVisible={false}
+          scheduleByChannel={scheduleByChannel}
+          channels={allChannels}
+          currentChannelId={channel.id}
+          onTuneChannel={onSelectChannel}
+        />
+      )}
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}
       <div
         className={`preview-overlay ${overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}
@@ -1180,7 +1184,7 @@ function getProgress(program: ScheduleProgram, now: Date): number {
 function getPreviewArtworkSources(program: ScheduleProgram): string[] {
   const candidates = [
     program.backdrop_url,
-    program.guide_url || (program.jellyfin_item_id ? `/api/images/${program.jellyfin_item_id}/Guide` : null),
+    program.guide_url || (program.media_item_id ? `/api/images/${program.media_item_id}/Guide` : null),
     program.thumbnail_url,
     program.banner_url,
   ];

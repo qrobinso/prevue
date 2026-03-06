@@ -159,6 +159,8 @@ export default function PromoOverlay({
   const dismissTimerStartedAt = useRef<number>(0);
   const dismissDurationMs = useRef<number>(0);
   const dismissRemainingMs = useRef<number>(0);
+  /** Timestamp when the current program started — used to suppress early "Starting Soon" */
+  const programStartedAtRef = useRef<number>(Date.now());
 
   const clearSequenceTimer = useCallback(() => {
     if (sequenceTimerRef.current) {
@@ -208,9 +210,10 @@ export default function PromoOverlay({
 
   // Schedule promo appearances when program changes
   useEffect(() => {
-    const programId = currentProgram.jellyfin_item_id;
+    const programId = currentProgram.media_item_id;
     if (programId === programIdRef.current) return;
     programIdRef.current = programId;
+    programStartedAtRef.current = Date.now();
 
     setVisible(false);
     clearSequenceTimer();
@@ -240,16 +243,20 @@ export default function PromoOverlay({
       clearSequenceTimer();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProgram.jellyfin_item_id, currentProgram.start_time, currentProgram.end_time, currentProgram.start_ms, currentProgram.end_ms, currentProgram.type, enabled, clearSequenceTimer]);
+  }, [currentProgram.media_item_id, currentProgram.start_time, currentProgram.end_time, currentProgram.start_ms, currentProgram.end_ms, currentProgram.type, enabled, clearSequenceTimer]);
 
   // "Starting Soon" — check every second for a matching program about to start on another channel
   useEffect(() => {
     if (!startingSoonEnabled || !scheduleByChannel || !channels || currentChannelId == null) return;
 
     const COOLDOWN_MS = 3 * 60 * 1000; // 3-minute cooldown between notifications
+    const INITIAL_DELAY_MS = 15_000;   // suppress for 15s after program/channel change
 
     const interval = setInterval(() => {
       if (isInterstitial || creditsVisible || visible) return;
+
+      // Don't show immediately after tuning — give the viewer time to settle in
+      if (Date.now() - programStartedAtRef.current < INITIAL_DELAY_MS) return;
 
       // Enforce cooldown between starting-soon notifications
       if (Date.now() - startingSoonLastShownAt.current < COOLDOWN_MS) return;
@@ -258,8 +265,8 @@ export default function PromoOverlay({
       if (!match) return;
 
       // Don't show the same starting-soon program twice
-      if (match.program.jellyfin_item_id === startingSoonShownRef.current) return;
-      startingSoonShownRef.current = match.program.jellyfin_item_id;
+      if (match.program.media_item_id === startingSoonShownRef.current) return;
+      startingSoonShownRef.current = match.program.media_item_id;
       startingSoonLastShownAt.current = Date.now();
 
       const ch = channels.find((c) => c.id === match.channelId);

@@ -2,6 +2,7 @@ export interface Server {
   id: number;
   name: string;
   url: string;
+  server_type: 'jellyfin' | 'plex';
   api_key: string;
   is_active: boolean;
   created_at: string;
@@ -21,7 +22,7 @@ export interface Channel {
 }
 
 export interface ScheduleProgram {
-  jellyfin_item_id: string;
+  media_item_id: string;
   title: string;
   subtitle: string | null;
   start_time: string;

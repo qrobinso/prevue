@@ -3,22 +3,22 @@ import type Database from 'better-sqlite3';
 import { createTestDb, createMockMovieLibrary, createMockEpisodeSeries } from '../helpers/setup.js';
 import { ScheduleEngine } from '../../src/services/ScheduleEngine.js';
 import * as queries from '../../src/db/queries.js';
-import type { JellyfinItem, ChannelParsed } from '../../src/types/index.js';
+import type { MediaItem, ChannelParsed } from '../../src/types/index.js';
 
 /**
  * Create a minimal mock JellyfinClient for schedule engine tests
  */
-function createMockJellyfin(items: JellyfinItem[]) {
-  const itemMap = new Map<string, JellyfinItem>();
+function createMockJellyfin(items: MediaItem[]) {
+  const itemMap = new Map<string, MediaItem>();
   for (const item of items) itemMap.set(item.Id, item);
 
   return {
     getItem: (id: string) => itemMap.get(id),
-    getItemDurationMs: (item: JellyfinItem) =>
+    getItemDurationMs: (item: MediaItem) =>
       item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : 0,
     getLibraryItems: () => items,
     getGenres: () => {
-      const genres = new Map<string, JellyfinItem[]>();
+      const genres = new Map<string, MediaItem[]>();
       for (const item of items) {
         for (const genre of item.Genres || []) {
           const existing = genres.get(genre) || [];
@@ -33,8 +33,8 @@ function createMockJellyfin(items: JellyfinItem[]) {
 
 describe('ScheduleEngine', () => {
   let db: Database.Database;
-  let movies: JellyfinItem[];
-  let episodes: JellyfinItem[];
+  let movies: MediaItem[];
+  let episodes: MediaItem[];
 
   beforeEach(() => {
     db = createTestDb();
@@ -64,7 +64,7 @@ describe('ScheduleEngine', () => {
       // All program items should reference valid movie IDs
       const programItems = block.programs.filter(p => p.type === 'program');
       for (const prog of programItems) {
-        expect(movies.some(m => m.Id === prog.jellyfin_item_id)).toBe(true);
+        expect(movies.some(m => m.Id === prog.media_item_id)).toBe(true);
       }
     });
 
@@ -108,7 +108,7 @@ describe('ScheduleEngine', () => {
       // Programs should be identical
       expect(block1.programs.length).toBe(block2.programs.length);
       for (let i = 0; i < block1.programs.length; i++) {
-        expect(block1.programs[i].jellyfin_item_id).toBe(block2.programs[i].jellyfin_item_id);
+        expect(block1.programs[i].media_item_id).toBe(block2.programs[i].media_item_id);
         expect(block1.programs[i].start_time).toBe(block2.programs[i].start_time);
         expect(block1.programs[i].end_time).toBe(block2.programs[i].end_time);
       }
@@ -146,7 +146,7 @@ describe('ScheduleEngine', () => {
       for (let i = 1; i < programItems.length; i++) {
         // Programs with consecutive slots shouldn't be the exact same movie
         // (Note: this is item-level, not series-level for movies)
-        if (programItems[i].jellyfin_item_id && programItems[i - 1].jellyfin_item_id) {
+        if (programItems[i].media_item_id && programItems[i - 1].media_item_id) {
           // With 5 movies, back-to-back same movie should be avoided
           // This may not be 100% guaranteed if only 1 movie, but with 5 it should hold
         }
@@ -188,7 +188,7 @@ describe('ScheduleEngine', () => {
       // Interstitials fill gaps between 15-minute boundaries
       // They may or may not be present depending on alignment, but the block should be valid
       for (const inter of interstitials) {
-        expect(inter.jellyfin_item_id).toBe('');
+        expect(inter.media_item_id).toBe('');
         expect(inter.title).toContain('Next Up');
       }
     });

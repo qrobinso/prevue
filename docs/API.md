@@ -1049,7 +1049,7 @@ List all available background music tracks.
 
 ```typescript
 {
-  jellyfin_item_id: string;
+  media_item_id: string;
   title: string;
   subtitle: string | null;     // e.g. "S01E05 - Pilot"
   start_time: string;          // ISO 8601

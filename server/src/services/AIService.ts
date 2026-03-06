@@ -1,4 +1,4 @@
-import type { JellyfinItem } from '../types/index.js';
+import type { MediaItem } from '../types/index.js';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_MODEL = 'google/gemini-3-flash-preview';
@@ -51,7 +51,7 @@ export class AIService {
 
   async createChannelFromPrompt(
     prompt: string,
-    libraryItems: JellyfinItem[],
+    libraryItems: MediaItem[],
     options?: AIRequestOptions
   ): Promise<AIChannelResult> {
     const apiKey = this.resolveApiKey(options);
@@ -148,7 +148,7 @@ ${summary}`;
    * Movies get M0..Mn, series get S0..Sn. Episodes are grouped under
    * their series (the AI picks a series key, we expand to all episodes).
    */
-  private buildLibrarySummary(items: JellyfinItem[]): {
+  private buildLibrarySummary(items: MediaItem[]): {
     summary: string;
     movieKeyToId: Map<string, string>;
     seriesKeyToEpisodeIds: Map<string, string[]>;

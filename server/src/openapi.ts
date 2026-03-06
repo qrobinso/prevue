@@ -61,7 +61,7 @@ export const openApiSpec = {
       ScheduleProgram: {
         type: 'object',
         properties: {
-          jellyfin_item_id: { type: 'string' },
+          media_item_id: { type: 'string' },
           title: { type: 'string' },
           subtitle: { type: 'string', nullable: true },
           start_time: { type: 'string', format: 'date-time' },

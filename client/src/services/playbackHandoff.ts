@@ -33,7 +33,7 @@ export function updateActivePlaybackSession(
   info: PlaybackInfoWithInterstitial,
   positionSec: number
 ): void {
-  const itemId = info.program?.jellyfin_item_id;
+  const itemId = info.program?.media_item_id;
   if (!itemId) return;
   activeSession = {
     owner,

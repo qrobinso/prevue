@@ -1,4 +1,4 @@
-import type { JellyfinItem, ServerConfig } from '../types/index.js';
+import type { MediaItem, ServerConfig } from '../types/index.js';
 
 /**
  * Normalized playback info returned by getPlaybackInfo().
@@ -29,8 +29,15 @@ export interface StreamInfo {
  * Provider-agnostic interface for media server backends (Jellyfin, Plex, etc.).
  * All routes and services reference this interface instead of a concrete client.
  */
+export interface MediaProviderCapabilities {
+  supportsMediaSegments: boolean;
+  supportsServerDiscovery: boolean;
+  supportsReAuth: boolean;
+}
+
 export interface MediaProvider {
   readonly providerType: 'jellyfin' | 'plex';
+  readonly capabilities: MediaProviderCapabilities;
 
   // ─── Server Management ────────────────────────────────
   getActiveServer(): ServerConfig | undefined;
@@ -38,25 +45,22 @@ export interface MediaProvider {
   resetApi(): void;
   clearLibrary(): void;
 
-  // ─── Authentication ───────────────────────────────────
-  authenticate(serverUrl: string, username: string, password: string): Promise<{ accessToken: string; userId: string }>;
-
   // ─── Library ──────────────────────────────────────────
-  syncLibrary(onProgress?: (message: string) => void): Promise<JellyfinItem[]>;
-  getLibraryItems(): JellyfinItem[];
-  getItem(id: string): JellyfinItem | undefined;
+  syncLibrary(onProgress?: (message: string) => void): Promise<MediaItem[]>;
+  getLibraryItems(): MediaItem[];
+  getItem(id: string): MediaItem | undefined;
   getItemDetails(itemId: string): Promise<{ overview: string | null; genres?: string[]; communityRating?: number; studios?: string[]; cast?: string[] }>;
-  getItemDurationMs(item: JellyfinItem): number;
-  getItemsByGenre(genre: string): JellyfinItem[];
-  getItemsWithGenre(canonicalGenre: string, alternateNames?: string[]): JellyfinItem[];
-  getItemsWithLeadGenre(canonicalGenre: string, alternateNames?: string[]): JellyfinItem[];
-  getGenres(): Map<string, JellyfinItem[]>;
-  getCollections(): Promise<{ id: string; name: string; items: JellyfinItem[] }[]>;
-  getPlaylists(): Promise<{ id: string; name: string; items: JellyfinItem[] }[]>;
+  getItemDurationMs(item: MediaItem): number;
+  getItemsByGenre(genre: string): MediaItem[];
+  getItemsWithGenre(canonicalGenre: string, alternateNames?: string[]): MediaItem[];
+  getItemsWithLeadGenre(canonicalGenre: string, alternateNames?: string[]): MediaItem[];
+  getGenres(): Map<string, MediaItem[]>;
+  getCollections(): Promise<{ id: string; name: string; items: MediaItem[] }[]>;
+  getPlaylists(): Promise<{ id: string; name: string; items: MediaItem[] }[]>;
 
   // ─── Playback ─────────────────────────────────────────
   getPlaybackInfo(itemId: string): Promise<PlaybackInfoResult>;
-  getHlsStreamUrl(itemId: string, startPositionTicks?: number): Promise<StreamInfo>;
+  getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<StreamInfo>;
   getMediaSegments(itemId: string): Promise<{ outroStartMs: number | null; outroEndMs: number | null }>;
 
   // ─── Session Management ───────────────────────────────

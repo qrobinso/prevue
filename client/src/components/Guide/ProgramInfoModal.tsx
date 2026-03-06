@@ -26,12 +26,12 @@ export default function ProgramInfoModal({ channel, program, onClose }: ProgramI
   const [details, setDetails] = useState<{ overview: string | null; genres?: string[] } | null>(null);
 
   useEffect(() => {
-    if (program.jellyfin_item_id) {
-      getProgramDetails(program.jellyfin_item_id).then(setDetails);
+    if (program.media_item_id) {
+      getProgramDetails(program.media_item_id).then(setDetails);
     } else {
       setDetails({ overview: null });
     }
-  }, [program.jellyfin_item_id]);
+  }, [program.media_item_id]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {

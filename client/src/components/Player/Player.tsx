@@ -415,7 +415,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         setStoredSubtitleIndex(initialSub);
       }
 
-      currentItemIdRef.current = info.program?.jellyfin_item_id || null;
+      currentItemIdRef.current = info.program?.media_item_id || null;
       programConfirmedRef.current = true;
       updateActivePlaybackSession('player', channel.id, info, reuseInfo?.startPositionSec ?? (info.seek_position_seconds || 0));
 
@@ -425,7 +425,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         client_id: getClientId(),
         channel_id: channel.id,
         channel_name: channel.name,
-        item_id: info.program?.jellyfin_item_id,
+        item_id: info.program?.media_item_id,
         title: isEpisode ? (info.program?.subtitle || info.program?.title) : info.program?.title,
         series_name: isEpisode ? info.program?.title : undefined,
         content_type: info.program?.content_type ?? undefined,
@@ -480,7 +480,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
         hlsRef.current = hls;
         setSharedHls(hls);
-        setSharedItemId(info.program?.jellyfin_item_id || null);
+        setSharedItemId(info.program?.media_item_id || null);
         setSharedOwner('player');
         hls.loadSource(info.stream_url);
         hls.attachMedia(video);
@@ -735,7 +735,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     }
 
     const cancelled = { current: false };
-    const handoffItemId = program?.jellyfin_item_id ?? null;
+    const handoffItemId = program?.media_item_id ?? null;
     const handoff = handoffItemId ? consumePlaybackHandoff('player', channel.id, handoffItemId) : null;
     const sessionForChannel = getActiveSessionInfo(channel.id);
 
@@ -801,7 +801,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           client_id: getClientId(),
           channel_id: channel.id,
           channel_name: channel.name,
-          item_id: handoff.info.program?.jellyfin_item_id,
+          item_id: handoff.info.program?.media_item_id,
           title: isEpisode ? (handoff.info.program?.subtitle || handoff.info.program?.title) : handoff.info.program?.title,
           series_name: isEpisode ? handoff.info.program?.title : undefined,
           content_type: handoff.info.program?.content_type ?? undefined,
@@ -813,8 +813,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const session = sessionForChannel;
         if (session) {
           const { info } = session;
-          currentItemIdRef.current = info.program?.jellyfin_item_id || null;
-          setSharedItemId(info.program?.jellyfin_item_id || null);
+          currentItemIdRef.current = info.program?.media_item_id || null;
+          setSharedItemId(info.program?.media_item_id || null);
           setCurrentProgram(info.program);
           setNextProgram(info.next_program);
           setIsInterstitial(info.is_interstitial);
@@ -840,7 +840,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             client_id: getClientId(),
             channel_id: channel.id,
             channel_name: channel.name,
-            item_id: info.program?.jellyfin_item_id,
+            item_id: info.program?.media_item_id,
             title: isEpisode ? (info.program?.subtitle || info.program?.title) : info.program?.title,
             series_name: isEpisode ? info.program?.title : undefined,
             content_type: info.program?.content_type ?? undefined,
@@ -922,7 +922,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     const raw = (prog?.thumbnail_url || prog?.banner_url) ?? null;
     // Request high-res artwork for the full-screen tuning overlay
     setLoadingArtworkUrl(raw ? raw + (raw.includes('?') ? '&' : '?') + 'maxWidth=1280' : null);
-  }, [currentProgram?.jellyfin_item_id, program?.jellyfin_item_id]);
+  }, [currentProgram?.media_item_id, program?.media_item_id]);
 
   // Progress tracking and auto-advance
   useEffect(() => {
@@ -1405,7 +1405,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       {(!videoReady || loadingFadeOut) && !isInterstitial && (() => {
         const prog = currentProgram ?? program;
         return (
-          <div className={`player-loading ${loadingFadeOut ? 'player-loading-fade-out' : ''}`} key={prog?.jellyfin_item_id}>
+          <div className={`player-loading ${loadingFadeOut ? 'player-loading-fade-out' : ''}`} key={prog?.media_item_id}>
             <div className="player-loading-banner player-loading-banner-fallback" />
             {loadingArtworkUrl && (
               <>

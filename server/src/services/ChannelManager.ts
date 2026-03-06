@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { ChannelParsed, ChannelFilter, JellyfinItem } from '../types/index.js';
+import type { ChannelParsed, ChannelFilter, MediaItem } from '../types/index.js';
 import type { MediaProvider } from './MediaProvider.js';
 import { ScheduleEngine } from './ScheduleEngine.js';
 import { CHANNEL_PRESETS, PRESET_CATEGORIES, getPresetById } from '../data/channelPresets.js';
@@ -81,13 +81,17 @@ const PRIORITY_GENRE_NAMES = new Set([
 
 export class ChannelManager {
   private db: Database.Database;
-  private jellyfin: MediaProvider;
+  private provider: MediaProvider;
   private scheduleEngine: ScheduleEngine;
 
-  constructor(db: Database.Database, jellyfin: MediaProvider, scheduleEngine: ScheduleEngine) {
+  constructor(db: Database.Database, provider: MediaProvider, scheduleEngine: ScheduleEngine) {
     this.db = db;
-    this.jellyfin = jellyfin;
+    this.provider = provider;
     this.scheduleEngine = scheduleEngine;
+  }
+
+  setProvider(provider: MediaProvider): void {
+    this.provider = provider;
   }
 
   /**
@@ -134,7 +138,7 @@ export class ChannelManager {
     queries.deleteAutoAndPresetChannels(this.db);
 
     const created: ChannelParsed[] = [];
-    const libraryItems = this.jellyfin.getLibraryItems();
+    const libraryItems = this.provider.getLibraryItems();
     const totalPresets = presetIds.length;
     const presetCountThisBatch = new Map<string, number>();
 
@@ -205,7 +209,7 @@ export class ChannelManager {
 
       // Check minimum duration
       const totalDuration = filteredItems.reduce(
-        (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+        (sum, item) => sum + this.provider.getItemDurationMs(item),
         0
       );
 
@@ -226,7 +230,7 @@ export class ChannelManager {
 
         for (const split of splits) {
           if (split.items.length === 0 || created.length >= maxCount) continue;
-          const splitDuration = split.items.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+          const splitDuration = split.items.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
           if (splitDuration < MIN_CHANNEL_DURATION_MS) continue;
 
           const channelName = this.getUniqueChannelName(`${preset.name} ${split.suffix}`, usedNames);
@@ -296,7 +300,7 @@ export class ChannelManager {
   /** Config for creating one channel (used to create multiple copies back-to-back). */
   private async getDynamicChannelConfigs(
     preset: typeof CHANNEL_PRESETS[0],
-    libraryItems: JellyfinItem[],
+    libraryItems: MediaItem[],
     maxCount: number,
     usedNames: Set<string>
   ): Promise<Array<{ name: string; type: 'preset'; preset_id: string; filter: ChannelFilter; item_ids: string[]; genre?: string }>> {
@@ -312,7 +316,7 @@ export class ChannelManager {
       for (const genre of PRIORITY_GENRES) {
         if (configs.length >= maxCount) break;
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
-        const items = this.jellyfin.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
+        const items = this.provider.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -326,7 +330,7 @@ export class ChannelManager {
           if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(genre, usedNames);
         configs.push({
@@ -343,13 +347,13 @@ export class ChannelManager {
         }
       }
       // Other genres: include any item with this genre anywhere; skip if already covered by a priority channel
-      const genres = this.jellyfin.getGenres();
+      const genres = this.provider.getGenres();
       const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
       for (const [genre] of sortedGenres) {
         if (configs.length >= maxCount) break;
         if (PRIORITY_GENRE_NAMES.has(genre)) continue;
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
-        const items = this.jellyfin.getItemsWithGenre(genre);
+        const items = this.provider.getItemsWithGenre(genre);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -362,7 +366,7 @@ export class ChannelManager {
           if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(genre, usedNames);
         configs.push({
@@ -393,7 +397,7 @@ export class ChannelManager {
           }
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(decade.name, usedNames);
         configs.push({ name, type: 'preset', preset_id: `${preset.id}:${decade.id}`, filter, item_ids: filteredItems.map(i => i.Id) });
@@ -412,7 +416,7 @@ export class ChannelManager {
           }
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CAST_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(director.name, usedNames);
         configs.push({
@@ -437,7 +441,7 @@ export class ChannelManager {
           }
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CAST_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(actor.name, usedNames);
         configs.push({
@@ -462,7 +466,7 @@ export class ChannelManager {
           }
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CAST_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(composer.name, usedNames);
         configs.push({
@@ -474,7 +478,7 @@ export class ChannelManager {
         });
       }
     } else if (preset.dynamicType === 'collections') {
-      const collections = await this.jellyfin.getCollections();
+      const collections = await this.provider.getCollections();
       for (const collection of collections) {
         if (configs.length >= maxCount) break;
         const filteredItems = collection.items.filter(item => {
@@ -487,7 +491,7 @@ export class ChannelManager {
           }
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(collection.name, usedNames);
         configs.push({
@@ -499,7 +503,7 @@ export class ChannelManager {
         });
       }
     } else if (preset.dynamicType === 'playlists') {
-      const playlists = await this.jellyfin.getPlaylists();
+      const playlists = await this.provider.getPlaylists();
       for (const playlist of playlists) {
         if (configs.length >= maxCount) break;
         const filteredItems = playlist.items.filter(item => {
@@ -512,7 +516,7 @@ export class ChannelManager {
           }
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (filteredItems.length === 0) continue;
         const name = this.getUniqueChannelName(playlist.name, usedNames);
         configs.push({
@@ -537,7 +541,7 @@ export class ChannelManager {
           }
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(studio.name, usedNames);
         configs.push({
@@ -562,7 +566,7 @@ export class ChannelManager {
           }
           return true;
         });
-        const totalDuration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
         const name = this.getUniqueChannelName(network.name, usedNames);
         configs.push({
@@ -580,7 +584,7 @@ export class ChannelManager {
   /**
    * Generate multiple channels from a dynamic preset (genres, eras, collections, etc.)
    */
-  private async generateDynamicChannels(preset: typeof CHANNEL_PRESETS[0], libraryItems: JellyfinItem[], maxCount: number): Promise<ChannelParsed[]> {
+  private async generateDynamicChannels(preset: typeof CHANNEL_PRESETS[0], libraryItems: MediaItem[], maxCount: number): Promise<ChannelParsed[]> {
     const created: ChannelParsed[] = [];
     const usedNames = new Set(queries.getChannelNames(this.db));
 
@@ -595,7 +599,7 @@ export class ChannelManager {
         if (created.length >= maxCount) break;
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
 
-        const items = this.jellyfin.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
+        const items = this.provider.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -608,7 +612,7 @@ export class ChannelManager {
           return true;
         });
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
@@ -630,7 +634,7 @@ export class ChannelManager {
       }
 
       // 2) Other genres from library; skip if already covered by a priority channel
-      const genres = this.jellyfin.getGenres();
+      const genres = this.provider.getGenres();
       const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
       for (const [genre] of sortedGenres) {
         if (created.length >= maxCount) break;
@@ -638,7 +642,7 @@ export class ChannelManager {
 
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
 
-        const items = this.jellyfin.getItemsWithGenre(genre);
+        const items = this.provider.getItemsWithGenre(genre);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -651,7 +655,7 @@ export class ChannelManager {
           return true;
         });
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
         if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
@@ -703,7 +707,7 @@ export class ChannelManager {
 
         // Check minimum duration
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
 
@@ -745,7 +749,7 @@ export class ChannelManager {
 
         // Check minimum duration (use lower threshold for cast/crew channels)
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
 
@@ -788,7 +792,7 @@ export class ChannelManager {
 
         // Check minimum duration (use lower threshold for cast/crew channels)
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
 
@@ -828,7 +832,7 @@ export class ChannelManager {
 
         // Check minimum duration (use lower threshold for cast/crew channels)
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
 
@@ -849,7 +853,7 @@ export class ChannelManager {
     } else if (preset.dynamicType === 'collections') {
       // Generate collection-based channels
       this.reportProgress('generating', 'Fetching collections from Jellyfin...');
-      const collections = await this.jellyfin.getCollections();
+      const collections = await this.provider.getCollections();
       const settings = this.getFilterSettings();
 
       console.log(`[ChannelManager] Processing ${collections.length} collections for channel generation`);
@@ -875,7 +879,7 @@ export class ChannelManager {
 
         // Check minimum duration
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
 
@@ -901,7 +905,7 @@ export class ChannelManager {
     } else if (preset.dynamicType === 'playlists') {
       // Generate playlist-based channels
       this.reportProgress('generating', 'Fetching playlists from Jellyfin...');
-      const playlists = await this.jellyfin.getPlaylists();
+      const playlists = await this.provider.getPlaylists();
       const settings = this.getFilterSettings();
 
       console.log(`[ChannelManager] Processing ${playlists.length} playlists for channel generation`);
@@ -922,7 +926,7 @@ export class ChannelManager {
         });
 
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
 
@@ -969,7 +973,7 @@ export class ChannelManager {
 
         // Check minimum duration
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
 
@@ -1012,7 +1016,7 @@ export class ChannelManager {
         });
 
         const totalDuration = filteredItems.reduce(
-          (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+          (sum, item) => sum + this.provider.getItemDurationMs(item),
           0
         );
 
@@ -1041,7 +1045,7 @@ export class ChannelManager {
   /**
    * Analyze library to find which decades have content
    */
-  private getDecadesFromLibrary(items: JellyfinItem[]): { id: string; name: string; startYear: number; endYear: number; count: number }[] {
+  private getDecadesFromLibrary(items: MediaItem[]): { id: string; name: string; startYear: number; endYear: number; count: number }[] {
     const decadeCounts = new Map<number, number>();
 
     for (const item of items) {
@@ -1089,8 +1093,8 @@ export class ChannelManager {
    * Analyze library to find directors with multiple works.
    * Curated popular directors are ranked first, then filled by library count.
    */
-  private getDirectorsFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
-    const directorMap = new Map<string, JellyfinItem[]>();
+  private getDirectorsFromLibrary(items: MediaItem[]): { name: string; items: MediaItem[]; count: number }[] {
+    const directorMap = new Map<string, MediaItem[]>();
 
     let itemsWithPeople = 0;
     for (const item of items) {
@@ -1109,7 +1113,7 @@ export class ChannelManager {
 
     console.log(`[ChannelManager] Found ${itemsWithPeople}/${items.length} items with People data, ${directorMap.size} unique directors`);
 
-    const directors: { name: string; items: JellyfinItem[]; count: number }[] = [];
+    const directors: { name: string; items: MediaItem[]; count: number }[] = [];
     
     for (const [name, directorItems] of directorMap) {
       // Only include directors with at least 2 items (enough for a channel)
@@ -1133,8 +1137,8 @@ export class ChannelManager {
    * Analyze library to find lead actors with multiple appearances.
    * Curated popular actors are ranked first, then filled by library count.
    */
-  private getActorsFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
-    const actorMap = new Map<string, JellyfinItem[]>();
+  private getActorsFromLibrary(items: MediaItem[]): { name: string; items: MediaItem[]; count: number }[] {
+    const actorMap = new Map<string, MediaItem[]>();
 
     for (const item of items) {
       if (!item.People) continue;
@@ -1152,7 +1156,7 @@ export class ChannelManager {
       }
     }
 
-    const actors: { name: string; items: JellyfinItem[]; count: number }[] = [];
+    const actors: { name: string; items: MediaItem[]; count: number }[] = [];
     
     for (const [name, actorItems] of actorMap) {
       // Only include actors with at least 5 items (they need to be prolific)
@@ -1174,8 +1178,8 @@ export class ChannelManager {
    * Analyze library to find composers with multiple works.
    * Curated popular composers are ranked first, then filled by library count.
    */
-  private getComposersFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
-    const composerMap = new Map<string, JellyfinItem[]>();
+  private getComposersFromLibrary(items: MediaItem[]): { name: string; items: MediaItem[]; count: number }[] {
+    const composerMap = new Map<string, MediaItem[]>();
 
     for (const item of items) {
       if (!item.People) continue;
@@ -1190,7 +1194,7 @@ export class ChannelManager {
       }
     }
 
-    const composers: { name: string; items: JellyfinItem[]; count: number }[] = [];
+    const composers: { name: string; items: MediaItem[]; count: number }[] = [];
     
     for (const [name, composerItems] of composerMap) {
       // Only include composers with at least 3 items (enough for a channel)
@@ -1211,8 +1215,8 @@ export class ChannelManager {
   /**
    * Analyze library to find studios with multiple works
    */
-  private getStudiosFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
-    const studioMap = new Map<string, JellyfinItem[]>();
+  private getStudiosFromLibrary(items: MediaItem[]): { name: string; items: MediaItem[]; count: number }[] {
+    const studioMap = new Map<string, MediaItem[]>();
     let itemsWithStudios = 0;
 
     for (const item of items) {
@@ -1230,7 +1234,7 @@ export class ChannelManager {
 
     console.log(`[ChannelManager] Found ${itemsWithStudios}/${items.length} items with Studios data, ${studioMap.size} unique studios`);
 
-    const studios: { name: string; items: JellyfinItem[]; count: number }[] = [];
+    const studios: { name: string; items: MediaItem[]; count: number }[] = [];
     
     for (const [name, studioItems] of studioMap) {
       // Only include studios with at least 5 items (enough for a channel with variety)
@@ -1253,8 +1257,8 @@ export class ChannelManager {
    * Analyze library to find TV networks with multiple shows.
    * Uses the same Studios field as getStudiosFromLibrary but only considers episodes.
    */
-  private getNetworksFromLibrary(items: JellyfinItem[]): { name: string; items: JellyfinItem[]; count: number }[] {
-    const networkMap = new Map<string, JellyfinItem[]>();
+  private getNetworksFromLibrary(items: MediaItem[]): { name: string; items: MediaItem[]; count: number }[] {
+    const networkMap = new Map<string, MediaItem[]>();
     let episodesWithStudios = 0;
 
     for (const item of items) {
@@ -1272,7 +1276,7 @@ export class ChannelManager {
 
     console.log(`[ChannelManager] Found ${episodesWithStudios} episodes with Studios/Network data, ${networkMap.size} unique networks`);
 
-    const networks: { name: string; items: JellyfinItem[]; count: number }[] = [];
+    const networks: { name: string; items: MediaItem[]; count: number }[] = [];
 
     for (const [name, networkItems] of networkMap) {
       if (networkItems.length < 3) continue;
@@ -1309,7 +1313,7 @@ export class ChannelManager {
       if (created.length >= maxCount) break;
       if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
 
-      const items = this.jellyfin.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
+      const items = this.provider.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
       const filteredItems = items.filter(item => {
         if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
         if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -1322,7 +1326,7 @@ export class ChannelManager {
         return true;
       });
       const totalDuration = filteredItems.reduce(
-        (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+        (sum, item) => sum + this.provider.getItemDurationMs(item),
         0
       );
       if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
@@ -1341,7 +1345,7 @@ export class ChannelManager {
     }
 
     // 2) Other genres from library; skip if already covered by a priority channel
-    const genres = this.jellyfin.getGenres();
+    const genres = this.provider.getGenres();
     const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
     for (const [genre] of sortedGenres) {
       if (created.length >= maxCount) break;
@@ -1349,7 +1353,7 @@ export class ChannelManager {
 
       if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
 
-      const items = this.jellyfin.getItemsWithGenre(genre);
+      const items = this.provider.getItemsWithGenre(genre);
       const filteredItems = items.filter(item => {
         if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
         if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -1362,7 +1366,7 @@ export class ChannelManager {
         return true;
       });
       const totalDuration = filteredItems.reduce(
-        (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+        (sum, item) => sum + this.provider.getItemDurationMs(item),
         0
       );
       if (totalDuration < MIN_CHANNEL_DURATION_MS) continue;
@@ -1393,7 +1397,7 @@ export class ChannelManager {
       throw new Error(`Unknown preset: ${presetId}`);
     }
 
-    const libraryItems = this.jellyfin.getLibraryItems();
+    const libraryItems = this.provider.getLibraryItems();
     const filteredItems = this.filterItemsByChannelFilter(libraryItems, preset.filter);
 
     if (filteredItems.length === 0) {
@@ -1421,7 +1425,7 @@ export class ChannelManager {
    */
   createCustomChannel(name: string, itemIds: string[], aiPrompt?: string): ChannelParsed {
     // Validate all IDs exist in the library
-    const validIds = itemIds.filter(id => this.jellyfin.getItem(id));
+    const validIds = itemIds.filter(id => this.provider.getItem(id));
 
     if (validIds.length === 0) {
       throw new Error('No valid items found for channel');
@@ -1446,7 +1450,7 @@ export class ChannelManager {
    * Create a custom channel with a filter
    */
   createFilteredChannel(name: string, filter: ChannelFilter): ChannelParsed {
-    const libraryItems = this.jellyfin.getLibraryItems();
+    const libraryItems = this.provider.getLibraryItems();
     const filteredItems = this.filterItemsByChannelFilter(libraryItems, filter);
 
     if (filteredItems.length === 0) {
@@ -1471,7 +1475,7 @@ export class ChannelManager {
   /**
    * Filter library items based on a ChannelFilter
    */
-  filterItemsByChannelFilter(items: JellyfinItem[], filter: ChannelFilter): JellyfinItem[] {
+  filterItemsByChannelFilter(items: MediaItem[], filter: ChannelFilter): MediaItem[] {
     return items.filter(item => {
       // Content type filter
       const includeMovies = filter.includeMovies ?? true;
@@ -1533,7 +1537,7 @@ export class ChannelManager {
       }
 
       // Duration filter
-      const durationMinutes = this.jellyfin.getItemDurationMs(item) / 60000;
+      const durationMinutes = this.provider.getItemDurationMs(item) / 60000;
       if (filter.minDurationMinutes && durationMinutes < filter.minDurationMinutes) return false;
       if (filter.maxDurationMinutes && durationMinutes > filter.maxDurationMinutes) return false;
 
@@ -1616,12 +1620,12 @@ export class ChannelManager {
    * Get all available genres from the library
    */
   getAvailableGenres(): { genre: string; count: number; totalDurationMs: number }[] {
-    const genres = this.jellyfin.getGenres();
+    const genres = this.provider.getGenres();
     const result: { genre: string; count: number; totalDurationMs: number }[] = [];
 
     for (const [genre, items] of genres) {
       const totalDurationMs = items.reduce(
-        (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+        (sum, item) => sum + this.provider.getItemDurationMs(item),
         0
       );
       result.push({ genre, count: items.length, totalDurationMs });
@@ -1634,7 +1638,7 @@ export class ChannelManager {
    * Get all available content ratings from the library and count of items with no rating.
    */
   getAvailableRatings(): { ratings: { rating: string; count: number }[]; unratedCount: number } {
-    const libraryItems = this.jellyfin.getLibraryItems();
+    const libraryItems = this.provider.getLibraryItems();
     const ratingCounts = new Map<string, number>();
     let unratedCount = 0;
 
@@ -1666,7 +1670,7 @@ export class ChannelManager {
       return { count: 0, totalDurationMs: 0 };
     }
 
-    const libraryItems = this.jellyfin.getLibraryItems();
+    const libraryItems = this.provider.getLibraryItems();
 
     // Handle dynamic presets
     if (preset.isDynamic) {
@@ -1675,7 +1679,7 @@ export class ChannelManager {
 
     const filtered = this.filterItemsByChannelFilter(libraryItems, preset.filter);
     const totalDurationMs = filtered.reduce(
-      (sum, item) => sum + this.jellyfin.getItemDurationMs(item),
+      (sum, item) => sum + this.provider.getItemDurationMs(item),
       0
     );
 
@@ -1685,7 +1689,7 @@ export class ChannelManager {
   /**
    * Preview dynamic preset channels
    */
-  private async previewDynamicPreset(preset: typeof CHANNEL_PRESETS[0], libraryItems: JellyfinItem[]): Promise<{ count: number; totalDurationMs: number; isDynamic: boolean; dynamicChannels: { name: string; count: number }[] }> {
+  private async previewDynamicPreset(preset: typeof CHANNEL_PRESETS[0], libraryItems: MediaItem[]): Promise<{ count: number; totalDurationMs: number; isDynamic: boolean; dynamicChannels: { name: string; count: number }[] }> {
     const dynamicChannels: { name: string; count: number }[] = [];
     let totalItems = 0;
     let totalDuration = 0;
@@ -1697,7 +1701,7 @@ export class ChannelManager {
 
       for (const genre of PRIORITY_GENRES) {
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
-        const items = this.jellyfin.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
+        const items = this.provider.getItemsWithGenre(genre, GENRE_ALTERNATES[genre] ?? []);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -1709,7 +1713,7 @@ export class ChannelManager {
           if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (duration >= MIN_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: genre, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1720,12 +1724,12 @@ export class ChannelManager {
         }
       }
 
-      const genres = this.jellyfin.getGenres();
+      const genres = this.provider.getGenres();
       const sortedGenres = Array.from(genres.entries()).sort((a, b) => b[1].length - a[1].length);
       for (const [genre] of sortedGenres) {
         if (PRIORITY_GENRE_NAMES.has(genre)) continue;
         if (!this.isGenreAllowed(genre, settings.genreFilter)) continue;
-        const items = this.jellyfin.getItemsWithGenre(genre);
+        const items = this.provider.getItemsWithGenre(genre);
         const filteredItems = items.filter(item => {
           if (item.Type === 'Movie' && !settings.contentTypes.movies) return false;
           if (item.Type === 'Episode' && !settings.contentTypes.tv_shows) return false;
@@ -1737,7 +1741,7 @@ export class ChannelManager {
           if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (duration >= MIN_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: genre, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1771,7 +1775,7 @@ export class ChannelManager {
           if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
 
         if (duration >= MIN_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: decade.name, count: filteredItems.length });
@@ -1795,7 +1799,7 @@ export class ChannelManager {
           return true;
         });
 
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (duration >= MIN_CAST_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: director.name, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1818,7 +1822,7 @@ export class ChannelManager {
           return true;
         });
 
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (duration >= MIN_CAST_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: actor.name, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1841,7 +1845,7 @@ export class ChannelManager {
           return true;
         });
 
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (duration >= MIN_CAST_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: composer.name, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1849,7 +1853,7 @@ export class ChannelManager {
         }
       }
     } else if (preset.dynamicType === 'collections') {
-      const collections = await this.jellyfin.getCollections();
+      const collections = await this.provider.getCollections();
       const settings = this.getFilterSettings();
 
       for (const collection of collections) {
@@ -1865,7 +1869,7 @@ export class ChannelManager {
           return true;
         });
 
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (duration >= MIN_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: collection.name, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1873,7 +1877,7 @@ export class ChannelManager {
         }
       }
     } else if (preset.dynamicType === 'playlists') {
-      const playlists = await this.jellyfin.getPlaylists();
+      const playlists = await this.provider.getPlaylists();
       const settings = this.getFilterSettings();
 
       for (const playlist of playlists) {
@@ -1888,7 +1892,7 @@ export class ChannelManager {
           return true;
         });
 
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (filteredItems.length === 0) continue;
         dynamicChannels.push({ name: playlist.name, count: filteredItems.length });
         totalItems += filteredItems.length;
@@ -1910,7 +1914,7 @@ export class ChannelManager {
           return true;
         });
 
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (duration >= MIN_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: studio.name, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1933,7 +1937,7 @@ export class ChannelManager {
           return true;
         });
 
-        const duration = filteredItems.reduce((sum, item) => sum + this.jellyfin.getItemDurationMs(item), 0);
+        const duration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
         if (duration >= MIN_CHANNEL_DURATION_MS) {
           dynamicChannels.push({ name: network.name, count: filteredItems.length });
           totalItems += filteredItems.length;
@@ -1953,8 +1957,8 @@ export class ChannelManager {
   /**
    * Search library items by query (for manual channel creation)
    */
-  searchLibrary(query: string): JellyfinItem[] {
-    const items = this.jellyfin.getLibraryItems();
+  searchLibrary(query: string): MediaItem[] {
+    const items = this.provider.getLibraryItems();
     const lower = query.toLowerCase();
 
     return items.filter(item => {
@@ -1985,9 +1989,9 @@ export class ChannelManager {
       let tvDuration = 0;
 
       for (const id of config.item_ids) {
-        const item = this.jellyfin.getItem(id);
+        const item = this.provider.getItem(id);
         if (!item) continue;
-        const duration = this.jellyfin.getItemDurationMs(item);
+        const duration = this.provider.getItemDurationMs(item);
         if (item.Type === 'Movie') {
           movieIds.push(id);
           movieDuration += duration;
@@ -2074,9 +2078,9 @@ export class ChannelManager {
    * names found in the library; remaining entries are sorted by descending count.
    */
   private rankByPriority(
-    people: { name: string; items: JellyfinItem[]; count: number }[],
+    people: { name: string; items: MediaItem[]; count: number }[],
     priorityList: string[]
-  ): { name: string; items: JellyfinItem[]; count: number }[] {
+  ): { name: string; items: MediaItem[]; count: number }[] {
     const nameLower = new Map(people.map(p => [p.name.toLowerCase(), p]));
 
     // Collect priority matches in list order

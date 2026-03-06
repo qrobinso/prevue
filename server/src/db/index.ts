@@ -167,6 +167,9 @@ function runMigrations(db: Database.Database): void {
   // Migration: Add series_name column to watch_sessions if it doesn't exist
   migrateWatchSessionsTable(db);
 
+  // Migration: Add server_type and plex_client_id columns for Plex support
+  migrateServersTableForPlex(db);
+
   // Cleanup: Remove orphaned library cache entries (where server_id doesn't exist)
   cleanupOrphanedData(db);
 }
@@ -301,6 +304,25 @@ function migrateWatchSessionsTable(db: Database.Database): void {
     try {
       db.exec("ALTER TABLE watch_sessions ADD COLUMN series_name TEXT");
       console.log('[Database] Added series_name column to watch_sessions');
+    } catch { /* column may already exist */ }
+  }
+}
+
+function migrateServersTableForPlex(db: Database.Database): void {
+  const tableInfo = db.prepare("PRAGMA table_info('servers')").all() as { name: string }[];
+  const columnNames = tableInfo.map(col => col.name);
+
+  if (!columnNames.includes('server_type')) {
+    try {
+      db.exec("ALTER TABLE servers ADD COLUMN server_type TEXT NOT NULL DEFAULT 'jellyfin'");
+      console.log('[Database] Added server_type column to servers');
+    } catch { /* column may already exist */ }
+  }
+
+  if (!columnNames.includes('plex_client_id')) {
+    try {
+      db.exec('ALTER TABLE servers ADD COLUMN plex_client_id TEXT');
+      console.log('[Database] Added plex_client_id column to servers');
     } catch { /* column may already exist */ }
   }
 }

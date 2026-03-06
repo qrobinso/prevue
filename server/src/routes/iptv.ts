@@ -351,9 +351,9 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
 // GET /channel/:channelNumber - HLS stream for a channel's current program
 iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) => {
   try {
-    const { db, scheduleEngine, jellyfinClient } = req.app.locals;
+    const { db, scheduleEngine, mediaProvider } = req.app.locals;
     const se = scheduleEngine as ScheduleEngine;
-    const jf = jellyfinClient as MediaProvider;
+    const provider = mediaProvider as MediaProvider;
 
     if (!requireIptvAuth(req, res)) return;
     if (!isIptvEnabled(db)) {
@@ -380,10 +380,10 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
     }
 
     const { program, seekMs } = current;
-    const itemId = program.jellyfin_item_id;
+    const itemId = program.media_item_id;
 
     // Get HLS session info from Jellyfin
-    const hlsInfo = await jf.getHlsStreamUrl(itemId);
+    const hlsInfo = await provider.getHlsStreamUrl(itemId);
     const { playSessionId, mediaSourceId } = hlsInfo;
 
     // Track session + record timing so the proxy can build a live window
@@ -391,9 +391,9 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
     lastActivityByItemId.set(itemId, Date.now());
     iptvSessionInfo.set(playSessionId, { startTime: Date.now(), seekMs });
 
-    const baseUrl = jf.getBaseUrl();
-    const headers = jf.getProxyHeaders();
-    const deviceId = jf.getDeviceId();
+    const baseUrl = provider.getBaseUrl();
+    const headers = provider.getProxyHeaders();
+    const deviceId = provider.getDeviceId();
 
     // Build Jellyfin HLS URL — use h264/aac for widest IPTV player compatibility
     const params = new URLSearchParams({
@@ -427,8 +427,8 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
       const errorText = await response.text().catch(() => '');
       console.error(`[IPTV] Jellyfin returned ${response.status}: ${errorText.slice(0, 500)}`);
       try {
-        await jf.stopPlaybackSession(playSessionId);
-        await jf.deleteTranscodingJob(playSessionId);
+        await provider.stopPlaybackSession(playSessionId);
+        await provider.deleteTranscodingJob(playSessionId);
       } catch { /* best-effort cleanup */ }
       activeSessions.delete(itemId);
       lastActivityByItemId.delete(itemId);

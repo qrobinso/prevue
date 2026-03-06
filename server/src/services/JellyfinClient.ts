@@ -3,7 +3,7 @@ import { Jellyfin } from '@jellyfin/sdk';
 import { getItemsApi, getMediaInfoApi, getSystemApi, getDynamicHlsApi, getImageApi, getUserApi, getPlaystateApi } from '@jellyfin/sdk/lib/utils/api/index.js';
 import type { Api } from '@jellyfin/sdk';
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/index.js';
-import type { JellyfinItem, JellyfinLibrary, ServerConfig } from '../types/index.js';
+import type { MediaItem, MediaLibrary, ServerConfig } from '../types/index.js';
 import type { MediaProvider, PlaybackInfoResult } from './MediaProvider.js';
 import * as queries from '../db/queries.js';
 import { ticksToMs, msToTicks } from '../utils/time.js';
@@ -11,8 +11,9 @@ import { randomUUID } from 'crypto';
 
 export class JellyfinClient implements MediaProvider {
   readonly providerType = 'jellyfin' as const;
+  readonly capabilities = { supportsMediaSegments: true, supportsServerDiscovery: true, supportsReAuth: true };
   private db: Database.Database;
-  private libraryItems: Map<string, JellyfinItem> = new Map();
+  private libraryItems: Map<string, MediaItem> = new Map();
   private jellyfin: Jellyfin;
   private api: Api | null = null;
   private deviceId: string;
@@ -149,7 +150,7 @@ export class JellyfinClient implements MediaProvider {
 
   // ─── Library ──────────────────────────────────────────
 
-  async syncLibrary(onProgress?: (message: string) => void): Promise<JellyfinItem[]> {
+  async syncLibrary(onProgress?: (message: string) => void): Promise<MediaItem[]> {
     const server = this.getActiveServer();
     if (!server) {
       console.log('[Jellyfin] No active server to sync');
@@ -171,14 +172,14 @@ export class JellyfinClient implements MediaProvider {
     // Cache in memory
     this.libraryItems.clear();
     for (const item of allItems) {
-      this.libraryItems.set(item.Id!, item as JellyfinItem);
+      this.libraryItems.set(item.Id!, item as MediaItem);
     }
 
     // Cache in database - verify server still exists before inserting
     const serverStillExists = queries.getServerById(this.db, server.id);
     if (!serverStillExists) {
       console.error(`[Jellyfin] Server ${server.id} no longer exists, skipping database cache`);
-      return allItems as JellyfinItem[];
+      return allItems as MediaItem[];
     }
 
     try {
@@ -192,7 +193,7 @@ export class JellyfinClient implements MediaProvider {
     }
 
     console.log(`[Jellyfin] Synced ${movies.length} movies and ${episodes.length} episodes`);
-    return allItems as JellyfinItem[];
+    return allItems as MediaItem[];
   }
 
   private async fetchItems(itemType: string, onProgress?: (message: string) => void): Promise<BaseItemDto[]> {
@@ -309,12 +310,12 @@ export class JellyfinClient implements MediaProvider {
 
   // ─── Library Access ───────────────────────────────────
 
-  getLibraryItems(): JellyfinItem[] {
+  getLibraryItems(): MediaItem[] {
     if (this.libraryItems.size === 0) {
       // Load from cache
       const server = this.getActiveServer();
       if (server) {
-        const cached = queries.getCachedLibrary(this.db, server.id) as JellyfinItem[];
+        const cached = queries.getCachedLibrary(this.db, server.id) as MediaItem[];
         for (const item of cached) {
           this.libraryItems.set(item.Id, item);
         }
@@ -323,7 +324,7 @@ export class JellyfinClient implements MediaProvider {
     return Array.from(this.libraryItems.values());
   }
 
-  getItem(id: string): JellyfinItem | undefined {
+  getItem(id: string): MediaItem | undefined {
     return this.libraryItems.get(id);
   }
 
@@ -350,7 +351,7 @@ export class JellyfinClient implements MediaProvider {
         ids: [itemId],
         fields: ['Overview', 'Genres', 'People', 'Studios', 'CommunityRating'] as any,
       });
-      const item = response.data.Items?.[0] as JellyfinItem | undefined;
+      const item = response.data.Items?.[0] as MediaItem | undefined;
       if (!item) {
         return { overview: null };
       }
@@ -367,7 +368,7 @@ export class JellyfinClient implements MediaProvider {
     }
   }
 
-  getItemsByGenre(genre: string): JellyfinItem[] {
+  getItemsByGenre(genre: string): MediaItem[] {
     return this.getLibraryItems().filter(
       item => item.Genres?.some(g => g.toLowerCase() === genre.toLowerCase())
     );
@@ -376,7 +377,7 @@ export class JellyfinClient implements MediaProvider {
   /**
    * Return all items that have the given genre (or any alternate name) anywhere in Genres.
    */
-  getItemsWithGenre(canonicalGenre: string, alternateNames: string[] = []): JellyfinItem[] {
+  getItemsWithGenre(canonicalGenre: string, alternateNames: string[] = []): MediaItem[] {
     const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
     return this.getLibraryItems().filter(item =>
       (item.Genres || []).some(g => matchNames.includes(g.toLowerCase()))
@@ -387,7 +388,7 @@ export class JellyfinClient implements MediaProvider {
    * Return items whose lead (first) genre is the given genre or one of the alternate names.
    * Ensures each item is assigned to at most one genre channel (e.g. a comedy is not placed on Drama).
    */
-  getItemsWithLeadGenre(canonicalGenre: string, alternateNames: string[] = []): JellyfinItem[] {
+  getItemsWithLeadGenre(canonicalGenre: string, alternateNames: string[] = []): MediaItem[] {
     const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
     return this.getLibraryItems().filter(item => {
       const lead = (item.Genres || [])[0];
@@ -395,8 +396,8 @@ export class JellyfinClient implements MediaProvider {
     });
   }
 
-  getGenres(): Map<string, JellyfinItem[]> {
-    const genres = new Map<string, JellyfinItem[]>();
+  getGenres(): Map<string, MediaItem[]> {
+    const genres = new Map<string, MediaItem[]>();
     for (const item of this.getLibraryItems()) {
       // Use only the lead (first) genre for genre-channel assignment
       // This prevents the same item from appearing on multiple genre channels
@@ -409,7 +410,7 @@ export class JellyfinClient implements MediaProvider {
     return genres;
   }
 
-  getItemDurationMs(item: JellyfinItem): number {
+  getItemDurationMs(item: MediaItem): number {
     return item.RunTimeTicks ? ticksToMs(item.RunTimeTicks) : 0;
   }
 
@@ -418,7 +419,7 @@ export class JellyfinClient implements MediaProvider {
   /**
    * Fetch all collections (BoxSets) from the library with their items
    */
-  async getCollections(): Promise<{ id: string; name: string; items: JellyfinItem[] }[]> {
+  async getCollections(): Promise<{ id: string; name: string; items: MediaItem[] }[]> {
     const api = this.getApi();
     const itemsApi = getItemsApi(api);
     const userId = this.getUserId();
@@ -458,7 +459,7 @@ export class JellyfinClient implements MediaProvider {
 
             const items = (itemsResponse.data.Items || [])
               .filter(item => item.Id && item.RunTimeTicks)
-              .map(item => item as JellyfinItem);
+              .map(item => item as MediaItem);
 
             console.log(`[Jellyfin] Collection "${boxSet.Name}": ${items.length} items`);
 
@@ -490,7 +491,7 @@ export class JellyfinClient implements MediaProvider {
   /**
    * Fetch all playlists from the library with their items
    */
-  async getPlaylists(): Promise<{ id: string; name: string; items: JellyfinItem[] }[]> {
+  async getPlaylists(): Promise<{ id: string; name: string; items: MediaItem[] }[]> {
     const api = this.getApi();
     const itemsApi = getItemsApi(api);
     const userId = this.getUserId();
@@ -527,7 +528,7 @@ export class JellyfinClient implements MediaProvider {
 
             const items = (itemsResponse.data.Items || [])
               .filter(item => item.Id && item.RunTimeTicks)
-              .map(item => item as JellyfinItem);
+              .map(item => item as MediaItem);
 
             console.log(`[Jellyfin] Playlist "${playlist.Name}": ${items.length} items`);
 
@@ -628,7 +629,7 @@ export class JellyfinClient implements MediaProvider {
   /**
    * Get HLS master playlist URL with proper session ID
    */
-  async getHlsStreamUrl(itemId: string, startPositionTicks?: number): Promise<{ url: string; playSessionId: string; isHdrSource: boolean; mediaSourceId: string }> {
+  async getHlsStreamUrl(itemId: string, startPositionTicks?: number, _options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<{ url: string; playSessionId: string; isHdrSource: boolean; mediaSourceId: string }> {
     const playbackInfo = await this.getPlaybackInfo(itemId);
     const playSessionId = playbackInfo.PlaySessionId || randomUUID();
     const mediaSource = playbackInfo.MediaSources?.[0];

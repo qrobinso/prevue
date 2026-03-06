@@ -1,14 +1,24 @@
-import { useState, useEffect } from 'react';
-import { getServers, addServer, deleteServer, testServer, resyncServer, discoverServers, reauthenticateServer, type ServerInfo, type DiscoveredServer } from '../../services/api';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import QRCode from 'qrcode';
+import {
+  getServers, addServer, deleteServer, testServer, resyncServer,
+  discoverServers, reauthenticateServer, requestPlexPin, checkPlexPin,
+  getPlexServers, connectPlexServer,
+  type ServerInfo, type DiscoveredServer, type PlexServerInfo,
+} from '../../services/api';
 
 interface ServerSettingsProps {
   onServerAdded?: (server: ServerInfo) => void;
 }
 
+type ProviderType = 'jellyfin' | 'plex';
+type PlexStep = 'qr' | 'servers' | 'connecting';
+
 export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSetup, setShowSetup] = useState(false);
+  const [providerType, setProviderType] = useState<ProviderType>('jellyfin');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [username, setUsername] = useState('');
@@ -22,6 +32,16 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [connecting, setConnecting] = useState(false);
   const [resyncing, setResyncing] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+
+  // Plex auth state
+  const [plexStep, setPlexStep] = useState<PlexStep>('qr');
+  const [plexAuthUrl, setPlexAuthUrl] = useState('');
+  const [plexPinId, setPlexPinId] = useState<number | null>(null);
+  const [plexClientId, setPlexClientId] = useState('');
+  const [plexAuthToken, setPlexAuthToken] = useState('');
+  const [plexServers, setPlexServers] = useState<PlexServerInfo[]>([]);
+  const [plexQrDataUrl, setPlexQrDataUrl] = useState('');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeServer = servers.find(s => s.is_active) ?? servers[0] ?? null;
 
@@ -51,12 +71,39 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   useEffect(() => { loadServers(); }, []);
 
   useEffect(() => {
-    if (showSetup) {
+    if (showSetup && providerType === 'jellyfin') {
       runDiscovery();
     } else {
       setDiscovered([]);
     }
-  }, [showSetup]);
+  }, [showSetup, providerType]);
+
+  // Cleanup Plex polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const resetSetupForm = useCallback(() => {
+    setShowSetup(false);
+    setError('');
+    setName('');
+    setUrl('');
+    setUsername('');
+    setPassword('');
+    setPlexStep('qr');
+    setPlexAuthUrl('');
+    setPlexPinId(null);
+    setPlexClientId('');
+    setPlexAuthToken('');
+    setPlexServers([]);
+    setPlexQrDataUrl('');
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
 
   const handleSelectDiscovered = (server: DiscoveredServer) => {
     setName(server.name);
@@ -67,16 +114,11 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     try {
       setError('');
       setConnecting(true);
-      // If there's an existing server, remove it first
       if (activeServer) {
         await deleteServer(activeServer.id);
       }
       const server = await addServer(name, url, username, password);
-      setName('');
-      setUrl('');
-      setUsername('');
-      setPassword('');
-      setShowSetup(false);
+      resetSetupForm();
       await loadServers();
       if (server.is_active) {
         onServerAdded?.(server);
@@ -141,6 +183,82 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     }
   };
 
+  // ─── Plex auth flow ───────────────────────────────────
+
+  const startPlexAuth = async () => {
+    try {
+      setError('');
+      const pin = await requestPlexPin();
+      setPlexPinId(pin.pin_id);
+      setPlexClientId(pin.client_id);
+      setPlexAuthUrl(pin.auth_url);
+      setPlexStep('qr');
+
+      // Generate QR code
+      const dataUrl = await QRCode.toDataURL(pin.auth_url, {
+        width: 200,
+        margin: 2,
+        color: { dark: '#ffffff', light: '#00000000' },
+      });
+      setPlexQrDataUrl(dataUrl);
+
+      // Start polling for PIN completion
+      if (pollRef.current) clearInterval(pollRef.current);
+      let pollActive = true;
+      pollRef.current = setInterval(async () => {
+        if (!pollActive) return;
+        try {
+          const result = await checkPlexPin(pin.pin_id, pin.client_id);
+          if (result.authorized && result.auth_token) {
+            pollActive = false;
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setPlexAuthToken(result.auth_token);
+
+            // Fetch user's Plex servers
+            setPlexStep('servers');
+            const servers = await getPlexServers(result.auth_token, pin.client_id);
+            setPlexServers(servers);
+          }
+        } catch (err) {
+          console.warn('[Plex] PIN poll error:', err);
+        }
+      }, 3000);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handlePlexServerSelect = async (plexServer: PlexServerInfo) => {
+    try {
+      setError('');
+      setPlexStep('connecting');
+      setConnecting(true);
+
+      if (activeServer) {
+        await deleteServer(activeServer.id);
+      }
+
+      const server = await connectPlexServer({
+        name: plexServer.name,
+        url: plexServer.url,
+        auth_token: plexAuthToken,
+        client_id: plexClientId,
+      });
+
+      resetSetupForm();
+      await loadServers();
+      if (server.is_active) {
+        onServerAdded?.(server);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+      setPlexStep('servers');
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   const renderTestBadge = () => {
     if (testResult === null) return null;
     if (testResult.connected && testResult.authenticated) {
@@ -155,10 +273,11 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   if (loading) return <div className="settings-loading">Loading...</div>;
 
   const needsAuth = activeServer ? !activeServer.is_authenticated : false;
+  const serverTypeName = activeServer?.server_type === 'plex' ? 'Plex' : 'Jellyfin';
 
   return (
     <div className="settings-section">
-      <h3>Jellyfin Server</h3>
+      <h3>Media Server</h3>
 
       {error && <div className="settings-error">{error}</div>}
 
@@ -168,13 +287,14 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
           <div className="server-card-header">
             <div className="server-card-info">
               <div className="server-card-name">
+                <span className="server-type-badge">{serverTypeName}</span>
                 {activeServer.name}
                 {!needsAuth && <span className="server-status-dot server-status-active" title="Connected" />}
                 {needsAuth && <span className="server-status-dot server-status-warning" title="Needs authentication" />}
               </div>
               <div className="server-card-details">
                 <span className="server-card-url">{activeServer.url}</span>
-                <span className="server-card-user">{activeServer.username}</span>
+                {activeServer.username && <span className="server-card-user">{activeServer.username}</span>}
               </div>
             </div>
             {renderTestBadge()}
@@ -185,7 +305,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
               TEST
             </button>
 
-            {needsAuth && (
+            {needsAuth && activeServer.server_type !== 'plex' && (
               <button
                 className="server-action-btn server-action-warning"
                 onClick={() => { setReauthOpen(!reauthOpen); setReauthPassword(''); }}
@@ -252,7 +372,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
         <div className="server-empty-state">
           <div className="server-empty-icon">⬡</div>
           <p>No server connected</p>
-          <span>Connect your Jellyfin server to get started</span>
+          <span>Connect your Jellyfin or Plex server to get started</span>
           <button
             className="settings-btn-primary"
             onClick={() => { setShowSetup(true); setError(''); }}
@@ -272,111 +392,218 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
             </p>
           )}
 
-          <div className="server-add-step">
-            <span className="server-add-step-num">1</span>
-            <span className="server-add-step-label">Find your server</span>
+          {/* Provider selection */}
+          <div className="server-provider-toggle">
+            <button
+              className={`server-provider-btn ${providerType === 'jellyfin' ? 'server-provider-btn-active' : ''}`}
+              onClick={() => { setProviderType('jellyfin'); setError(''); }}
+            >
+              Jellyfin
+            </button>
+            <button
+              className={`server-provider-btn ${providerType === 'plex' ? 'server-provider-btn-active' : ''}`}
+              onClick={() => { setProviderType('plex'); setError(''); startPlexAuth(); }}
+            >
+              Plex
+            </button>
           </div>
 
-          <div className="settings-discover">
-            <div className="settings-discover-header">
-              <label>Servers on your network</label>
-              <button
-                className="settings-btn-sm"
-                onClick={runDiscovery}
-                disabled={discovering}
-              >
-                {discovering ? 'SCANNING...' : 'RESCAN'}
-              </button>
-            </div>
-            {discovering && discovered.length === 0 && (
-              <div className="settings-discover-scanning">Scanning network...</div>
-            )}
-            {!discovering && discovered.length === 0 && (
-              <div className="settings-discover-empty">No servers found automatically. Enter details manually below.</div>
-            )}
-            {discovered.length > 0 && (
-              <div className="settings-discover-list">
-                {discovered.map(d => (
+          {/* ── Jellyfin setup ── */}
+          {providerType === 'jellyfin' && (
+            <>
+              <div className="server-add-step">
+                <span className="server-add-step-num">1</span>
+                <span className="server-add-step-label">Find your server</span>
+              </div>
+
+              <div className="settings-discover">
+                <div className="settings-discover-header">
+                  <label>Servers on your network</label>
                   <button
-                    key={d.id || d.address}
-                    className={`settings-discover-item ${url === d.address ? 'settings-discover-item-selected' : ''}`}
-                    onClick={() => handleSelectDiscovered(d)}
+                    className="settings-btn-sm"
+                    onClick={runDiscovery}
+                    disabled={discovering}
                   >
-                    <span className="settings-discover-name">{d.name}</span>
-                    <span className="settings-discover-url">{d.address}</span>
+                    {discovering ? 'SCANNING...' : 'RESCAN'}
                   </button>
-                ))}
+                </div>
+                {discovering && discovered.length === 0 && (
+                  <div className="settings-discover-scanning">Scanning network...</div>
+                )}
+                {!discovering && discovered.length === 0 && (
+                  <div className="settings-discover-empty">No servers found automatically. Enter details manually below.</div>
+                )}
+                {discovered.length > 0 && (
+                  <div className="settings-discover-list">
+                    {discovered.map(d => (
+                      <button
+                        key={d.id || d.address}
+                        className={`settings-discover-item ${url === d.address ? 'settings-discover-item-selected' : ''}`}
+                        onClick={() => handleSelectDiscovered(d)}
+                      >
+                        <span className="settings-discover-name">{d.name}</span>
+                        <span className="settings-discover-url">{d.address}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <div className="server-add-divider">
-            <span>or enter manually</span>
-          </div>
+              <div className="server-add-divider">
+                <span>or enter manually</span>
+              </div>
 
-          <div className="server-add-step">
-            <span className="server-add-step-num">2</span>
-            <span className="server-add-step-label">Server details</span>
-          </div>
+              <div className="server-add-step">
+                <span className="server-add-step-num">2</span>
+                <span className="server-add-step-label">Server details</span>
+              </div>
 
-          <div className="server-add-fields">
-            <div className="server-add-field-row">
-              <div className="settings-field">
-                <label>Server Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="My Jellyfin Server"
-                />
+              <div className="server-add-fields">
+                <div className="server-add-field-row">
+                  <div className="settings-field">
+                    <label>Server Name</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      placeholder="My Jellyfin Server"
+                    />
+                  </div>
+                  <div className="settings-field">
+                    <label>Server URL</label>
+                    <input
+                      type="text"
+                      value={url}
+                      onChange={e => setUrl(e.target.value)}
+                      placeholder="http://192.168.1.100:8096"
+                    />
+                  </div>
+                </div>
+                <div className="server-add-field-row">
+                  <div className="settings-field">
+                    <label>Username</label>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={e => setUsername(e.target.value)}
+                      placeholder="Your Jellyfin username"
+                    />
+                  </div>
+                  <div className="settings-field">
+                    <label>Password</label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="Your Jellyfin password"
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="settings-field">
-                <label>Server URL</label>
-                <input
-                  type="text"
-                  value={url}
-                  onChange={e => setUrl(e.target.value)}
-                  placeholder="http://192.168.1.100:8096"
-                />
-              </div>
-            </div>
-            <div className="server-add-field-row">
-              <div className="settings-field">
-                <label>Username</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  placeholder="Your Jellyfin username"
-                />
-              </div>
-              <div className="settings-field">
-                <label>Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Your Jellyfin password"
-                />
-              </div>
-            </div>
-          </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className="settings-btn-primary server-add-connect-btn"
-              onClick={handleConnect}
-              disabled={!name || !url || !username || connecting}
-            >
-              {connecting ? 'CONNECTING...' : 'CONNECT'}
-            </button>
-            <button
-              className="settings-btn-sm"
-              onClick={() => { setShowSetup(false); setError(''); setName(''); setUrl(''); setUsername(''); setPassword(''); }}
-            >
-              CANCEL
-            </button>
-          </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="settings-btn-primary server-add-connect-btn"
+                  onClick={handleConnect}
+                  disabled={!name || !url || !username || connecting}
+                >
+                  {connecting ? 'CONNECTING...' : 'CONNECT'}
+                </button>
+                <button
+                  className="settings-btn-sm"
+                  onClick={resetSetupForm}
+                >
+                  CANCEL
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── Plex setup ── */}
+          {providerType === 'plex' && (
+            <>
+              {plexStep === 'qr' && (
+                <div className="plex-auth-section">
+                  <div className="server-add-step">
+                    <span className="server-add-step-num">1</span>
+                    <span className="server-add-step-label">Sign in to Plex</span>
+                  </div>
+
+                  <div className="plex-qr-container">
+                    {plexQrDataUrl ? (
+                      <>
+                        <img src={plexQrDataUrl} alt="Scan to sign in to Plex" className="plex-qr-code" />
+                        <p className="plex-qr-hint">Scan with your phone to sign in</p>
+                        <a
+                          href={plexAuthUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="plex-auth-link"
+                        >
+                          Or click here to sign in manually
+                        </a>
+                        <p className="plex-qr-waiting">Waiting for authentication...</p>
+                      </>
+                    ) : (
+                      <p className="plex-qr-loading">Generating sign-in code...</p>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                    <button className="settings-btn-sm" onClick={resetSetupForm}>
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {plexStep === 'servers' && (
+                <div className="plex-auth-section">
+                  <div className="server-add-step">
+                    <span className="server-add-step-num">2</span>
+                    <span className="server-add-step-label">Select your Plex server</span>
+                  </div>
+
+                  {plexServers.length === 0 ? (
+                    <div className="settings-discover-empty">
+                      No Plex Media Servers found on your account.
+                    </div>
+                  ) : (
+                    <div className="settings-discover-list">
+                      {plexServers.map((ps, i) => (
+                        <button
+                          key={i}
+                          className="settings-discover-item"
+                          onClick={() => handlePlexServerSelect(ps)}
+                          disabled={connecting}
+                        >
+                          <span className="settings-discover-name">
+                            {ps.name}
+                            {ps.is_local && <span className="plex-server-badge plex-server-local">Local</span>}
+                            {ps.is_relay && <span className="plex-server-badge plex-server-relay">Relay</span>}
+                            {!ps.is_local && !ps.is_relay && <span className="plex-server-badge plex-server-remote">Remote</span>}
+                          </span>
+                          <span className="settings-discover-url">{ps.url}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                    <button className="settings-btn-sm" onClick={resetSetupForm}>
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {plexStep === 'connecting' && (
+                <div className="plex-auth-section">
+                  <p className="plex-qr-waiting">Connecting to Plex server...</p>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

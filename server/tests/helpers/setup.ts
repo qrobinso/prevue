@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import express from 'express';
-import type { JellyfinItem } from '../../src/types/index.js';
+import type { MediaItem } from '../../src/types/index.js';
 
 /**
  * Create an in-memory SQLite database with the Prevue schema applied.
@@ -80,7 +80,7 @@ export function createTestDb(): Database.Database {
 /**
  * Factory functions for creating mock Jellyfin media items
  */
-export function createMockMovie(overrides: Partial<JellyfinItem> = {}): JellyfinItem {
+export function createMockMovie(overrides: Partial<MediaItem> = {}): MediaItem {
   const id = overrides.Id || `movie-${Math.random().toString(36).slice(2, 8)}`;
   return {
     Id: id,
@@ -95,7 +95,7 @@ export function createMockMovie(overrides: Partial<JellyfinItem> = {}): Jellyfin
   };
 }
 
-export function createMockEpisode(overrides: Partial<JellyfinItem> = {}): JellyfinItem {
+export function createMockEpisode(overrides: Partial<MediaItem> = {}): MediaItem {
   const id = overrides.Id || `episode-${Math.random().toString(36).slice(2, 8)}`;
   return {
     Id: id,
@@ -116,7 +116,7 @@ export function createMockEpisode(overrides: Partial<JellyfinItem> = {}): Jellyf
 /**
  * Create a set of mock movies with enough duration for channel generation (>4 hours)
  */
-export function createMockMovieLibrary(count: number = 5, genre: string = 'Action'): JellyfinItem[] {
+export function createMockMovieLibrary(count: number = 5, genre: string = 'Action'): MediaItem[] {
   return Array.from({ length: count }, (_, i) =>
     createMockMovie({
       Id: `movie-${genre.toLowerCase()}-${i}`,
@@ -135,7 +135,7 @@ export function createMockEpisodeSeries(
   seriesName: string,
   episodeCount: number = 10,
   genre: string = 'Drama'
-): JellyfinItem[] {
+): MediaItem[] {
   return Array.from({ length: episodeCount }, (_, i) =>
     createMockEpisode({
       Id: `${seriesId}-ep-${i + 1}`,
@@ -154,13 +154,13 @@ export function createMockEpisodeSeries(
  * Create a mock Express app with services wired up for route testing.
  * Uses an in-memory DB and mock Jellyfin items.
  */
-export function createTestApp(mockItems: JellyfinItem[] = []) {
+export function createTestApp(mockItems: MediaItem[] = []) {
   const db = createTestDb();
   const app = express();
   app.use(express.json());
 
   // Create a mock JellyfinClient-like object
-  const itemMap = new Map<string, JellyfinItem>();
+  const itemMap = new Map<string, MediaItem>();
   for (const item of mockItems) {
     itemMap.set(item.Id, item);
   }
@@ -174,7 +174,7 @@ export function createTestApp(mockItems: JellyfinItem[] = []) {
     getItemsByGenre: (genre: string) =>
       mockItems.filter(i => i.Genres?.some(g => g.toLowerCase() === genre.toLowerCase())),
     getGenres: () => {
-      const genres = new Map<string, JellyfinItem[]>();
+      const genres = new Map<string, MediaItem[]>();
       for (const item of mockItems) {
         for (const genre of item.Genres || []) {
           const existing = genres.get(genre) || [];
@@ -184,7 +184,7 @@ export function createTestApp(mockItems: JellyfinItem[] = []) {
       }
       return genres;
     },
-    getItemDurationMs: (item: JellyfinItem) =>
+    getItemDurationMs: (item: MediaItem) =>
       item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : 0,
     getStreamUrl: (itemId: string) => `/stream/${itemId}`,
     getHlsStreamUrl: (itemId: string) => `/hls/${itemId}`,
@@ -202,7 +202,7 @@ export function createTestApp(mockItems: JellyfinItem[] = []) {
   const channelManager = new ChannelManager(db, mockJellyfin, scheduleEngine);
 
   app.locals.db = db;
-  app.locals.jellyfinClient = mockJellyfin;
+  app.locals.mediaProvider = mockJellyfin;
   app.locals.scheduleEngine = scheduleEngine;
   app.locals.channelManager = channelManager;
   app.locals.wss = { clients: new Set() }; // Mock WebSocket server

@@ -2,9 +2,11 @@ export interface ServerConfig {
   id: number;
   name: string;
   url: string;
+  server_type: 'jellyfin' | 'plex';
   username: string;
   access_token: string | null;
   user_id: string | null;
+  plex_client_id: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -78,8 +80,8 @@ export interface ChannelFilter {
   composers?: string[];  // Filter by composer names
   
   // Collection filter
-  collectionId?: string;  // Jellyfin collection/BoxSet ID
-  playlistId?: string;    // Jellyfin playlist ID
+  collectionId?: string;  // Collection/BoxSet ID
+  playlistId?: string;    // Playlist ID
   
   // Special modes
   shuffleMode?: boolean;
@@ -107,7 +109,7 @@ export interface ChannelParsed extends Omit<Channel, 'item_ids' | 'filter'> {
 }
 
 export interface ScheduleProgram {
-  jellyfin_item_id: string;
+  media_item_id: string;
   title: string;
   subtitle: string | null;
   start_time: string;
@@ -140,7 +142,7 @@ export interface ScheduleBlockParsed extends Omit<ScheduleBlock, 'programs'> {
   programs: ScheduleProgram[];
 }
 
-export interface JellyfinItem {
+export interface MediaItem {
   Id: string;
   Name: string;
   Type: string;           // 'Movie' | 'Episode' | 'Series'
@@ -173,8 +175,8 @@ export interface JellyfinItem {
   MediaSources?: { MediaStreams?: { Type?: string; Width?: number; Height?: number }[] }[];
 }
 
-export interface JellyfinLibrary {
-  Items: JellyfinItem[];
+export interface MediaLibrary {
+  Items: MediaItem[];
   TotalRecordCount: number;
 }
 
@@ -191,5 +193,5 @@ export interface WSMessage {
   payload: unknown;
 }
 
-// Provider-neutral alias for media items (Jellyfin, Plex, etc. all map to this shape)
-export type NormalizedItem = JellyfinItem;
+// Backwards-compat alias — prefer MediaItem in new code
+export type JellyfinItem = MediaItem;
