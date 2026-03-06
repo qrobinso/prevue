@@ -23,7 +23,7 @@ import InterstitialScreen from './InterstitialScreen';
 import { useSchedule } from '../../hooks/useSchedule';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
-import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from '../Guide/audioTrackUtils';
+import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer, isImageSubtitle } from '../Guide/audioTrackUtils';
 import { safeBgImage, sanitizeImageUrl } from '../../utils/sanitize';
 import { formatPlaybackError } from '../../utils/playbackError';
 import { isIOSPWA, isMobile } from '../../utils/platform';
@@ -850,10 +850,14 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     } else if (handoff) {
       // Handoff exists but stream is not active (expired or different item)
       destroySharedStream();
+      setShowOverlay(true);
+      if (overlayTimer.current) { clearTimeout(overlayTimer.current); overlayTimer.current = null; }
       loadPlayback(undefined, undefined, undefined, cancelled, { info: handoff.info, startPositionSec: handoff.positionSec });
     } else {
       // No handoff — fresh load (direct URL, channel change)
       destroySharedStream();
+      setShowOverlay(true);
+      if (overlayTimer.current) { clearTimeout(overlayTimer.current); overlayTimer.current = null; }
       loadPlayback(undefined, undefined, undefined, cancelled);
     }
 
@@ -915,6 +919,12 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       }
     };
   }, [loadPlayback, channel.id]);
+
+  const handleRetry = useCallback(() => {
+    errorCountRef.current = 0;
+    streamReloadAttemptedRef.current = false;
+    void loadPlayback();
+  }, [loadPlayback]);
 
   // Sync loading artwork URL when program changes
   useEffect(() => {
@@ -1261,7 +1271,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     }
   }, []);
 
-  // Select subtitle track (position index in list); null = Off. Reloads stream so Jellyfin includes subtitles.
+  // Select subtitle track (position index in list); null = Off. Reloads stream so Plex/Jellyfin includes subtitles.
   const handleSelectSubtitleTrack = useCallback(async (positionIndex: number | null) => {
     setSelectedSubtitleIndex(positionIndex);
     selectedSubtitleIndexRef.current = positionIndex;
@@ -1269,6 +1279,12 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     setShowSettingsOpen(false);
     try {
       await updateSettings({ preferred_subtitle_index: positionIndex });
+      // Stop the current session before reloading — mirrors quality-change behavior.
+      // Plex requires the active transcode to be fully released before a new one can start
+      // for the same item; without this explicit stop, the new transcode request returns 400.
+      if (currentItemIdRef.current) {
+        await stopPlayback(currentItemIdRef.current, undefined, undefined, true).catch(() => {});
+      }
       await loadPlayback();
     } catch {
       // Keep UI in sync even if reload fails
@@ -1340,7 +1356,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     
     // Stop current playback and restart with new quality
     if (currentItemIdRef.current) {
-      await stopPlayback(currentItemIdRef.current).catch(() => {});
+      await stopPlayback(currentItemIdRef.current, undefined, undefined, true).catch(() => {});
     }
     
     // Reload with new quality
@@ -1406,7 +1422,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const prog = currentProgram ?? program;
         return (
           <div className={`player-loading ${loadingFadeOut ? 'player-loading-fade-out' : ''}`} key={prog?.media_item_id}>
-            <div className="player-loading-banner player-loading-banner-fallback" />
             {loadingArtworkUrl && (
               <>
                 <div className="player-loading-banner player-loading-banner-blur" style={{ backgroundImage: safeBgImage(loadingArtworkUrl) }} />
@@ -1428,7 +1443,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                 </div>
               </>
             )}
-            <div className="player-loading-text">TUNING...</div>
+            <div className="tuning-indicator">
+              <div className="tuning-loader" />
+              <div className="player-loading-text">TUNING</div>
+            </div>
           </div>
         );
       })()}
@@ -1445,6 +1463,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             <div className="player-error-text-wrap">
               <span className="player-error-title">ERROR</span>
               <span className="player-error-detail">{error}</span>
+              <button className="player-retry-btn" onClick={handleRetry}>↺ RETRY</button>
             </div>
           </div>
         );
@@ -1659,8 +1678,10 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                         type="button"
                         className={`player-settings-option ${selectedSubtitleIndex === positionIndex ? 'active' : ''}`}
                         onClick={() => handleSelectSubtitleTrack(positionIndex)}
+                        title={isImageSubtitle(track) ? 'Image-based subtitle — will be burned into the video' : undefined}
                       >
                         {formatSubtitleTrackNameFromServer(track)}
+                        {isImageSubtitle(track) && <span className="player-settings-badge">Burn-in</span>}
                       </button>
                     ))
                   )}

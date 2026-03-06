@@ -22,7 +22,7 @@ async function getTracksAndSession(
   itemId: string
 ): Promise<{
   audio_tracks: { index: number; language: string; name: string }[];
-  subtitle_tracks: { index: number; language: string; name: string }[];
+  subtitle_tracks: { index: number; language: string; name: string; codec: string | null; forced: boolean; key: string | null }[];
   playSessionId: string;
   mediaSourceId: string;
 }> {
@@ -45,6 +45,9 @@ async function getTracksAndSession(
       index: s.Index ?? -1,
       language: (s.Language ?? 'und').toLowerCase(),
       name: s.DisplayTitle ?? s.Title ?? `Subtitle ${(s.Index ?? 0) + 1}`,
+      codec: s.Codec ?? null,
+      forced: s.IsForced ?? false,
+      key: s.Key ?? null,
     }))
     .filter((t) => t.index >= 0);
 
@@ -86,7 +89,7 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
         channel,
         is_interstitial: true,
         audio_tracks: [],
-        subtitle_tracks: [],
+        subtitle_tracks: [] as { index: number; language: string; name: string; codec: string | null; forced: boolean; key: string | null }[],
         subtitle_index: null,
         outro_start_ms: null,
       });
@@ -105,7 +108,7 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     // PlaySessionId and MediaSourceId are forwarded to the stream URL so it can
     // skip a redundant getPlaybackInfo round-trip to Jellyfin.
     let audio_tracks: { index: number; language: string; name: string }[] = [];
-    let subtitle_tracks: { index: number; language: string; name: string }[] = [];
+    let subtitle_tracks: { index: number; language: string; name: string; codec: string | null; forced: boolean; key: string | null }[] = [];
     let playSessionId = '';
     let mediaSourceId = '';
     try {

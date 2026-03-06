@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
 import Guide from './components/Guide/Guide';
 import Player from './components/Player/Player';
-import Settings from './components/Settings/Settings';
 import AuthGate from './components/AuthGate';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useKeyboard } from './hooks/useKeyboard';
@@ -10,7 +9,7 @@ import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannel
 import { getClientId } from './services/clientIdentity';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
 import { isIOS } from './utils/platform';
-import type { Channel, ScheduleProgram } from './types';
+import type { Channel, ScheduleProgram, WSEvent } from './types';
 
 export type AppView = 'guide' | 'player';
 
@@ -56,7 +55,6 @@ function AppContent() {
   const activeChannelNumber = channelMatch ? parseInt(channelMatch[1], 10) : null;
   const playerActive = activeChannelNumber !== null;
 
-  const [guideRefreshKey, setGuideRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
   const [lastChannelId, setLastChannelId] = useState<number | null>(null);
@@ -67,7 +65,21 @@ function AppContent() {
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const interactedRef = useRef(false);
 
-  useWebSocket();
+  // Re-fetch App-level channels when server broadcasts changes
+  const handleWsEvent = useCallback((event: WSEvent) => {
+    if (
+      event.type === 'channels:regenerated' ||
+      event.type === 'channel:added' ||
+      event.type === 'channel:removed' ||
+      event.type === 'schedule:updated'
+    ) {
+      getChannels()
+        .then(setChannels)
+        .catch(() => {});
+    }
+  }, []);
+
+  useWebSocket(handleWsEvent);
 
   useEffect(() => {
     if (!isIOS() || interactedRef.current) return;
@@ -86,18 +98,12 @@ function AppContent() {
     };
   }, []);
 
-  // Fetch channels for player channel resolution
+  // Fetch channels on mount for player channel resolution (WS events handle subsequent updates)
   useEffect(() => {
-    const fetchChannels = async () => {
-      try {
-        const data = await getChannels();
-        setChannels(data);
-      } catch {
-        // Channel fetch failed — will retry on next refresh
-      }
-    };
-    fetchChannels();
-  }, [guideRefreshKey]);
+    getChannels()
+      .then(setChannels)
+      .catch(() => {});
+  }, []);
 
   // Apply display settings from DB on load (preview background, etc.)
   useEffect(() => {
@@ -226,18 +232,16 @@ function AppContent() {
       <div className="app-content">
         {/* Guide - always mounted as base layer */}
         <Guide
-          key={guideRefreshKey}
           onTune={handleTune}
           onOpenSettings={handleOpenSettings}
+          settingsOpen={settingsOpen && !playerActive}
+          onCloseSettings={handleCloseSettings}
           streamingPaused={guideStreamingPaused}
           initialChannelId={lastChannelId}
           keyboardDisabled={playerActive}
           onFocusedChannelChange={setGuideFocusedChannelId}
           onLastChannel={handleLastChannel}
         />
-        {settingsOpen && !playerActive && (
-          <Settings onClose={handleCloseSettings} />
-        )}
 
         {/* Player overlay - shown when a channel URL is active */}
         {playerActive && currentChannel && (

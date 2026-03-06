@@ -118,7 +118,7 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
   try {
     const { mediaProvider } = req.app.locals;
     const provider = mediaProvider as MediaProvider;
-    const { itemId, playSessionId, positionMs } = req.body;
+    const { itemId, playSessionId, positionMs, force } = req.body;
 
     // Use provided playSessionId or look up from active sessions
     const session = activeSessions.get(itemId);
@@ -128,7 +128,8 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
     // protect sessions that were just created or are actively streaming.
     // This prevents a race where the guide's PreviewPanel cleanup kills the
     // Player's newly-created stream session for the same item.
-    if (sessionId && !playSessionId && session) {
+    // force=true bypasses this guard for intentional user actions (quality/subtitle/audio changes).
+    if (!force && sessionId && !playSessionId && session) {
       const lastActivity = lastActivityByItemId.get(itemId);
       if (lastActivity && (Date.now() - lastActivity) < 3000) {
         console.log(`[Stream] Ignoring stop for item=${itemId} — session is actively streaming (created ${Date.now() - lastActivity}ms ago)`);
@@ -339,6 +340,7 @@ const ALLOWED_PROXY_PATTERNS = [
   /^\/video\//i,                    // Jellyfin video paths (case-insensitive)
   /^\/video\/:\//i,                 // Plex transcode paths
   /^\/library\/parts\//i,           // Plex direct stream parts
+  /^\/library\/streams\//i,         // Plex external subtitle files (sidecar .srt/.ass/etc.)
   /^\/photo\/:\//i,                 // Plex image transcode
 ];
 

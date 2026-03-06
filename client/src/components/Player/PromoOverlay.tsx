@@ -149,10 +149,14 @@ export default function PromoOverlay({
   const [startingSoonProgram, setStartingSoonProgram] = useState<ScheduleProgram | null>(null);
   const [startingSoonChannelName, setStartingSoonChannelName] = useState<string | null>(null);
   const [startingSoonChannelId, setStartingSoonChannelId] = useState<number | null>(null);
+  // Separate mount/enter states for the starting-soon bar so it can animate out before unmounting
+  const [ssRendered, setSsRendered] = useState(false);
+  const [ssEntered, setSsEntered] = useState(false);
 
   const scheduledTimesRef = useRef<number[]>([]);
   const programIdRef = useRef<string | null>(null);
   const sequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ssExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startAppearanceRef = useRef<() => void>(() => {});
   const startingSoonShownRef = useRef<string | null>(null);
   const startingSoonLastShownAt = useRef<number>(0);
@@ -167,6 +171,16 @@ export default function PromoOverlay({
       clearTimeout(sequenceTimerRef.current);
       sequenceTimerRef.current = null;
     }
+  }, []);
+
+  /** Animate the starting-soon bar out then unmount it. */
+  const dismissStartingSoonBar = useCallback(() => {
+    setSsEntered(false);
+    setVisible(false);
+    if (ssExitTimerRef.current) clearTimeout(ssExitTimerRef.current);
+    ssExitTimerRef.current = setTimeout(() => {
+      setSsRendered(false);
+    }, 550); // match CSS transition duration
   }, []);
 
   const nextProgram = upcomingPrograms[0] ?? null;
@@ -276,12 +290,17 @@ export default function PromoOverlay({
       setPhase('starting-soon');
       setVisible(true);
 
+      // Mount the bar then trigger the slide-in animation on the next frame
+      if (ssExitTimerRef.current) clearTimeout(ssExitTimerRef.current);
+      setSsRendered(true);
+      requestAnimationFrame(() => setSsEntered(true));
+
       clearSequenceTimer();
       dismissTimerStartedAt.current = Date.now();
       dismissDurationMs.current = STARTING_SOON_DURATION_MS;
       dismissRemainingMs.current = STARTING_SOON_DURATION_MS;
       sequenceTimerRef.current = setTimeout(() => {
-        setVisible(false);
+        dismissStartingSoonBar();
       }, STARTING_SOON_DURATION_MS);
     }, 1000);
 
@@ -295,7 +314,11 @@ export default function PromoOverlay({
       setVisible(false);
       clearSequenceTimer();
     }
-  }, [visible, isInterstitial, creditsVisible, enabled, clearSequenceTimer]);
+    if (ssRendered && (isInterstitial || creditsVisible)) {
+      dismissStartingSoonBar();
+      clearSequenceTimer();
+    }
+  }, [visible, ssRendered, isInterstitial, creditsVisible, enabled, clearSequenceTimer, dismissStartingSoonBar]);
 
   // Pause dismiss timer on mouse hover (starting-soon only)
   const handlePromoMouseEnter = useCallback(() => {
@@ -308,13 +331,13 @@ export default function PromoOverlay({
 
   // Resume dismiss timer on mouse leave
   const handlePromoMouseLeave = useCallback(() => {
-    if (phase !== 'starting-soon' || !visible || dismissRemainingMs.current <= 0) return;
+    if (phase !== 'starting-soon' || !ssRendered || dismissRemainingMs.current <= 0) return;
     sequenceTimerRef.current = setTimeout(() => {
-      setVisible(false);
+      dismissStartingSoonBar();
     }, dismissRemainingMs.current);
     dismissTimerStartedAt.current = Date.now();
     dismissDurationMs.current = dismissRemainingMs.current;
-  }, [phase, visible]);
+  }, [phase, ssRendered, dismissStartingSoonBar]);
 
   const handleStartingSoonClick = useCallback(() => {
     if (phase === 'starting-soon' && startingSoonChannelId != null && onTuneChannel) {
@@ -324,63 +347,89 @@ export default function PromoOverlay({
     }
   }, [phase, startingSoonChannelId, onTuneChannel, clearSequenceTimer]);
 
-  if (!visible) return null;
+  if (!visible && !ssRendered) return null;
 
+  // Promo card data (now / next phases only)
   const showProgram =
-    phase === 'starting-soon' && startingSoonProgram
-      ? startingSoonProgram
-      : phase === 'next' && nextProgram
-        ? nextProgram
-        : currentProgram;
-
-  const label =
-    phase === 'starting-soon' && startingSoonProgram
-      ? 'STARTING SOON'
-      : phase === 'next' && nextProgram
-        ? 'COMING UP NEXT'
-        : "YOU'RE WATCHING";
-
-  const backdropUrl =
-    showProgram.backdrop_url || showProgram.thumbnail_url || showProgram.banner_url;
-  const hdBackdrop = backdropUrl
-    ? backdropUrl + (backdropUrl.includes('?') ? '&' : '?') + 'maxWidth=960'
+    phase === 'next' && nextProgram ? nextProgram : currentProgram;
+  const label = phase === 'next' && nextProgram ? 'COMING UP NEXT' : "YOU'RE WATCHING";
+  const promoBackdropUrl = showProgram.backdrop_url || showProgram.thumbnail_url || showProgram.banner_url;
+  const promoHdBackdrop = promoBackdropUrl
+    ? promoBackdropUrl + (promoBackdropUrl.includes('?') ? '&' : '?') + 'maxWidth=960'
     : null;
 
-  const isClickable = phase === 'starting-soon' && startingSoonChannelId != null && onTuneChannel;
+  // Starting-soon bar data
+  const ssBackdropUrl = startingSoonProgram
+    ? (startingSoonProgram.backdrop_url || startingSoonProgram.thumbnail_url || startingSoonProgram.banner_url)
+    : null;
+  const ssHdBackdrop = ssBackdropUrl
+    ? ssBackdropUrl + (ssBackdropUrl.includes('?') ? '&' : '?') + 'maxWidth=1280'
+    : null;
+  const ssClickable = startingSoonChannelId != null && onTuneChannel;
 
   return (
-    <div className={`promo-overlay ${visible ? 'promo-overlay-visible' : ''} ${isClickable ? 'promo-overlay-clickable' : ''}`}>
-      <div
-        className="promo-overlay-card"
-        key={phase}
-        onClick={isClickable ? handleStartingSoonClick : undefined}
-        role={isClickable ? 'button' : undefined}
-        tabIndex={isClickable ? 0 : undefined}
-        onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleStartingSoonClick(); } : undefined}
-        onMouseEnter={handlePromoMouseEnter}
-        onMouseLeave={handlePromoMouseLeave}
-      >
-        <div className="promo-info">
-          <span className="promo-label">{label}</span>
-          <span className="promo-title">{showProgram.title}</span>
-          {showProgram.subtitle && (
-            <span className="promo-subtitle">{showProgram.subtitle}</span>
-          )}
-          <div className="promo-meta">
-            {phase === 'starting-soon' && startingSoonChannelName && (
-              <span className="promo-channel">{startingSoonChannelName}</span>
+    <>
+      {/* Regular promo card — "You're Watching" / "Coming Up Next" */}
+      {visible && phase !== 'starting-soon' && (
+        <div className="promo-overlay promo-overlay-visible">
+          <div className="promo-overlay-card" key={phase}>
+            <div className="promo-info">
+              <span className="promo-label">{label}</span>
+              <span className="promo-title">{showProgram.title}</span>
+              {showProgram.subtitle && (
+                <span className="promo-subtitle">{showProgram.subtitle}</span>
+              )}
+              <div className="promo-meta">
+                {showProgram.year && <span className="promo-year">{showProgram.year}</span>}
+                {showProgram.rating && <span className="promo-rating">{showProgram.rating}</span>}
+              </div>
+            </div>
+            {promoHdBackdrop && (
+              <div
+                className="promo-backdrop"
+                style={{ backgroundImage: `url("${sanitizeImageUrl(promoHdBackdrop) || ''}")` }}
+              />
             )}
-            {showProgram.year && <span className="promo-year">{showProgram.year}</span>}
-            {showProgram.rating && <span className="promo-rating">{showProgram.rating}</span>}
           </div>
         </div>
-        {hdBackdrop && (
-          <div
-            className="promo-backdrop"
-            style={{ backgroundImage: `url("${sanitizeImageUrl(hdBackdrop) || ''}")` }}
-          />
-        )}
-      </div>
-    </div>
+      )}
+
+      {/* Starting Soon — full-width bottom bar that slides up then slides away */}
+      {ssRendered && startingSoonProgram && (
+        <div
+          className={`starting-soon-bar ${ssEntered ? 'starting-soon-bar-in' : ''} ${ssClickable ? 'starting-soon-bar-clickable' : ''}`}
+          onClick={ssClickable ? handleStartingSoonClick : undefined}
+          onMouseEnter={handlePromoMouseEnter}
+          onMouseLeave={handlePromoMouseLeave}
+          role={ssClickable ? 'button' : undefined}
+          tabIndex={ssClickable ? 0 : undefined}
+          onKeyDown={ssClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleStartingSoonClick(); } : undefined}
+        >
+          <div className="starting-soon-bar-content">
+            <div className="starting-soon-info">
+              <span className="starting-soon-label">STARTING SOON</span>
+              <span className="starting-soon-title">{startingSoonProgram.title}</span>
+              {startingSoonProgram.subtitle && (
+                <span className="starting-soon-subtitle">{startingSoonProgram.subtitle}</span>
+              )}
+              <div className="starting-soon-meta">
+                {startingSoonChannelName && (
+                  <span className="starting-soon-channel">{startingSoonChannelName}</span>
+                )}
+                {startingSoonProgram.year && <span className="starting-soon-year">{startingSoonProgram.year}</span>}
+                {startingSoonProgram.rating && <span className="starting-soon-rating">{startingSoonProgram.rating}</span>}
+                {ssClickable && <span className="starting-soon-tune">Tune In →</span>}
+              </div>
+            </div>
+            {ssHdBackdrop && (
+              <div
+                className="starting-soon-backdrop"
+                style={{ backgroundImage: `url("${sanitizeImageUrl(ssHdBackdrop) || ''}")` }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

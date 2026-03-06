@@ -76,6 +76,7 @@ export const openApiSpec = {
           year: { type: 'integer', nullable: true },
           rating: { type: 'string', nullable: true },
           resolution: { type: 'string', nullable: true },
+          is_hdr: { type: 'boolean', nullable: true },
           description: { type: 'string', nullable: true },
         },
       },

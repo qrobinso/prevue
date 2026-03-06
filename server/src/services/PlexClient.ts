@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { MediaItem, ServerConfig } from '../types/index.js';
-import type { MediaProvider, PlaybackInfoResult, StreamInfo } from './MediaProvider.js';
+import type { PlaybackInfoResult, StreamInfo } from './MediaProvider.js';
+import { AbstractMediaProvider } from './AbstractMediaProvider.js';
 import * as queries from '../db/queries.js';
 import { randomUUID } from 'crypto';
 
@@ -29,7 +30,10 @@ interface PlexMetadata {
   summary?: string;
   year?: number;
   contentRating?: string;      // e.g. "PG-13", "TV-MA"
-  rating?: number;             // community rating 0-10
+  rating?: number;             // critic/community rating 0-10
+  audienceRating?: number;     // audience rating 0-10
+  ratingImage?: string;        // e.g. "rottentomatoes://image.rating.ripe"
+  audienceRatingImage?: string; // e.g. "rottentomatoes://image.rating.upright"
   studio?: string;
   Genre?: { tag: string }[];
   Role?: { tag: string; role?: string }[];
@@ -73,6 +77,10 @@ interface PlexStream {
   colorPrimaries?: string;
   colorTrc?: string;
   DOVIPresent?: boolean;
+  // Subtitle-specific
+  forced?: boolean;   // true = forced subtitle track
+  key?: string;       // path to external/sidecar subtitle file (e.g. /library/streams/12345)
+  selected?: boolean; // Plex-default selected track
 }
 
 interface PlexLibrarySection {
@@ -84,15 +92,13 @@ interface PlexLibrarySection {
 const PLEX_PRODUCT = 'Prevue';
 const PLEX_VERSION = '1.0.0';
 
-export class PlexClient implements MediaProvider {
+export class PlexClient extends AbstractMediaProvider {
   readonly providerType = 'plex' as const;
   readonly capabilities = { supportsMediaSegments: false, supportsServerDiscovery: false, supportsReAuth: false };
-  private db: Database.Database;
-  private libraryItems: Map<string, MediaItem> = new Map();
   private deviceId: string;
 
   constructor(db: Database.Database) {
-    this.db = db;
+    super(db);
     this.deviceId = randomUUID();
   }
 
@@ -168,10 +174,6 @@ export class PlexClient implements MediaProvider {
     // No persistent API client to reset for Plex (raw fetch)
   }
 
-  clearLibrary(): void {
-    this.libraryItems.clear();
-  }
-
   // ─── Library ──────────────────────────────────────────
 
   async syncLibrary(onProgress?: (message: string) => void): Promise<MediaItem[]> {
@@ -189,7 +191,7 @@ export class PlexClient implements MediaProvider {
 
     const allItems: MediaItem[] = [];
 
-    for (const section of sections) {
+    await Promise.all(sections.map(async (section) => {
       if (section.type === 'movie') {
         onProgress?.(`Fetching movies from "${section.title}"...`);
         const movies = await this.fetchSectionItems(section.key, 1);
@@ -201,7 +203,7 @@ export class PlexClient implements MediaProvider {
         allItems.push(...episodes);
         console.log(`[Plex] Section "${section.title}": ${episodes.length} episodes`);
       }
-    }
+    }));
 
     // Cache in memory
     this.libraryItems.clear();
@@ -213,10 +215,13 @@ export class PlexClient implements MediaProvider {
     const serverStillExists = queries.getServerById(this.db, server.id);
     if (serverStillExists) {
       try {
-        queries.clearLibraryCache(this.db, server.id);
-        for (const item of allItems) {
-          queries.upsertLibraryItem(this.db, item.Id, server.id, item);
-        }
+        const insertAll = this.db.transaction(() => {
+          queries.clearLibraryCache(this.db, server.id);
+          for (const item of allItems) {
+            queries.upsertLibraryItem(this.db, item.Id, server.id, item);
+          }
+        });
+        insertAll();
       } catch (err) {
         console.error('[Plex] Failed to cache library in database:', err);
       }
@@ -265,6 +270,9 @@ export class PlexClient implements MediaProvider {
         if (!ep.OfficialRating) ep.OfficialRating = showMeta.contentRating;
         if (!ep.Studios || ep.Studios.length === 0) ep.Studios = showMeta.studios;
         if (!ep.CommunityRating) ep.CommunityRating = showMeta.rating;
+        if (!ep.AudienceRating) ep.AudienceRating = showMeta.audienceRating;
+        if (!ep.RatingImage) ep.RatingImage = showMeta.ratingImage;
+        if (!ep.AudienceRatingImage) ep.AudienceRatingImage = showMeta.audienceRatingImage;
       }
     }
 
@@ -280,12 +288,18 @@ export class PlexClient implements MediaProvider {
     contentRating?: string;
     studios: { Name: string }[];
     rating?: number;
+    audienceRating?: number;
+    ratingImage?: string;
+    audienceRatingImage?: string;
   }>> {
     const metaMap = new Map<string, {
       genres: string[];
       contentRating?: string;
       studios: { Name: string }[];
       rating?: number;
+      audienceRating?: number;
+      ratingImage?: string;
+      audienceRatingImage?: string;
     }>();
 
     let start = 0;
@@ -302,6 +316,9 @@ export class PlexClient implements MediaProvider {
           contentRating: show.contentRating,
           studios: show.studio ? [{ Name: show.studio }] : [],
           rating: show.rating,
+          audienceRating: show.audienceRating,
+          ratingImage: show.ratingImage,
+          audienceRatingImage: show.audienceRatingImage,
         });
       }
       const totalSize = data.MediaContainer.totalSize ?? shows.length;
@@ -356,7 +373,15 @@ export class PlexClient implements MediaProvider {
       if (media.Part?.[0]?.Stream) {
         for (const s of media.Part[0].Stream) {
           if (s.streamType === 1) { // video
-            mediaStreams.push({ Type: 'Video', Width: s.width, Height: s.height });
+            mediaStreams.push({
+              Type: 'Video',
+              Width: s.width,
+              Height: s.height,
+              BitDepth: s.bitDepth,
+              ColorPrimaries: s.colorPrimaries,
+              ColorTrc: s.colorTrc,
+              DOVIPresent: s.DOVIPresent,
+            });
           }
         }
       }
@@ -392,6 +417,9 @@ export class PlexClient implements MediaProvider {
       Studios: studios,
       DateCreated: m.addedAt ? new Date(m.addedAt * 1000).toISOString() : undefined,
       CommunityRating: m.rating,
+      AudienceRating: m.audienceRating,
+      RatingImage: m.ratingImage,
+      AudienceRatingImage: m.audienceRatingImage,
       People: people,
       MediaSources: mediaSources,
       UserData: userData,
@@ -400,30 +428,16 @@ export class PlexClient implements MediaProvider {
 
   // ─── Library Access ───────────────────────────────────
 
-  getLibraryItems(): MediaItem[] {
-    if (this.libraryItems.size === 0) {
-      const server = this.getActiveServer();
-      if (server) {
-        const cached = queries.getCachedLibrary(this.db, server.id) as MediaItem[];
-        for (const item of cached) {
-          this.libraryItems.set(item.Id, item);
-        }
-      }
-    }
-    return Array.from(this.libraryItems.values());
-  }
-
-  getItem(id: string): MediaItem | undefined {
-    return this.libraryItems.get(id);
-  }
-
-  async getItemDetails(itemId: string): Promise<{ overview: string | null; genres?: string[]; communityRating?: number; studios?: string[]; cast?: string[] }> {
+  async getItemDetails(itemId: string): Promise<{ overview: string | null; genres?: string[]; communityRating?: number; audienceRating?: number; ratingImage?: string; audienceRatingImage?: string; studios?: string[]; cast?: string[] }> {
     const cached = this.libraryItems.get(itemId);
     if (cached) {
       return {
         overview: cached.Overview ?? null,
         genres: cached.Genres ?? undefined,
         communityRating: cached.CommunityRating ?? undefined,
+        audienceRating: cached.AudienceRating ?? undefined,
+        ratingImage: cached.RatingImage ?? undefined,
+        audienceRatingImage: cached.AudienceRatingImage ?? undefined,
         studios: cached.Studios?.map(s => s.Name).slice(0, 2) ?? undefined,
         cast: cached.People?.filter(p => p.Type === 'Actor').slice(0, 3).map(p => p.Name) ?? undefined,
       };
@@ -437,6 +451,9 @@ export class PlexClient implements MediaProvider {
         overview: m.summary ?? null,
         genres: m.Genre?.map(g => g.tag),
         communityRating: m.rating,
+        audienceRating: m.audienceRating,
+        ratingImage: m.ratingImage,
+        audienceRatingImage: m.audienceRatingImage,
         studios: m.studio ? [m.studio] : undefined,
         cast: m.Role?.slice(0, 3).map(r => r.tag),
       };
@@ -449,39 +466,6 @@ export class PlexClient implements MediaProvider {
   getItemDurationMs(item: MediaItem): number {
     // RunTimeTicks is stored as 100ns intervals (Jellyfin format)
     return item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : 0;
-  }
-
-  getItemsByGenre(genre: string): MediaItem[] {
-    return this.getLibraryItems().filter(
-      item => item.Genres?.some(g => g.toLowerCase() === genre.toLowerCase())
-    );
-  }
-
-  getItemsWithGenre(canonicalGenre: string, alternateNames: string[] = []): MediaItem[] {
-    const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
-    return this.getLibraryItems().filter(item =>
-      (item.Genres || []).some(g => matchNames.includes(g.toLowerCase()))
-    );
-  }
-
-  getItemsWithLeadGenre(canonicalGenre: string, alternateNames: string[] = []): MediaItem[] {
-    const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
-    return this.getLibraryItems().filter(item => {
-      const lead = (item.Genres || [])[0];
-      return lead != null && matchNames.includes(lead.toLowerCase());
-    });
-  }
-
-  getGenres(): Map<string, MediaItem[]> {
-    const genres = new Map<string, MediaItem[]>();
-    for (const item of this.getLibraryItems()) {
-      const leadGenre = (item.Genres || [])[0];
-      if (!leadGenre) continue;
-      const existing = genres.get(leadGenre) || [];
-      existing.push(item);
-      genres.set(leadGenre, existing);
-    }
-    return genres;
   }
 
   // ─── Collections & Playlists ──────────────────────────
@@ -589,6 +573,11 @@ export class PlexClient implements MediaProvider {
           Language: s.languageCode ?? s.language ?? null,
           DisplayTitle: s.displayTitle ?? null,
           Title: s.displayTitle ?? null,
+          Codec: s.codec ?? null,
+          IsForced: s.forced ?? false,
+          // External subtitles have a key pointing to /library/streams/{id}
+          IsExternal: !!s.key,
+          Key: s.key ?? null,
         });
       }
     }
@@ -604,21 +593,59 @@ export class PlexClient implements MediaProvider {
   }
 
   async getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<StreamInfo> {
-    const playbackInfo = await this.getPlaybackInfo(itemId);
-    const playSessionId = playbackInfo.PlaySessionId || randomUUID();
-    const mediaSourceId = playbackInfo.MediaSources?.[0]?.Id || itemId;
+    // Fetch fresh metadata — needed for partId (subtitle stream persistence) and HDR detection
+    const data = await this.plexFetch<PlexMediaContainer<PlexMetadata>>(`/library/metadata/${itemId}`);
+    const m = data.MediaContainer.Metadata?.[0];
+    const playSessionId = randomUUID();
+    const mediaSourceId = m?.Media?.[0]?.id?.toString() || itemId;
 
-    // Determine HDR
-    const item = this.libraryItems.get(itemId);
-    const isHdrSource = this.isHdrItem(item);
+    // Determine HDR from fresh metadata — use actual stream HDR fields
+    const videoStream = m?.Media?.[0]?.Part?.[0]?.Stream?.find(s => s.streamType === 1);
+    const isHdrSource = !!(
+      videoStream?.DOVIPresent ||
+      (videoStream?.bitDepth && videoStream.bitDepth >= 10 && (
+        videoStream.colorPrimaries === 'bt2020' ||
+        videoStream.colorTrc === 'smpte2084' ||
+        videoStream.colorTrc === 'arib-std-b67'
+      ))
+    );
 
     const baseUrl = this.getServerUrl();
     const server = this.getActiveServerOrThrow();
 
+    // ── Persist subtitle/audio selection via Plex's /library/parts API ──────
+    // This is the canonical Plex way (used by Plex Web, Plezy, etc.) — sets the
+    // preferred stream server-side so Plex knows which subtitle to include.
+    const partId = m?.Media?.[0]?.Part?.[0]?.id;
+    if (partId && options?.subtitleStreamIndex != null) {
+      const putParams = new URLSearchParams({
+        subtitleStreamID: String(options.subtitleStreamIndex),
+        allParts: '1',
+        'X-Plex-Token': server.access_token || '',
+      });
+      await fetch(`${baseUrl}/library/parts/${partId}?${putParams}`, {
+        method: 'PUT',
+        headers: this.getPlexHeaders(),
+      }).catch((err) => console.warn('[Plex] selectStreams PUT failed:', err));
+      console.log(`[Plex] Persisted subtitle stream ${options.subtitleStreamIndex} on part ${partId}`);
+    }
+    if (partId && options?.audioStreamIndex != null) {
+      const putParams = new URLSearchParams({
+        audioStreamID: String(options.audioStreamIndex),
+        allParts: '1',
+        'X-Plex-Token': server.access_token || '',
+      });
+      await fetch(`${baseUrl}/library/parts/${partId}?${putParams}`, {
+        method: 'PUT',
+        headers: this.getPlexHeaders(),
+      }).catch((err) => console.warn('[Plex] selectAudioStream PUT failed:', err));
+      console.log(`[Plex] Persisted audio stream ${options.audioStreamIndex} on part ${partId}`);
+    }
+
     // Build Plex universal transcode URL
-    // Plex requires the path to be the full metadata key
     const metadataKey = `/library/metadata/${itemId}`;
     const clientId = server.plex_client_id || this.deviceId;
+    const needsTranscode = !!(options?.bitrate || options?.maxWidth || options?.subtitleStreamIndex != null);
     const params = new URLSearchParams({
       path: metadataKey,
       mediaIndex: '0',
@@ -626,8 +653,13 @@ export class PlexClient implements MediaProvider {
       protocol: 'hls',
       fastSeek: '1',
       directPlay: '0',
-      directStream: options?.bitrate || options?.maxWidth ? '0' : '1',
-      directStreamAudio: '1',
+      directStream: needsTranscode ? '0' : '1',
+      // Required codec targets when transcoding — Plex returns 400 without these when directStream=0.
+      // directStreamAudio must NOT be set when transcoding (directStream=0) — it conflicts with
+      // audioCodec and causes Plex to return 400 on session restarts (e.g. subtitle track changes).
+      ...(needsTranscode
+        ? { videoCodec: 'h264', audioCodec: 'aac,mp3,vorbis,opus' }
+        : { directStreamAudio: '1' }),
       videoQuality: '100',
       maxVideoBitrate: options?.bitrate ? String(Math.round(options.bitrate / 1000)) : '20000',
       videoResolution: options?.maxWidth ? `${options.maxWidth}x${Math.round(options.maxWidth * 9 / 16)}` : '1920x1080',
@@ -662,18 +694,6 @@ export class PlexClient implements MediaProvider {
     const url = `${baseUrl}/video/:/transcode/universal/start.m3u8?${params}`;
     console.log(`[Plex] HLS stream URL for item=${itemId}: ${url.substring(0, 200)}...`);
     return { url, playSessionId, isHdrSource, mediaSourceId };
-  }
-
-  private isHdrItem(item?: MediaItem): boolean {
-    if (!item?.MediaSources) return false;
-    for (const source of item.MediaSources) {
-      for (const stream of source.MediaStreams || []) {
-        if (stream.Type === 'Video' && stream.Height && stream.Height >= 2160) {
-          return true; // Rough HDR proxy — 4K content
-        }
-      }
-    }
-    return false;
   }
 
   async getMediaSegments(_itemId: string): Promise<{ outroStartMs: number | null; outroEndMs: number | null }> {

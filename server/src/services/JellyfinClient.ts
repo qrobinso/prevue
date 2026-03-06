@@ -4,16 +4,15 @@ import { getItemsApi, getMediaInfoApi, getSystemApi, getDynamicHlsApi, getImageA
 import type { Api } from '@jellyfin/sdk';
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/index.js';
 import type { MediaItem, MediaLibrary, ServerConfig } from '../types/index.js';
-import type { MediaProvider, PlaybackInfoResult } from './MediaProvider.js';
+import type { PlaybackInfoResult } from './MediaProvider.js';
+import { AbstractMediaProvider } from './AbstractMediaProvider.js';
 import * as queries from '../db/queries.js';
 import { ticksToMs, msToTicks } from '../utils/time.js';
 import { randomUUID } from 'crypto';
 
-export class JellyfinClient implements MediaProvider {
+export class JellyfinClient extends AbstractMediaProvider {
   readonly providerType = 'jellyfin' as const;
   readonly capabilities = { supportsMediaSegments: true, supportsServerDiscovery: true, supportsReAuth: true };
-  private db: Database.Database;
-  private libraryItems: Map<string, MediaItem> = new Map();
   private jellyfin: Jellyfin;
   private api: Api | null = null;
   private deviceId: string;
@@ -21,7 +20,7 @@ export class JellyfinClient implements MediaProvider {
   private currentToken: string | null = null;
 
   constructor(db: Database.Database) {
-    this.db = db;
+    super(db);
     this.deviceId = randomUUID();
     this.jellyfin = new Jellyfin({
       clientInfo: {
@@ -76,11 +75,6 @@ export class JellyfinClient implements MediaProvider {
     this.api = null;
     this.userId = null;
     this.currentToken = null;
-  }
-
-  /** Clear in-memory library cache (e.g. when active server is deleted) */
-  clearLibrary(): void {
-    this.libraryItems.clear();
   }
 
   // Authenticate with username/password and get access token
@@ -159,13 +153,12 @@ export class JellyfinClient implements MediaProvider {
 
     console.log(`[Jellyfin] Syncing library for server ${server.id} (${server.name})...`);
 
-    // Fetch movies
-    onProgress?.('Fetching movies...');
-    const movies = await this.fetchItems('Movie', onProgress);
-    
-    // Fetch episodes
-    onProgress?.(`Found ${movies.length} movies. Fetching episodes...`);
-    const episodes = await this.fetchItems('Episode', onProgress);
+    // Fetch movies and episodes in parallel
+    onProgress?.('Fetching movies and episodes...');
+    const [movies, episodes] = await Promise.all([
+      this.fetchItems('Movie', onProgress),
+      this.fetchItems('Episode', onProgress),
+    ]);
 
     const allItems = [...movies, ...episodes];
 
@@ -183,10 +176,13 @@ export class JellyfinClient implements MediaProvider {
     }
 
     try {
-      queries.clearLibraryCache(this.db, server.id);
-      for (const item of allItems) {
-        queries.upsertLibraryItem(this.db, item.Id!, server.id, item);
-      }
+      const insertAll = this.db.transaction(() => {
+        queries.clearLibraryCache(this.db, server.id);
+        for (const item of allItems) {
+          queries.upsertLibraryItem(this.db, item.Id!, server.id, item);
+        }
+      });
+      insertAll();
     } catch (err) {
       console.error(`[Jellyfin] Failed to cache library in database:`, err);
       // Continue - in-memory cache still works
@@ -310,28 +306,10 @@ export class JellyfinClient implements MediaProvider {
 
   // ─── Library Access ───────────────────────────────────
 
-  getLibraryItems(): MediaItem[] {
-    if (this.libraryItems.size === 0) {
-      // Load from cache
-      const server = this.getActiveServer();
-      if (server) {
-        const cached = queries.getCachedLibrary(this.db, server.id) as MediaItem[];
-        for (const item of cached) {
-          this.libraryItems.set(item.Id, item);
-        }
-      }
-    }
-    return Array.from(this.libraryItems.values());
-  }
-
-  getItem(id: string): MediaItem | undefined {
-    return this.libraryItems.get(id);
-  }
-
   /**
    * Get item details (e.g. Overview) by ID. Uses cache first, then fetches from Jellyfin if needed.
    */
-  async getItemDetails(itemId: string): Promise<{ overview: string | null; genres?: string[]; communityRating?: number; studios?: string[]; cast?: string[] }> {
+  async getItemDetails(itemId: string): Promise<{ overview: string | null; genres?: string[]; communityRating?: number; audienceRating?: number; ratingImage?: string; audienceRatingImage?: string; studios?: string[]; cast?: string[] }> {
     const cached = this.libraryItems.get(itemId);
     if (cached) {
       return {
@@ -366,48 +344,6 @@ export class JellyfinClient implements MediaProvider {
       console.error('[Jellyfin] getItemDetails failed:', err);
       return { overview: null };
     }
-  }
-
-  getItemsByGenre(genre: string): MediaItem[] {
-    return this.getLibraryItems().filter(
-      item => item.Genres?.some(g => g.toLowerCase() === genre.toLowerCase())
-    );
-  }
-
-  /**
-   * Return all items that have the given genre (or any alternate name) anywhere in Genres.
-   */
-  getItemsWithGenre(canonicalGenre: string, alternateNames: string[] = []): MediaItem[] {
-    const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
-    return this.getLibraryItems().filter(item =>
-      (item.Genres || []).some(g => matchNames.includes(g.toLowerCase()))
-    );
-  }
-
-  /**
-   * Return items whose lead (first) genre is the given genre or one of the alternate names.
-   * Ensures each item is assigned to at most one genre channel (e.g. a comedy is not placed on Drama).
-   */
-  getItemsWithLeadGenre(canonicalGenre: string, alternateNames: string[] = []): MediaItem[] {
-    const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
-    return this.getLibraryItems().filter(item => {
-      const lead = (item.Genres || [])[0];
-      return lead != null && matchNames.includes(lead.toLowerCase());
-    });
-  }
-
-  getGenres(): Map<string, MediaItem[]> {
-    const genres = new Map<string, MediaItem[]>();
-    for (const item of this.getLibraryItems()) {
-      // Use only the lead (first) genre for genre-channel assignment
-      // This prevents the same item from appearing on multiple genre channels
-      const leadGenre = (item.Genres || [])[0];
-      if (!leadGenre) continue;
-      const existing = genres.get(leadGenre) || [];
-      existing.push(item);
-      genres.set(leadGenre, existing);
-    }
-    return genres;
   }
 
   getItemDurationMs(item: MediaItem): number {

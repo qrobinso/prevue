@@ -5,6 +5,22 @@ import { getProgramDetails, getBackgroundMusicList } from '../../services/api';
 import type { ProgramDetails } from '../../services/api';
 import './Player.css';
 
+function isRottenTomatoes(imageKey?: string): boolean {
+  return !!imageKey?.includes('rottentomatoes');
+}
+
+function isFresh(ratingImage?: string): boolean {
+  return !!ratingImage && (ratingImage.includes('.ripe') || ratingImage.includes('.certified_fresh'));
+}
+
+function isUpright(audienceRatingImage?: string): boolean {
+  return !!audienceRatingImage?.includes('.upright');
+}
+
+function formatRTRating(rating: number): string {
+  return `${Math.round(rating * 10)}%`;
+}
+
 // Singleton: only one InterstitialScreen plays music at a time.
 // When a new instance claims ownership, the previous one is stopped.
 let activeAudio: HTMLAudioElement | null = null;
@@ -373,9 +389,19 @@ function ProgramSpotlight({
           {activeProg.duration_ms > 0 && (
             <span className="interstitial-badge">{formatRuntime(activeProg.duration_ms)}</span>
           )}
-          {progDetails?.communityRating != null && progDetails.communityRating > 0 && (
+          {progDetails?.communityRating != null && progDetails.communityRating > 0 && isRottenTomatoes(progDetails.ratingImage) && (
+            <span className="interstitial-badge interstitial-badge-rating" title={isFresh(progDetails.ratingImage) ? 'Fresh' : 'Rotten'}>
+              {isFresh(progDetails.ratingImage) ? '🍅' : '🪣'} {formatRTRating(progDetails.communityRating)}
+            </span>
+          )}
+          {progDetails?.communityRating != null && progDetails.communityRating > 0 && !isRottenTomatoes(progDetails.ratingImage) && (
             <span className="interstitial-badge interstitial-badge-rating">
               &#9733; {progDetails.communityRating.toFixed(1)}
+            </span>
+          )}
+          {progDetails?.audienceRating != null && progDetails.audienceRating > 0 && isRottenTomatoes(progDetails.audienceRatingImage) && (
+            <span className="interstitial-badge interstitial-badge-rating" title={isUpright(progDetails.audienceRatingImage) ? 'Liked it' : 'Disliked it'}>
+              🍿 {formatRTRating(progDetails.audienceRating)}
             </span>
           )}
         </div>

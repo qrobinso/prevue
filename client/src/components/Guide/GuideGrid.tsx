@@ -8,6 +8,7 @@ import {
   getGuideRatings,
   getGuideYear,
   getGuideResolution,
+  getGuideHdr,
   getGuideArtwork,
   getClockFormat,
   type ClockFormat,
@@ -176,6 +177,7 @@ interface GuideProgramCellProps {
   showRatings: boolean;
   showYear: boolean;
   showResolution: boolean;
+  showHdr: boolean;
   programTitleFontSize: number;
   guideColors: { enabled: boolean; movie: string; episode: string };
   scrollLeft: number;
@@ -198,6 +200,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
   showRatings,
   showYear,
   showResolution,
+  showHdr,
   programTitleFontSize,
   guideColors,
   scrollLeft,
@@ -252,7 +255,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
         <div className="guide-program-text">
           <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
             {prog.title}
-            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution) && (
+            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution || showHdr) && (
               <>
                 {showRatings && prog.rating && (
                   <span className="guide-rating-badge">{prog.rating}</span>
@@ -262,6 +265,9 @@ const GuideProgramCell = memo(function GuideProgramCell({
                 )}
                 {showResolution && prog.resolution && (
                   <span className="guide-resolution-badge">{prog.resolution}</span>
+                )}
+                {showHdr && prog.is_hdr && (
+                  <span className="guide-hdr-badge">HDR</span>
                 )}
               </>
             )}
@@ -296,6 +302,7 @@ interface GuideRowProps {
   showRatings: boolean;
   showYear: boolean;
   showResolution: boolean;
+  showHdr: boolean;
   programTitleFontSize: number;
   guideColors: { enabled: boolean; movie: string; episode: string };
   scrollLeft: number;
@@ -325,6 +332,7 @@ const GuideRow = memo(function GuideRow({
   showRatings,
   showYear,
   showResolution,
+  showHdr,
   programTitleFontSize,
   guideColors,
   scrollLeft,
@@ -364,6 +372,7 @@ const GuideRow = memo(function GuideRow({
             showRatings={showRatings}
             showYear={showYear}
             showResolution={showResolution}
+            showHdr={showHdr}
             programTitleFontSize={programTitleFontSize}
             guideColors={guideColors}
             scrollLeft={scrollLeft}
@@ -407,6 +416,7 @@ function GuideGrid({
   const [showRatings, setShowRatings] = useState(getGuideRatings);
   const [showYear, setShowYear] = useState(getGuideYear);
   const [showResolution, setShowResolution] = useState(getGuideResolution);
+  const [showHdr, setShowHdr] = useState(getGuideHdr);
   const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
 
@@ -426,6 +436,7 @@ function GuideGrid({
       setShowRatings(getGuideRatings());
       setShowYear(getGuideYear());
       setShowResolution(getGuideResolution());
+      setShowHdr(getGuideHdr());
     };
     const refreshArtwork = () => setShowArtwork(getGuideArtwork());
     const refreshClockFormat = () => setClockFormatState(getClockFormat());
@@ -797,6 +808,7 @@ function GuideGrid({
                   showRatings={showRatings}
                   showYear={showYear}
                   showResolution={showResolution}
+                  showHdr={showHdr}
                   programTitleFontSize={programTitleFontSize}
                   guideColors={guideColors}
                   scrollLeft={scrollLeftRef.current}

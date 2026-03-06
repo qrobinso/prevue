@@ -7,6 +7,7 @@ import ProgramInfoModal from './ProgramInfoModal';
 import ChannelSearch from './ChannelSearch';
 import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle } from '../Settings/DisplaySettings';
 import type { PreviewStyle } from '../Settings/DisplaySettings';
+import Settings from '../Settings/Settings';
 import { isIOSPWA } from '../../utils/platform';
 import {
   getFullscreenElement,
@@ -22,6 +23,8 @@ import './Guide.css';
 interface GuideProps {
   onTune: (channel: Channel, program: ScheduleProgram, opts?: { fromFullscreen?: boolean }) => void;
   onOpenSettings: () => void;
+  settingsOpen?: boolean;
+  onCloseSettings?: () => void;
   streamingPaused?: boolean;
   initialChannelId?: number | null;
   keyboardDisabled?: boolean;
@@ -32,6 +35,8 @@ interface GuideProps {
 export default function Guide({
   onTune,
   onOpenSettings,
+  settingsOpen = false,
+  onCloseSettings,
   streamingPaused = false,
   initialChannelId,
   keyboardDisabled = false,
@@ -567,6 +572,9 @@ export default function Guide({
           onProgramClick={handleGridProgramClick}
         />
       </div>
+      {settingsOpen && onCloseSettings && (
+        <Settings onClose={onCloseSettings} />
+      )}
     </div>
   );
 }

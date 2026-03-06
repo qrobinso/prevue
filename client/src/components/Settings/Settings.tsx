@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import ServerSettings from './ServerSettings';
+import GeneralSettings from './GeneralSettings';
 import FilterSettings from './FilterSettings';
 import ChannelSettings from './ChannelSettings';
 import DisplaySettings from './DisplaySettings';
@@ -12,7 +12,7 @@ interface SettingsProps {
   onClose: () => void;
 }
 
-type SettingsTab = 'servers' | 'filters' | 'channels' | 'display' | 'iptv' | 'metrics';
+type SettingsTab = 'general' | 'filters' | 'channels' | 'display' | 'iptv' | 'metrics';
 
 interface SyncProgress {
   step: string;
@@ -22,14 +22,14 @@ interface SyncProgress {
 }
 
 export default function Settings({ onClose }: SettingsProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('servers');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [syncInterstitialVisible, setSyncInterstitialVisible] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleServerAdded = (server: { is_active: boolean }) => {
     if (server.is_active) {
-      setSyncProgress({ step: 'syncing', message: 'Syncing library from Jellyfin...' });
+      setSyncProgress({ step: 'syncing', message: 'Syncing library...' });
       setSyncInterstitialVisible(true);
     }
   };
@@ -90,10 +90,10 @@ export default function Settings({ onClose }: SettingsProps) {
 
         <div className="settings-tabs">
           <button
-            className={`settings-tab ${activeTab === 'servers' ? 'settings-tab-active' : ''}`}
-            onClick={() => setActiveTab('servers')}
+            className={`settings-tab ${activeTab === 'general' ? 'settings-tab-active' : ''}`}
+            onClick={() => setActiveTab('general')}
           >
-            SERVERS
+            GENERAL
           </button>
           <button
             className={`settings-tab ${activeTab === 'filters' ? 'settings-tab-active' : ''}`}
@@ -128,7 +128,7 @@ export default function Settings({ onClose }: SettingsProps) {
         </div>
 
         <div className="settings-content">
-          {activeTab === 'servers' && <ServerSettings onServerAdded={handleServerAdded} />}
+          {activeTab === 'general' && <GeneralSettings onServerAdded={handleServerAdded} />}
           {activeTab === 'filters' && <FilterSettings />}
           {activeTab === 'channels' && <ChannelSettings />}
           {activeTab === 'display' && <DisplaySettings />}

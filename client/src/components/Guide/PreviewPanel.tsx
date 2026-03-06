@@ -117,6 +117,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [videoReady, setVideoReady] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [promoOverlayEnabled, setPromoOverlayEnabledState] = useState(getPromoOverlayEnabled);
   const [startingSoonEnabled, setStartingSoonEnabledState] = useState(getStartingSoonEnabled);
@@ -225,6 +226,11 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     setIsBuffering(false);
 
   }, []);
+
+  const handleRetry = useCallback(() => {
+    cleanup();
+    setRetryCount(c => c + 1);
+  }, [cleanup]);
 
   // Load HLS from playback info (shared by initial load and audio track switch).
   // We set videoReady only when the video fires 'playing', so the static placeholder stays until a real frame is shown.
@@ -580,7 +586,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         });
       }
     };
-  }, [channel?.id, program?.media_item_id, cleanup, streamingPaused, loadStreamWithInfo, videoFit, isIOSDevice]);
+  }, [channel?.id, program?.media_item_id, cleanup, streamingPaused, loadStreamWithInfo, videoFit, isIOSDevice, retryCount]);
 
   // Playback progress reporting to Jellyfin (after 5 min watch threshold)
   useEffect(() => {
@@ -939,7 +945,10 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             ) : (
               <div className="preview-loading-banner preview-loading-banner-fallback" />
             )}
-            <div className="preview-loading-text">TUNING...</div>
+            <div className="tuning-indicator">
+              <div className="tuning-loader" />
+              <div className="preview-loading-text">TUNING</div>
+            </div>
           </div>
         )}
         {/* Buffering overlay — semi-transparent so frozen video is still visible */}
@@ -970,6 +979,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             <div className="preview-error-text-wrap">
               <span className="preview-error-title">ERROR</span>
               <span className="preview-error-detail">{videoError}</span>
+              <button className="preview-retry-btn" onClick={handleRetry}>↺ RETRY</button>
             </div>
           </div>
         )}

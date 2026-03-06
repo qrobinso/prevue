@@ -319,6 +319,12 @@ export interface ProgramDetails {
   overview: string | null;
   genres?: string[];
   communityRating?: number;
+  /** Audience rating 0–10 (Plex: multiply × 10 for RT %) */
+  audienceRating?: number;
+  /** Source image key for critic rating, e.g. "rottentomatoes://image.rating.ripe" */
+  ratingImage?: string;
+  /** Source image key for audience rating, e.g. "rottentomatoes://image.rating.upright" */
+  audienceRatingImage?: string;
   studios?: string[];
   cast?: string[];
 }
@@ -390,10 +396,10 @@ export async function getPlaybackInfo(
   return request(`/playback/${channelId}${queryString ? `?${queryString}` : ''}`);
 }
 
-export async function stopPlayback(itemId?: string, playSessionId?: string, positionMs?: number): Promise<{ success: boolean }> {
+export async function stopPlayback(itemId?: string, playSessionId?: string, positionMs?: number, force?: boolean): Promise<{ success: boolean }> {
   return request('/stream/stop', {
     method: 'POST',
-    body: JSON.stringify({ itemId, playSessionId, positionMs }),
+    body: JSON.stringify({ itemId, playSessionId, positionMs, force }),
   });
 }
 

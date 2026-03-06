@@ -37,6 +37,7 @@ export interface ScheduleProgram {
   year: number | null;
   rating: string | null;
   resolution: string | null;
+  is_hdr: boolean | null;
   genres: string[] | null;
   description: string | null;
   /** Pre-computed numeric timestamp (ms) for start_time – set client-side by useSchedule */
@@ -65,6 +66,12 @@ export interface SubtitleTrackInfo {
   index: number;
   language: string;
   name: string;
+  /** Subtitle codec (e.g. 'srt', 'ass', 'pgssub', 'dvdsub'). Null for Jellyfin. */
+  codec?: string | null;
+  /** True if this is a forced subtitle track. */
+  forced?: boolean;
+  /** Plex external subtitle file path (e.g. /library/streams/12345). Null if embedded. */
+  key?: string | null;
 }
 
 export interface PlaybackInfo {

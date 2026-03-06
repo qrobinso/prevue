@@ -1,7 +1,24 @@
 import { useEffect, useState } from 'react';
 import type { Channel, ScheduleProgram } from '../../types';
 import { getProgramDetails } from '../../services/api';
+import type { ProgramDetails } from '../../services/api';
 import './Guide.css';
+
+function formatRTRating(rating: number): string {
+  return `${Math.round(rating * 10)}%`;
+}
+
+function isRottenTomatoes(imageKey?: string): boolean {
+  return !!imageKey?.includes('rottentomatoes');
+}
+
+function isFresh(ratingImage?: string): boolean {
+  return !!ratingImage && (ratingImage.includes('.ripe') || ratingImage.includes('.certified_fresh'));
+}
+
+function isUpright(audienceRatingImage?: string): boolean {
+  return !!audienceRatingImage?.includes('.upright');
+}
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -23,7 +40,7 @@ interface ProgramInfoModalProps {
 }
 
 export default function ProgramInfoModal({ channel, program, onClose }: ProgramInfoModalProps) {
-  const [details, setDetails] = useState<{ overview: string | null; genres?: string[] } | null>(null);
+  const [details, setDetails] = useState<ProgramDetails | null>(null);
 
   useEffect(() => {
     if (program.media_item_id) {
@@ -80,6 +97,16 @@ export default function ProgramInfoModal({ channel, program, onClose }: ProgramI
             )}
             {program.rating && (
               <span className="program-info-rating">{program.rating}</span>
+            )}
+            {details?.communityRating != null && isRottenTomatoes(details.ratingImage) && (
+              <span className="program-info-rt-critic" title={isFresh(details.ratingImage) ? 'Fresh' : 'Rotten'}>
+                {isFresh(details.ratingImage) ? '🍅' : '🪣'} {formatRTRating(details.communityRating)}
+              </span>
+            )}
+            {details?.audienceRating != null && isRottenTomatoes(details.audienceRatingImage) && (
+              <span className="program-info-rt-audience" title={isUpright(details.audienceRatingImage) ? 'Liked it' : 'Disliked it'}>
+                🍿 {formatRTRating(details.audienceRating)}
+              </span>
             )}
             {details?.genres && details.genres.length > 0 && (
               <span className="program-info-genres">{details.genres.join(' · ')}</span>

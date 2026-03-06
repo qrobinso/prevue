@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import QRCode from 'qrcode';
 import {
-  getServers, addServer, deleteServer, testServer, resyncServer,
+  getServers, addServer, deleteServer, resyncServer,
   discoverServers, reauthenticateServer, requestPlexPin, checkPlexPin,
   getPlexServers, connectPlexServer,
   type ServerInfo, type DiscoveredServer, type PlexServerInfo,
@@ -24,7 +24,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [testResult, setTestResult] = useState<{ connected: boolean; authenticated: boolean } | null>(null);
   const [discovered, setDiscovered] = useState<DiscoveredServer[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [reauthOpen, setReauthOpen] = useState(false);
@@ -145,17 +144,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     }
   };
 
-  const handleTest = async () => {
-    if (!activeServer) return;
-    setTestResult(null);
-    try {
-      const result = await testServer(activeServer.id);
-      setTestResult(result);
-    } catch {
-      setTestResult({ connected: false, authenticated: false });
-    }
-  };
-
   const handleReauthenticate = async () => {
     if (!activeServer) return;
     try {
@@ -216,9 +204,33 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
             setPlexAuthToken(result.auth_token);
 
             // Fetch user's Plex servers
-            setPlexStep('servers');
             const servers = await getPlexServers(result.auth_token, pin.client_id);
             setPlexServers(servers);
+
+            // Auto-select if only one server
+            if (servers.length === 1) {
+              setPlexStep('connecting');
+              setConnecting(true);
+              try {
+                if (activeServer) await deleteServer(activeServer.id);
+                const connected = await connectPlexServer({
+                  name: servers[0].name,
+                  url: servers[0].url,
+                  auth_token: result.auth_token,
+                  client_id: pin.client_id,
+                });
+                resetSetupForm();
+                await loadServers();
+                if (connected.is_active) onServerAdded?.(connected);
+              } catch (err) {
+                setError((err as Error).message);
+                setPlexStep('servers');
+              } finally {
+                setConnecting(false);
+              }
+            } else {
+              setPlexStep('servers');
+            }
           }
         } catch (err) {
           console.warn('[Plex] PIN poll error:', err);
@@ -259,86 +271,57 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     }
   };
 
-  const renderTestBadge = () => {
-    if (testResult === null) return null;
-    if (testResult.connected && testResult.authenticated) {
-      return <span className="server-test-ok">Connected</span>;
-    }
-    if (testResult.connected) {
-      return <span className="server-test-warn">No Auth</span>;
-    }
-    return <span className="server-test-fail">Failed</span>;
-  };
-
   if (loading) return <div className="settings-loading">Loading...</div>;
 
   const needsAuth = activeServer ? !activeServer.is_authenticated : false;
   const serverTypeName = activeServer?.server_type === 'plex' ? 'Plex' : 'Jellyfin';
 
   return (
-    <div className="settings-section">
-      <h3>Media Server</h3>
+    <>
+      <h3>General</h3>
+
+      <div className="settings-group-heading">MEDIA SERVER</div>
 
       {error && <div className="settings-error">{error}</div>}
 
       {/* ── Connected server ── */}
       {activeServer && !showSetup && (
-        <div className={`server-card ${needsAuth ? 'server-card-warning' : 'server-card-active'}`}>
-          <div className="server-card-header">
-            <div className="server-card-info">
-              <div className="server-card-name">
-                <span className="server-type-badge">{serverTypeName}</span>
-                {activeServer.name}
-                {!needsAuth && <span className="server-status-dot server-status-active" title="Connected" />}
-                {needsAuth && <span className="server-status-dot server-status-warning" title="Needs authentication" />}
-              </div>
-              <div className="server-card-details">
-                <span className="server-card-url">{activeServer.url}</span>
-                {activeServer.username && <span className="server-card-user">{activeServer.username}</span>}
-              </div>
+        <div className="server-connected">
+          <div className="server-connected-status">
+            <span className={`server-connected-indicator ${needsAuth ? 'server-connected-indicator-warn' : ''}`} />
+            <span className="server-connected-label">{needsAuth ? 'Authentication Required' : 'Connected'}</span>
+          </div>
+
+          <div className="server-connected-details">
+            <div className="server-connected-row">
+              <span className="server-connected-key">Server</span>
+              <span className="server-connected-value">{activeServer.name}</span>
             </div>
-            {renderTestBadge()}
+            <div className="server-connected-row">
+              <span className="server-connected-key">Type</span>
+              <span className="server-connected-value">{serverTypeName}</span>
+            </div>
+            <div className="server-connected-row">
+              <span className="server-connected-key">URL</span>
+              <span className="server-connected-value server-connected-url">{activeServer.url}</span>
+            </div>
+            {activeServer.username && (
+              <div className="server-connected-row">
+                <span className="server-connected-key">User</span>
+                <span className="server-connected-value">{activeServer.username}</span>
+              </div>
+            )}
           </div>
 
-          <div className="server-card-actions">
-            <button className="server-action-btn" onClick={handleTest}>
-              TEST
-            </button>
-
-            {needsAuth && activeServer.server_type !== 'plex' && (
-              <button
-                className="server-action-btn server-action-warning"
-                onClick={() => { setReauthOpen(!reauthOpen); setReauthPassword(''); }}
-              >
-                {reauthOpen ? 'CANCEL' : 'RE-AUTH'}
-              </button>
-            )}
-
-            {!needsAuth && (
-              <button
-                className="server-action-btn server-action-accent"
-                onClick={handleResync}
-                disabled={resyncing}
-              >
-                {resyncing ? 'SYNCING...' : 'RESYNC'}
-              </button>
-            )}
-
+          {needsAuth && activeServer.server_type !== 'plex' && !reauthOpen && (
             <button
-              className="server-action-btn"
-              onClick={() => { setShowSetup(true); setError(''); }}
+              className="settings-btn-primary"
+              onClick={() => { setReauthOpen(true); setReauthPassword(''); }}
+              style={{ marginBottom: 8 }}
             >
-              CHANGE
+              RE-AUTHENTICATE
             </button>
-
-            <button
-              className={`server-action-btn server-action-danger ${confirmDisconnect ? 'server-action-danger-confirm' : ''}`}
-              onClick={handleDisconnect}
-              onBlur={() => setConfirmDisconnect(false)}
-            >
-              {confirmDisconnect ? 'CONFIRM' : 'DISCONNECT'}
-            </button>
-          </div>
+          )}
 
           {reauthOpen && (
             <div className="server-reauth">
@@ -362,8 +345,39 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
               >
                 LOGIN
               </button>
+              <button
+                className="server-action-btn"
+                onClick={() => { setReauthOpen(false); setReauthPassword(''); }}
+              >
+                CANCEL
+              </button>
             </div>
           )}
+
+          <div className="server-connected-actions">
+            {!needsAuth && (
+              <button
+                className="server-action-btn server-action-accent"
+                onClick={handleResync}
+                disabled={resyncing}
+              >
+                {resyncing ? 'SYNCING...' : 'RESYNC LIBRARY'}
+              </button>
+            )}
+            <button
+              className="server-action-btn"
+              onClick={() => { setShowSetup(true); setError(''); }}
+            >
+              CHANGE SERVER
+            </button>
+            <button
+              className={`server-action-btn server-action-danger ${confirmDisconnect ? 'server-action-danger-confirm' : ''}`}
+              onClick={handleDisconnect}
+              onBlur={() => setConfirmDisconnect(false)}
+            >
+              {confirmDisconnect ? 'CONFIRM DISCONNECT' : 'DISCONNECT'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -606,6 +620,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }

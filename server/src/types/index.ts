@@ -124,6 +124,7 @@ export interface ScheduleProgram {
   year: number | null;
   rating: string | null;
   resolution: string | null;
+  is_hdr: boolean | null;
   genres: string[] | null;
   description: string | null;
 }
@@ -170,9 +171,12 @@ export interface MediaItem {
     LastPlayedDate?: string;
   };
   CommunityRating?: number;    // User community rating (0-10 scale)
+  AudienceRating?: number;     // Audience rating (0-10 scale; e.g. Plex RT audience score)
+  RatingImage?: string;        // Rating source image key (e.g. "rottentomatoes://image.rating.ripe")
+  AudienceRatingImage?: string; // Audience rating source image key (e.g. "rottentomatoes://image.rating.upright")
   Tags?: string[];
   People?: { Name: string; Type: string }[];  // Actors, Directors, etc.
-  MediaSources?: { MediaStreams?: { Type?: string; Width?: number; Height?: number }[] }[];
+  MediaSources?: { MediaStreams?: { Type?: string; Width?: number; Height?: number; BitDepth?: number; ColorPrimaries?: string; ColorTrc?: string; DOVIPresent?: boolean }[] }[];
 }
 
 export interface MediaLibrary {

@@ -1,17 +1,17 @@
 # Prevue
 
-A self-hosted, retro cable TV guide for Jellyfin. Prevue transforms your personal media library into a classic channel-surfing experience — complete with auto-generated channels, a full electronic program guide, a built-in video player, and IPTV output for external apps. It's a fun way to rediscover your media library.
+A self-hosted, retro cable TV guide for Jellyfin and Plex. Prevue transforms your personal media library into a classic channel-surfing experience — complete with auto-generated channels, a full electronic program guide, a built-in video player, and IPTV output for external apps. It's a fun way to rediscover your media library.
 
 Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
 
 ## Key Features
 
 - **Self-hosted** — Run on your own server, your own network, your own terms. Docker or bare metal.
-- **Jellyfin integration** — Connects to your Jellyfin media server and syncs your full movie and TV library.
+- **Jellyfin & Plex integration** — Connects to your Jellyfin or Plex media server and syncs your full movie and TV library.
 - **AI-powered channel creation** — Generate channels from natural language prompts using an AI agent via OpenRouter (e.g. "90s nostalgia" or "Christopher Nolan marathon").
 - **Preset and custom channels** — Auto-generates channels by genre, era, director, actor, collection, and more. Create your own with manual item lists or AI prompts.
 - **Content filters** — Filter channels by content type (movies, TV shows, or both), ratings, genres, and unwatched status.
-- **Hardware transcoding** — Leverages Jellyfin's transcoding pipeline with selectable quality presets (Auto, 4K, 1080p, 720p, 480p) and HEVC support.
+- **Hardware transcoding** — Leverages your media server's transcoding pipeline with selectable quality presets (Auto, 4K, 1080p, 720p, 480p) and HEVC support.
 - **Subtitle and audio track support** — Full multi-track subtitle and audio selection, with per-language preferences and persistence.
 - **Full-featured guide and player** — Retro Prevue Channel-inspired EPG grid with a built-in HLS video player, overlay controls, nerd stats, and picture-in-picture.
 - **IPTV server with EPG** — Exposes an M3U playlist and XMLTV EPG feed so you can watch your channels in Kodi, VLC, Jellyfin, or any IPTV client.
@@ -29,7 +29,7 @@ docker compose up -d
 ```
 
 Open `http://localhost:3080` in your browser.
-Go to **Settings > Servers** to connect your Jellyfin server. Your library will sync automatically and channels will be generated on first run.
+Go to **Settings > Servers** to connect your Jellyfin or Plex server. Your library will sync automatically and channels will be generated on first run.
 
 ### Jellyfin Discovery in Docker
 
@@ -38,6 +38,8 @@ In bridge mode, container LAN discovery can miss Jellyfin broadcasts/subnets.
 
 - Recommended fallback: manually enter your Jellyfin URL (e.g. `http://<jellyfin-ip>:8096`).
 - Optional (Linux): use host networking by adding `network_mode: host` to your compose service.
+
+> **Note:** Server discovery is only available for Jellyfin. Plex servers are discovered automatically via plex.tv after signing in.
 
 ## Quick Start (Development)
 
@@ -50,17 +52,30 @@ npm run dev
 - Client: http://localhost:5173 (Vite dev server, proxies API to :3080)
 - Server: http://localhost:3080
 
-## Connecting to Jellyfin
+## Connecting a Media Server
 
-Prevue connects to Jellyfin entirely through the app UI — no environment variables needed for the connection itself.
+Prevue connects to your media server entirely through the app UI — no environment variables needed for the connection itself.
+
+### Jellyfin
 
 1. Open **Settings > Servers**
-2. Enter your Jellyfin server URL, username, and password
-3. Prevue syncs your full movie and episode library (with genres, directors, actors, ratings, artwork)
-4. Channels are auto-generated from your library content
-5. Watch progress can optionally be shared back to Jellyfin (configurable in Settings)
+2. Select **Jellyfin** as the server type
+3. Enter your Jellyfin server URL, username, and password
+4. Prevue syncs your full movie and episode library (with genres, directors, actors, ratings, artwork)
+5. Channels are auto-generated from your library content
+6. Watch progress can optionally be shared back to Jellyfin (configurable in Settings)
 
 Supports local LAN URLs, remote URLs, and manual or discovered server entry.
+
+### Plex
+
+1. Open **Settings > Servers**
+2. Select **Plex** as the server type
+3. Sign in with your Plex account via PIN-based authentication (opens plex.tv)
+4. Select a server from your available Plex servers
+5. Prevue syncs your movie and TV library and auto-generates channels
+
+Plex uses OAuth-style PIN authentication — your Plex password is never entered into Prevue.
 
 ## Channels
 
@@ -72,7 +87,7 @@ On first sync, Prevue creates channels based on your library metadata:
 - **Era** — 80s, 90s, 2000s, etc.
 - **Director** — Spielberg, Nolan, Fincher, and more
 - **Actor** — Hanks, DiCaprio, Streep, and more
-- **Collection** — Box sets and Jellyfin collections
+- **Collection** — Box sets and collections from your media server
 - **Composer** — Williams, Zimmer, Shore, and more
 
 ### Preset Channels
@@ -119,7 +134,7 @@ Default model: `google/gemini-3-flash-preview` (configurable in Settings).
 - Promo overlay — periodic broadcast-style popups showing what you're watching, what's coming up next, and what's starting soon on other channels (toggleable in Settings). "Starting Soon" promos are clickable — tap to tune directly to that channel.
 - Nerd stats panel: resolution, bitrate, codec, FPS, buffer health
 - Channel up/down while watching
-- Progress reporting back to Jellyfin
+- Progress reporting back to Jellyfin/Plex
 - Auto-advances to next program when current one ends
 
 ### Interstitial Screen
@@ -131,11 +146,11 @@ Default model: `google/gemini-3-flash-preview` (configurable in Settings).
 
 ## Hardware Transcoding
 
-Prevue proxies HLS streams through Jellyfin's transcoding pipeline. If your Jellyfin server has hardware transcoding configured (VAAPI, NVENC, QSV, etc.), Prevue benefits automatically.
+Prevue proxies HLS streams through your media server's transcoding pipeline. If your server has hardware transcoding configured (VAAPI, NVENC, QSV, etc.), Prevue benefits automatically.
 
 - Quality presets with configurable bitrate and resolution caps
-- HEVC support (when Jellyfin is configured for it)
-- Smart request deduplication to prevent duplicate FFmpeg jobs
+- HEVC support (when your server is configured for it)
+- Smart request deduplication to prevent duplicate transcoding jobs
 - Idle session cleanup after 5 minutes of inactivity
 
 ## API Resilience
@@ -145,11 +160,11 @@ Prevue includes built-in protections against rate limiting and redundant API cal
 - **Request deduplication** — Concurrent identical GET requests share a single in-flight fetch
 - **Retry with exponential backoff** — 429 (rate limit) responses are retried up to 3 times with 1s/2s/4s delays, respecting `Retry-After` headers
 - **Debounced schedule reloads** — Rapid WebSocket events (channel changes, schedule updates) are collapsed into a single reload with a 2-second debounce window
-- **Server-side caching** — Item details (5-min TTL) and playback session info (60s TTL) are cached to reduce Jellyfin API calls during rapid navigation
+- **Server-side caching** — Item details (5-min TTL) and playback session info (60s TTL) are cached to reduce media server API calls during rapid navigation
 
 ## Subtitle Support
 
-- Displays all available subtitle tracks from Jellyfin (embedded and external)
+- Displays all available subtitle tracks (embedded and external)
 - In-player track selection with language and display name
 - Subtitle preference persisted across sessions
 - Server-side preferred subtitle index configurable in Settings
@@ -209,7 +224,7 @@ curl -fsSL https://raw.githubusercontent.com/user/prevue/master/deploy/raspberry
 - Keyboard/mouse fallback support
 - Auto-recovery from crashes
 - One-click updates
-- Works with local or remote Jellyfin
+- Works with local or remote Jellyfin/Plex
 
 See [Raspberry Pi Deployment Guide](deploy/raspberry-pi/README-PI.md) for detailed setup.
 
@@ -219,14 +234,14 @@ See [Raspberry Pi Deployment Guide](deploy/raspberry-pi/README-PI.md) for detail
 |----------|----------|---------|-------------|
 | `PORT` | No | 3080 | Server port |
 | `PREVUE_API_KEY` | No | — | Protects all `/api/*` and `/ws` routes with an API key |
-| `DATA_ENCRYPTION_KEY` | Recommended | auto | 32+ char key for encrypting stored Jellyfin tokens |
+| `DATA_ENCRYPTION_KEY` | Recommended | auto | 32+ char key for encrypting stored server tokens |
 | `OPENROUTER_API_KEY` | No | — | Enables AI-powered channel creation via OpenRouter |
 | `ALLOWED_ORIGINS` | No | allow all | Comma-separated CORS allowlist |
 | `TRUST_PROXY` | No | false | Set `true` when behind a reverse proxy (nginx, Caddy, Traefik) |
-| `PREVUE_ALLOW_PRIVATE_URLS` | No | 1 | Allow local/private Jellyfin URLs (LAN mode) |
+| `PREVUE_ALLOW_PRIVATE_URLS` | No | 1 | Allow local/private server URLs (LAN mode) |
 | `SCHEDULE_BLOCK_HOURS` | No | 8 | Schedule block duration in hours |
 
-Jellyfin server credentials are configured from the app UI in **Settings > Servers**.
+Media server credentials are configured from the app UI in **Settings > Servers**.
 
 ### Production Hardening
 
@@ -243,29 +258,35 @@ Jellyfin server credentials are configured from the app UI in **Settings > Serve
 | Client | React 18, Vite, HLS.js, TypeScript |
 | Server | Express, TypeScript, WebSocket |
 | Database | SQLite (better-sqlite3, WAL mode) |
-| Streaming | Proxied HLS from Jellyfin |
+| Streaming | Proxied HLS from Jellyfin/Plex |
+| Media Providers | Jellyfin, Plex (via MediaProvider abstraction) |
 | AI | OpenRouter API (configurable model) |
 | Container | Docker (node:20-alpine, 3-stage build) |
 
+### Media Provider Architecture
+
+Prevue uses a **MediaProvider** abstraction layer so all routes, schedule generation, and channel logic are provider-agnostic. A factory function creates the correct provider (JellyfinClient or PlexClient) based on the active server's type. Both providers normalize their API responses to a shared `MediaItem` type, and expose capability flags for feature detection (e.g., media segment support, server discovery).
+
 ### Streaming Pipeline
 
-All video is proxied through Prevue so Jellyfin credentials are never exposed to the browser:
+All video is proxied through Prevue so server credentials are never exposed to the browser:
 
 ```
 Browser (hls.js)
   → GET /api/playback/:channelId       (stream URL + seek position + tracks)
-  → GET /api/stream/:itemId            (master M3U8 from Jellyfin, URLs rewritten)
-  → GET /api/stream/proxy/*            (child playlists + segments proxied to Jellyfin)
+  → GET /api/stream/:itemId            (master M3U8 from server, URLs rewritten)
+  → GET /api/stream/proxy/*            (child playlists + segments proxied to server)
 ```
 
-- **Session pre-fetching** — `/api/playback` does one Jellyfin `PlaybackInfo` call and forwards `playSessionId` + `mediaSourceId` in the stream URL so `/api/stream` skips a redundant round-trip
-- **Request deduplication** — Concurrent requests for the same Jellyfin URL share a single in-flight fetch, preventing duplicate FFmpeg processes when hls.js retries
-- **Idle cleanup** — Runs every 2 minutes and stops Jellyfin transcoding sessions inactive for 5+ minutes
-- **Pre-warming** — After returning the master playlist, the server pre-fetches the first child playlist so segments are ready faster
+- **Session pre-fetching** — `/api/playback` calls the provider's `PlaybackInfo` and forwards `playSessionId` + `mediaSourceId` in the stream URL so `/api/stream` skips a redundant round-trip
+- **Request deduplication** — Concurrent requests for the same upstream URL share a single in-flight fetch, preventing duplicate transcoding processes when hls.js retries
+- **Idle cleanup** — Runs every 2 minutes and stops transcoding sessions inactive for 5+ minutes
+- **Pre-warming** — After returning the master playlist, the server pre-fetches the first child playlist so segments are ready faster (Jellyfin)
 - **Shared video element** — Client uses a singleton `<video>` element that is DOM-reparented between Guide preview and Player — no re-buffering on guide-to-fullscreen transitions
 - **Playback handoff** — 8-second TTL contract so Guide and Player can transfer ownership of the same HLS session without stopping/restarting
 - **HEVC/HDR** — Client-side codec detection; passes `hevc=1` to request HEVC with `mp4` segment container, falls back to `h264` with `ts` container
-- **Seek** — Handled client-side via hls.js `startPosition` (not Jellyfin's `StartTimeTicks`) to avoid FFmpeg exit code 234 on VAAPI systems
+- **Seek** — Handled client-side via hls.js `startPosition` (not server-side StartTimeTicks) to avoid FFmpeg exit code 234 on VAAPI systems
+- **Plex retry handling** — Plex transcoder may return 400 while starting up; Prevue automatically retries with backoff
 
 ### Schedule Engine
 
@@ -284,7 +305,7 @@ Three channel types: **auto** (genre-based), **preset** (curated definitions), a
 
 - **Auto channels** — Groups library items by lead genre; priority genres processed first; no bleeding across genres
 - **Preset channels** — Static (fixed filter rules) and dynamic (`auto-genres`, `auto-eras`, `auto-directors`, `auto-actors`, `auto-composers`, `auto-collections`, `auto-playlists`, `auto-studios`). Dynamic presets enumerate the library and create one channel per entity
-- **AI channels** — Library is condensed into a token-efficient format (`M0`, `S5`-style indices) and sent to the LLM via OpenRouter. The model returns item indices + channel name; server maps back to Jellyfin IDs
+- **AI channels** — Library is condensed into a token-efficient format (`M0`, `S5`-style indices) and sent to the LLM via OpenRouter. The model returns item indices + channel name; server maps back to media item IDs
 
 ### WebSocket Events
 
@@ -307,11 +328,11 @@ Raw SQL via `better-sqlite3` (synchronous, WAL mode). No ORM.
 
 | Table | Purpose |
 |-------|---------|
-| `servers` | Jellyfin server configs and encrypted access tokens |
+| `servers` | Media server configs (Jellyfin/Plex) and encrypted access tokens |
 | `channels` | Channel definitions (type, genre, preset, AI prompt, item IDs) |
 | `schedule_blocks` | Schedule data (programs JSON, deterministic seed) |
 | `settings` | Key-value store (JSON-serialized values) |
-| `library_cache` | Cached Jellyfin item metadata |
+| `library_cache` | Cached media item metadata |
 | `watch_sessions` | Viewing session metrics |
 | `watch_events` | Granular watch event log |
 | `client_registry` | Known client identifiers |
@@ -366,7 +387,7 @@ All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs
 | `GET /api/schedule/:channelId` | Schedule for one channel |
 | `GET /api/schedule/:channelId/now` | Current program + next + seek offset |
 | `POST /api/schedule/regenerate` | Force-regenerate all schedules |
-| `GET /api/schedule/item/:itemId` | Jellyfin item details (5-min cache) |
+| `GET /api/schedule/item/:itemId` | Media item details (5-min cache) |
 
 ### Playback & Streaming
 
@@ -374,10 +395,10 @@ All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs
 |----------|-------------|
 | `GET /api/playback/:channelId` | Stream URL, seek position, tracks, outro detection |
 | `GET /api/stream/:itemId` | HLS master playlist (rewritten URLs) |
-| `GET /api/stream/proxy/*` | Proxy HLS sub-requests to Jellyfin |
+| `GET /api/stream/proxy/*` | Proxy HLS sub-requests to media server |
 | `POST /api/stream/stop` | Stop playback session |
-| `POST /api/stream/progress` | Report playback progress to Jellyfin |
-| `GET /api/images/:itemId/:type` | Proxy Jellyfin images (24h cache) |
+| `POST /api/stream/progress` | Report playback progress to media server |
+| `GET /api/images/:itemId/:type` | Proxy media server images (24h cache) |
 
 ### IPTV
 
@@ -397,11 +418,15 @@ All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs
 | `POST /api/settings/factory-reset` | Wipe all data |
 | `POST /api/settings/restart` | Restart server process |
 | `GET /api/servers` | List configured servers |
-| `POST /api/servers` | Add Jellyfin server |
+| `POST /api/servers` | Add Jellyfin server (username/password auth) |
 | `PUT /api/servers/:id` | Update server |
 | `DELETE /api/servers/:id` | Remove server |
 | `POST /api/servers/:id/resync` | Re-sync library |
 | `GET /api/servers/discover` | Discover Jellyfin via UDP/HTTP |
+| `POST /api/servers/plex/pin` | Request a Plex PIN for OAuth authentication |
+| `GET /api/servers/plex/pin/:pinId/check` | Check if Plex PIN has been authorized |
+| `GET /api/servers/plex/servers` | List available Plex servers for authenticated user |
+| `POST /api/servers/plex/connect` | Connect to a selected Plex server |
 
 ### Metrics & System
 

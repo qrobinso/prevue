@@ -14,6 +14,10 @@ export interface PlaybackInfoResult {
       Language?: string | null;
       DisplayTitle?: string | null;
       Title?: string | null;
+      Codec?: string | null;
+      IsForced?: boolean;
+      IsExternal?: boolean;
+      Key?: string | null;
     }> | null;
   }> | null;
 }
