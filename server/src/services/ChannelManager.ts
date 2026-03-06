@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { ChannelParsed, ChannelFilter, JellyfinItem } from '../types/index.js';
-import { JellyfinClient } from './JellyfinClient.js';
+import type { MediaProvider } from './MediaProvider.js';
 import { ScheduleEngine } from './ScheduleEngine.js';
 import { CHANNEL_PRESETS, PRESET_CATEGORIES, getPresetById } from '../data/channelPresets.js';
 import * as queries from '../db/queries.js';
@@ -81,10 +81,10 @@ const PRIORITY_GENRE_NAMES = new Set([
 
 export class ChannelManager {
   private db: Database.Database;
-  private jellyfin: JellyfinClient;
+  private jellyfin: MediaProvider;
   private scheduleEngine: ScheduleEngine;
 
-  constructor(db: Database.Database, jellyfin: JellyfinClient, scheduleEngine: ScheduleEngine) {
+  constructor(db: Database.Database, jellyfin: MediaProvider, scheduleEngine: ScheduleEngine) {
     this.db = db;
     this.jellyfin = jellyfin;
     this.scheduleEngine = scheduleEngine;

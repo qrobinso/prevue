@@ -6,7 +6,7 @@ import * as queries from '../db/queries.js';
 import { isAuthEnabled, getApiKey } from '../middleware/auth.js';
 import { rewriteM3u8Urls, activeSessions, lastActivityByItemId, iptvSessionInfo } from './stream.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
-import type { JellyfinClient } from '../services/JellyfinClient.js';
+import type { MediaProvider } from '../services/MediaProvider.js';
 import type { ChannelParsed } from '../types/index.js';
 
 export const iptvRoutes = Router();
@@ -353,7 +353,7 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
   try {
     const { db, scheduleEngine, jellyfinClient } = req.app.locals;
     const se = scheduleEngine as ScheduleEngine;
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
 
     if (!requireIptvAuth(req, res)) return;
     if (!isIptvEnabled(db)) {

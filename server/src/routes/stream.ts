@@ -1,7 +1,7 @@
 import type { Express } from 'express';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import type { JellyfinClient } from '../services/JellyfinClient.js';
+import type { MediaProvider } from '../services/MediaProvider.js';
 import * as queries from '../db/queries.js';
 
 export const streamRoutes = Router();
@@ -117,7 +117,7 @@ function extractFirstChildPlaylistPath(masterPlaylist: string): string | null {
 streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
   try {
     const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     const { itemId, playSessionId, positionMs } = req.body;
     
     // Use provided playSessionId or look up from active sessions
@@ -175,7 +175,7 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
 streamRoutes.post('/stream/progress', async (req: Request, res: Response) => {
   try {
     const { jellyfinClient, db } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
 
     // Check if progress sharing is enabled
     const enabled = isProgressSharingEnabled(queries.getSetting(db, 'share_playback_progress'));
@@ -231,7 +231,7 @@ streamRoutes.get('/stream/sessions', (_req: Request, res: Response) => {
 // DELETE /api/stream/sessions - Stop all active sessions
 streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
   const { jellyfinClient } = req.app.locals;
-  const jf = jellyfinClient as JellyfinClient;
+  const jf = jellyfinClient as MediaProvider;
   
   const count = activeSessions.size;
   const stopped: string[] = [];
@@ -332,7 +332,7 @@ const ALLOWED_PROXY_PATTERNS = [
 streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
   try {
     const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     const baseUrl = jf.getBaseUrl();
     const authHeaders = jf.getProxyHeaders();
     const deviceId = jf.getDeviceId();
@@ -494,7 +494,7 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
 streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
   try {
     const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     const itemId = req.params.itemId as string;
     
     // Get quality, audio track, and subtitle track from query string. Omit for "auto" = prefer direct stream (no transcoding).
@@ -637,7 +637,7 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
 streamRoutes.get('/images/:itemId/:imageType', async (req: Request, res: Response) => {
   try {
     const { jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     const itemId = req.params.itemId as string;
     const imageType = req.params.imageType as string;
     const maxWidth = parseInt(req.query.maxWidth as string || '400', 10);
@@ -676,7 +676,7 @@ streamRoutes.get('/images/:itemId/:imageType', async (req: Request, res: Respons
  */
 export function startTranscodeIdleCleanup(app: Express): void {
   setInterval(async () => {
-    const jf = app.locals.jellyfinClient as JellyfinClient | undefined;
+    const jf = app.locals.jellyfinClient as MediaProvider | undefined;
     if (!jf) return;
 
     const now = Date.now();

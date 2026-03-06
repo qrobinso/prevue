@@ -4,7 +4,7 @@ import * as queries from '../db/queries.js';
 import type { ChannelManager } from '../services/ChannelManager.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import { AIService, DEFAULT_AI_MODEL } from '../services/AIService.js';
-import type { JellyfinClient } from '../services/JellyfinClient.js';
+import type { MediaProvider } from '../services/MediaProvider.js';
 import { broadcast } from '../websocket/index.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 
@@ -91,7 +91,7 @@ channelRoutes.post('/ai', async (req: Request, res: Response) => {
       return;
     }
 
-    const libraryItems = (jellyfinClient as JellyfinClient).getLibraryItems();
+    const libraryItems = (jellyfinClient as MediaProvider).getLibraryItems();
     const aiResult = await aiService.createChannelFromPrompt(prompt, libraryItems, {
       apiKey: userKey,
       model: userModel,
@@ -128,7 +128,7 @@ channelRoutes.put('/:id/ai-refresh', async (req: Request, res: Response) => {
       return;
     }
 
-    const libraryItems = (jellyfinClient as JellyfinClient).getLibraryItems();
+    const libraryItems = (jellyfinClient as MediaProvider).getLibraryItems();
     const aiResult = await aiService.createChannelFromPrompt(channel.ai_prompt, libraryItems, {
       apiKey: userKey,
       model: userModel,
@@ -194,7 +194,7 @@ channelRoutes.delete('/:id', (req: Request, res: Response) => {
 channelRoutes.get('/ai/suggestions', (req: Request, res: Response) => {
   try {
     const { jellyfinClient } = req.app.locals;
-    const items = (jellyfinClient as JellyfinClient).getLibraryItems();
+    const items = (jellyfinClient as MediaProvider).getLibraryItems();
 
     if (items.length === 0) {
       res.json({ suggestions: [] });
@@ -490,7 +490,7 @@ channelRoutes.post('/generate', async (req: Request, res: Response) => {
     }
 
     // Step 1: Check if library needs sync (only sync if empty or force_sync requested)
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     const existingItems = jf.getLibraryItems();
 
     if (existingItems.length === 0 || force_sync) {

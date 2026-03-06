@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import seedrandom from 'seedrandom';
 import type { ChannelParsed, ScheduleProgram, ScheduleBlockParsed, JellyfinItem } from '../types/index.js';
-import { JellyfinClient } from './JellyfinClient.js';
+import type { MediaProvider } from './MediaProvider.js';
 import * as queries from '../db/queries.js';
 import { generateSeed } from '../utils/crypto.js';
 import { getBlockStart, getBlockEnd, getNextBlockStart, getBlockHours, snapForwardTo15Min } from '../utils/time.js';
@@ -32,17 +32,25 @@ function isUnratedOrNotRated(rating: string | undefined): boolean {
   return rating.toLowerCase().trim() === 'not rated';
 }
 
-/** Extract a human-readable resolution label from Jellyfin MediaSources. */
+/** Extract a human-readable resolution label from Jellyfin MediaSources.
+ *  Checks all MediaSources and picks the highest resolution video stream. */
 function getResolutionLabel(item: JellyfinItem): string | null {
-  const streams = item.MediaSources?.[0]?.MediaStreams;
-  if (!Array.isArray(streams)) return null;
-  const video = streams.find(s => s.Type === 'Video');
-  if (!video?.Height) return null;
-  const h = video.Height;
-  if (h >= 2160) return '4K';
-  if (h >= 1080) return '1080p';
-  if (h >= 720) return '720p';
-  if (h >= 480) return '480p';
+  if (!Array.isArray(item.MediaSources) || item.MediaSources.length === 0) return null;
+  let maxHeight = 0;
+  for (const source of item.MediaSources) {
+    const streams = source.MediaStreams;
+    if (!Array.isArray(streams)) continue;
+    const video = streams.find(s => s.Type === 'Video');
+    if (!video) continue;
+    // Use Height if available, otherwise infer from Width (assuming 16:9)
+    const h = video.Height || (video.Width ? Math.round(video.Width * 9 / 16) : 0);
+    if (h > maxHeight) maxHeight = h;
+  }
+  if (maxHeight === 0) return null;
+  if (maxHeight >= 2160) return '4K';
+  if (maxHeight >= 1080) return '1080p';
+  if (maxHeight >= 720) return '720p';
+  if (maxHeight >= 480) return '480p';
   return 'SD';
 }
 
@@ -127,9 +135,9 @@ interface GlobalScheduleTracker {
 
 export class ScheduleEngine {
   private db: Database.Database;
-  private jellyfin: JellyfinClient;
+  private jellyfin: MediaProvider;
 
-  constructor(db: Database.Database, jellyfin: JellyfinClient) {
+  constructor(db: Database.Database, jellyfin: MediaProvider) {
     this.db = db;
     this.jellyfin = jellyfin;
   }

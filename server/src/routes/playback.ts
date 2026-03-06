@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
-import type { JellyfinClient } from '../services/JellyfinClient.js';
+import type { MediaProvider } from '../services/MediaProvider.js';
 import { activeSessions, trackSession, lastActivityByItemId } from './stream.js';
 
 export const playbackRoutes = Router();
@@ -18,7 +18,7 @@ const tracksCache = new Map<string, { data: Awaited<ReturnType<typeof getTracksA
 // Extract audio/subtitle tracks and session info from Jellyfin in a single API call.
 // Returns PlaySessionId and MediaSourceId so the stream endpoint can skip a redundant call.
 async function getTracksAndSession(
-  jellyfinClient: JellyfinClient,
+  jellyfinClient: MediaProvider,
   itemId: string
 ): Promise<{
   audio_tracks: { index: number; language: string; name: string }[];
@@ -58,7 +58,7 @@ async function getTracksAndSession(
 playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
   try {
     const { db, scheduleEngine, jellyfinClient } = req.app.locals;
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     const channelId = parseInt(req.params.channelId as string, 10);
     if (Number.isNaN(channelId) || channelId < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
     const se = scheduleEngine as ScheduleEngine;

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
-import type { JellyfinClient } from '../services/JellyfinClient.js';
+import type { MediaProvider } from '../services/MediaProvider.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import { broadcast } from '../websocket/index.js';
 
@@ -49,7 +49,7 @@ scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
       return;
     }
 
-    const details = await (jellyfinClient as JellyfinClient).getItemDetails(itemId);
+    const details = await (jellyfinClient as MediaProvider).getItemDetails(itemId);
     setCachedItem(itemId, details);
     res.json(details);
   } catch (err) {

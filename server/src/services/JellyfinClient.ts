@@ -2,13 +2,15 @@ import type Database from 'better-sqlite3';
 import { Jellyfin } from '@jellyfin/sdk';
 import { getItemsApi, getMediaInfoApi, getSystemApi, getDynamicHlsApi, getImageApi, getUserApi, getPlaystateApi } from '@jellyfin/sdk/lib/utils/api/index.js';
 import type { Api } from '@jellyfin/sdk';
-import type { BaseItemDto, PlaybackInfoResponse } from '@jellyfin/sdk/lib/generated-client/models/index.js';
+import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/index.js';
 import type { JellyfinItem, JellyfinLibrary, ServerConfig } from '../types/index.js';
+import type { MediaProvider, PlaybackInfoResult } from './MediaProvider.js';
 import * as queries from '../db/queries.js';
 import { ticksToMs, msToTicks } from '../utils/time.js';
 import { randomUUID } from 'crypto';
 
-export class JellyfinClient {
+export class JellyfinClient implements MediaProvider {
+  readonly providerType = 'jellyfin' as const;
   private db: Database.Database;
   private libraryItems: Map<string, JellyfinItem> = new Map();
   private jellyfin: Jellyfin;
@@ -559,7 +561,7 @@ export class JellyfinClient {
    * Get playback info including a PlaySessionId for streaming.
    * Uses a device profile that prefers direct play / direct stream (no transcoding) when possible.
    */
-  async getPlaybackInfo(itemId: string): Promise<PlaybackInfoResponse> {
+  async getPlaybackInfo(itemId: string): Promise<PlaybackInfoResult> {
     const api = this.getApi();
     const mediaInfoApi = getMediaInfoApi(api);
     const userId = this.getUserId();

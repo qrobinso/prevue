@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import dgram from 'node:dgram';
 import os from 'node:os';
 import * as queries from '../db/queries.js';
-import type { JellyfinClient } from '../services/JellyfinClient.js';
+import type { MediaProvider } from '../services/MediaProvider.js';
 import type { ChannelManager } from '../services/ChannelManager.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import { broadcast } from '../websocket/index.js';
@@ -200,7 +200,7 @@ serverRoutes.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
 
     // Test connection first (public endpoint, no auth needed)
     const connected = await jf.testConnection(url);
@@ -297,7 +297,7 @@ serverRoutes.put('/:id', async (req: Request, res: Response) => {
       }
     }
 
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     const updateData: Parameters<typeof queries.updateServer>[2] = {};
 
     if (name !== undefined) updateData.name = name;
@@ -365,8 +365,8 @@ serverRoutes.delete('/:id', (req: Request, res: Response) => {
     }
 
     if (wasActive) {
-      (jellyfinClient as JellyfinClient).resetApi();
-      (jellyfinClient as JellyfinClient).clearLibrary();
+      (jellyfinClient as MediaProvider).resetApi();
+      (jellyfinClient as MediaProvider).clearLibrary();
       broadcast(wss, { type: 'channels:regenerated', payload: { count: 0 } });
     }
 
@@ -389,7 +389,7 @@ serverRoutes.post('/:id/test', async (req: Request, res: Response) => {
       return;
     }
 
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     // Test basic connectivity (uses public endpoint)
     const connected = await jf.testConnection(server.url);
 
@@ -421,7 +421,7 @@ serverRoutes.post('/:id/reauthenticate', async (req: Request, res: Response) => 
       return;
     }
 
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
 
     try {
       const authResult = await jf.authenticate(server.url, server.username, password);
@@ -465,7 +465,7 @@ serverRoutes.post('/:id/activate', async (req: Request, res: Response) => {
     queries.setActiveServer(db, id);
 
     // Reset API and re-sync with new active server
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     jf.resetApi();
     await jf.syncLibrary();
     await (channelManager as ChannelManager).autoGenerateChannels();
@@ -501,7 +501,7 @@ serverRoutes.post('/:id/resync', async (req: Request, res: Response) => {
       return;
     }
 
-    const jf = jellyfinClient as JellyfinClient;
+    const jf = jellyfinClient as MediaProvider;
     jf.resetApi();
 
     broadcast(wss, {

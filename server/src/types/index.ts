@@ -190,3 +190,6 @@ export interface WSMessage {
   type: string;
   payload: unknown;
 }
+
+// Provider-neutral alias for media items (Jellyfin, Plex, etc. all map to this shape)
+export type NormalizedItem = JellyfinItem;
