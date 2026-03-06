@@ -369,7 +369,7 @@ export class PlexClient extends AbstractMediaProvider {
     const mediaSources: MediaItem['MediaSources'] = [];
     if (m.Media && m.Media.length > 0) {
       const media = m.Media[0];
-      const mediaStreams: { Type?: string; Width?: number; Height?: number }[] = [];
+      const mediaStreams: { Type?: string; Width?: number; Height?: number; BitDepth?: number; ColorPrimaries?: string; ColorTrc?: string; DOVIPresent?: boolean }[] = [];
       if (media.Part?.[0]?.Stream) {
         for (const s of media.Part[0].Stream) {
           if (s.streamType === 1) { // video
