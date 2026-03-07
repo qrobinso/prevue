@@ -1,5 +1,7 @@
 # Prevue
 
+![Prevue](server/src/assets/img/title1.png)
+
 A self-hosted, retro cable TV guide for Jellyfin and Plex. Prevue transforms your personal media library into a classic channel-surfing experience — complete with auto-generated channels, a full electronic program guide, a built-in video player, and IPTV output for external apps. It's a fun way to rediscover your media library.
 
 Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
@@ -16,6 +18,11 @@ Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
 - **Full-featured guide and player** — Retro Prevue Channel-inspired EPG grid with a built-in HLS video player, overlay controls, nerd stats, and picture-in-picture.
 - **IPTV server with EPG** — Exposes an M3U playlist and XMLTV EPG feed so you can watch your channels in Kodi, VLC, Jellyfin, or any IPTV client.
 - **Open source** — Inspect, modify, and contribute. Licensed for non-commercial use.
+
+| EPG | Full Screen | Settings |
+|:---:|:---:|:---:|
+| ![EPG](server/src/assets/img/mobile1.PNG) | ![Full Screen](server/src/assets/img/mobile2.PNG) | ![Settings](server/src/assets/img/mobile3.PNG) |
+
 
 ## Quick Start (Docker)
 
