@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Channel } from '../../types';
+import { X } from '@phosphor-icons/react';
 import './Guide.css';
 
 interface ChannelSearchProps {
@@ -93,7 +94,7 @@ export default function ChannelSearch({ channels, onSelect, onClose }: ChannelSe
             title="Close"
             aria-label="Close"
           >
-            ×
+            <X size={18} weight="bold" />
           </button>
         </div>
         <div className="channel-search-results" ref={resultsRef}>

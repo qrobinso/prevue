@@ -6,6 +6,7 @@ import {
   getPlexServers, connectPlexServer,
   type ServerInfo, type DiscoveredServer, type PlexServerInfo,
 } from '../../services/api';
+import { Hexagon } from '@phosphor-icons/react';
 
 interface ServerSettingsProps {
   onServerAdded?: (server: ServerInfo) => void;
@@ -384,7 +385,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
       {/* ── Empty state ── */}
       {!activeServer && !showSetup && (
         <div className="server-empty-state">
-          <div className="server-empty-icon">⬡</div>
+          <div className="server-empty-icon"><Hexagon size={48} weight="light" /></div>
           <p>No server connected</p>
           <span>Connect your Jellyfin or Plex server to get started</span>
           <button
@@ -515,7 +516,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="server-form-actions">
                 <button
                   className="settings-btn-primary server-add-connect-btn"
                   onClick={handleConnect}
@@ -563,7 +564,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                  <div className="server-form-actions">
                     <button className="settings-btn-sm" onClick={resetSetupForm}>
                       CANCEL
                     </button>
@@ -603,7 +604,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                  <div className="server-form-actions">
                     <button className="settings-btn-sm" onClick={resetSetupForm}>
                       CANCEL
                     </button>

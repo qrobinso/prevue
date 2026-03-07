@@ -539,11 +539,14 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
     activeSessions.delete(activeItemId);
     lastActivityByItemId.delete(activeItemId);
   }
+  // Always wait briefly for Plex to release transcode resources. Even when
+  // activeSessions is empty, the client's stopPlayback (force=true) may have
+  // just stopped a session moments ago (e.g. subtitle/quality change). Plex
+  // needs time to tear down the old transcode before accepting a new one.
   if (stopPromises.length > 0) {
     await Promise.all(stopPromises);
-    // Give Plex time to release the transcode resources
-    await new Promise(r => setTimeout(r, 500));
   }
+  await new Promise(r => setTimeout(r, 500));
 
   // Read quality, subtitle, and audio params from request
   const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : undefined;

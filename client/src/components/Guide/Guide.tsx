@@ -8,6 +8,7 @@ import ChannelSearch from './ChannelSearch';
 import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle } from '../Settings/DisplaySettings';
 import type { PreviewStyle } from '../Settings/DisplaySettings';
 import Settings from '../Settings/Settings';
+import { MagnifyingGlass, FrameCorners, CornersIn, GearSix } from '@phosphor-icons/react';
 import { isIOSPWA } from '../../utils/platform';
 import {
   getFullscreenElement,
@@ -500,7 +501,7 @@ export default function Guide({
         title="Search channels"
         aria-label="Search channels"
       >
-        ⌕
+        <MagnifyingGlass size={18} weight="bold" />
       </button>
       <button
         className={`guide-fullscreen-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
@@ -508,14 +509,14 @@ export default function Guide({
         title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
       >
-        {isFullscreen ? '⊡' : '⛶'}
+        {isFullscreen ? <CornersIn size={18} weight="bold" /> : <FrameCorners size={18} weight="bold" />}
       </button>
       <button
         className={`guide-settings-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
         onClick={onOpenSettings}
         title="Settings"
       >
-        ⚙
+        <GearSix size={18} weight="bold" />
       </button>
       <PreviewPanel
         channel={focusedChannel}
@@ -523,8 +524,6 @@ export default function Guide({
         currentTime={previewTime}
         streamingPaused={streamingPaused}
         onTune={handleEnter}
-        onSwipeUp={handleUp}
-        onSwipeDown={handleDown}
         guideHours={guideHours}
         previewStyle={previewStyle}
         onOverlayVisibilityChange={setOverlayVisible}

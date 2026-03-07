@@ -549,8 +549,7 @@ function GuideGrid({
   const artworkThreshold = isMobile ? 100 : 120;
 
   const timeHeaderHeight = Math.max(28, Math.min(48, Math.round(32 * Math.min(scale, 1.5))));
-  const clockMaxForCol = Math.floor((channelColWidth - 16) / 8);
-  const timeHeaderClockFontSize = Math.min(Math.max(Math.round(10 * baseFontScale), isMobile ? 8 : 9), clockMaxForCol);
+  const timeHeaderClockFontSize = Math.max(Math.round(10 * baseFontScale), isMobile ? 8 : 9);
   const timeSlotFontSize = Math.max(Math.round(9 * baseFontScale), isMobile ? 8 : 9);
 
   const timeRange = useMemo(() => {

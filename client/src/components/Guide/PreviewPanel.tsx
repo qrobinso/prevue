@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useSwipe } from '../../hooks/useSwipe';
 import Hls from 'hls.js';
 import type { ScheduleProgram } from '../../types';
@@ -25,6 +26,7 @@ import {
 import InterstitialScreen from '../Player/InterstitialScreen';
 import PromoOverlay from '../Player/PromoOverlay';
 import { getPromoOverlayEnabled, getStartingSoonEnabled, getSubtitleSize, setSubtitleSizeStorage, SUBTITLE_SIZE_PRESETS, type SubtitleSizePreset } from '../Settings/DisplaySettings';
+import { ClosedCaptioningIcon, ArrowsInSimpleIcon, ArrowsOutSimpleIcon } from '@phosphor-icons/react';
 import './Guide.css';
 
 /** Delay before starting preview stream (user may be browsing) */
@@ -87,14 +89,15 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   };
   const isClassic = previewStyle === 'classic-left' || previewStyle === 'classic-right';
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
+  const mobile = isMobile();
   const previewFontSizes = {
     channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
     channelName: Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale),
-    title: Math.round(PREVIEW_BASE_SIZES.title * zoomFontScale),
+    title: Math.round(PREVIEW_BASE_SIZES.title * zoomFontScale * (mobile ? 0.75 : 1)),
     subtitle: Math.round(PREVIEW_BASE_SIZES.subtitle * zoomFontScale),
     year: Math.round(PREVIEW_BASE_SIZES.year * zoomFontScale),
     rating: Math.round(PREVIEW_BASE_SIZES.rating * zoomFontScale),
-    time: Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale),
+    time: Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale * (mobile ? 0.75 : 1)),
   };
 
   const videoRef = useRef<HTMLVideoElement>(getVideoElement());
@@ -897,9 +900,106 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     [channel, program, overlayVisible, onTune, scheduleOverlayHide]
   );
 
+  const audioMenuSections = (
+    <>
+      <div className="preview-audio-more-section">
+        <div className="preview-audio-more-section-title">VOLUME</div>
+        <div className="preview-audio-more-volume-row">
+          <button
+            className={`preview-audio-more-mute ${muted ? 'muted' : ''}`}
+            onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+            title={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted || volume === 0 ? '⊘' : '♫'}
+          </button>
+          {!mobile && (
+            <input
+              type="range"
+              className="preview-audio-more-slider"
+              min="0"
+              max="1"
+              step="0.05"
+              value={muted ? 0 : volume}
+              onChange={(e) => {
+                e.stopPropagation();
+                setVolume(parseFloat(e.target.value));
+              }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ '--volume-fill': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
+            />
+          )}
+        </div>
+      </div>
+      {serverAudioTracks.length >= 1 && (
+        <div className="preview-audio-more-section">
+          <div className="preview-audio-more-section-title">AUDIO TRACK</div>
+          {serverAudioTracks.map((track) => (
+            <button
+              key={track.index}
+              className={`preview-audio-more-option ${selectedAudioStreamIndex === track.index || (selectedAudioStreamIndex === null && track.index === serverAudioTracks[0]?.index) ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectServerAudioTrack(track.index);
+              }}
+            >
+              <span className="preview-audio-more-option-label">{formatAudioTrackNameFromServer(track)}</span>
+              <span className="preview-audio-more-option-lang">{(track.language || 'und').toUpperCase()}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="preview-audio-more-section">
+        <div className="preview-audio-more-section-title">SUBTITLES</div>
+        <button
+          className={`preview-audio-more-option ${selectedSubtitleIndex === null ? 'active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleSelectSubtitleTrack(null);
+          }}
+        >
+          <span className="preview-audio-more-option-label">Off</span>
+        </button>
+        {serverSubtitleTracks.length === 0 ? (
+          <div className="preview-audio-more-option preview-audio-more-option-empty">No subtitles available</div>
+        ) : (
+          serverSubtitleTracks.map((track, positionIndex) => (
+            <button
+              key={track.index}
+              className={`preview-audio-more-option ${selectedSubtitleIndex === positionIndex ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectSubtitleTrack(positionIndex);
+              }}
+            >
+              <span className="preview-audio-more-option-label">{formatSubtitleTrackNameFromServer(track)}</span>
+              <span className="preview-audio-more-option-lang">{(track.language || 'und').toUpperCase()}</span>
+            </button>
+          ))
+        )}
+      </div>
+      <div className="preview-audio-more-section">
+        <div className="preview-audio-more-section-title">SUBTITLE SIZE</div>
+        <div className="preview-subtitle-size-row">
+          {SUBTITLE_SIZE_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              className={`preview-subtitle-size-btn ${subtitleSize.id === preset.id ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSubtitleSizeChange(preset.id);
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
   return (
-    <div 
-      className={`preview-panel ${onTune ? 'preview-panel-clickable' : ''} ${showAudioMoreMenu ? 'preview-panel-audio-open' : ''} ${isClassic ? 'preview-panel-classic' : ''} ${previewStyle === 'classic-left' ? 'preview-panel-classic-left' : ''}`}
+    <div
+      className={`preview-panel ${onTune ? 'preview-panel-clickable' : ''} ${isClassic ? 'preview-panel-classic' : ''} ${previewStyle === 'classic-left' ? 'preview-panel-classic-left' : ''}`}
       onClick={handlePreviewTap}
       role={onTune ? 'button' : undefined}
       tabIndex={onTune ? 0 : undefined}
@@ -960,29 +1060,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             </div>
           </div>
         )}
-        {/* Error overlay (same style as TUNING) */}
-        {videoError && program && (
-          <div className="preview-loading preview-error-overlay">
-            {artworkSources.length > 0 ? (
-              <img
-                className="preview-loading-banner"
-                src={artworkSources[0] ?? ''}
-                data-fallback-index="0"
-                alt=""
-                onError={(e) => {
-                  applyArtworkFallback(e.currentTarget, artworkSources);
-                }}
-              />
-            ) : (
-              <div className="preview-loading-banner preview-loading-banner-fallback" />
-            )}
-            <div className="preview-error-text-wrap">
-              <span className="preview-error-title">ERROR</span>
-              <span className="preview-error-detail">{videoError}</span>
-              <button className="preview-retry-btn" onClick={handleRetry}>↺ RETRY</button>
-            </div>
-          </div>
-        )}
       </div>
       {/* 2E Promo overlay — outside video container so z-index 20 beats preview-overlay z-index 10 */}
       {program && program.type !== 'interstitial' && videoReady && (
@@ -1003,31 +1080,36 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       <div
         className={`preview-overlay ${overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}
         aria-hidden={!overlayVisible}
+        style={videoError ? { pointerEvents: 'none' } : undefined}
       >
         <div className="preview-info">
-          <div className="preview-channel-badge">
-            <span className="preview-channel-num" style={{ fontSize: previewFontSizes.channelNum }}>CH {channel.number}</span>
-            <span className="preview-channel-name" style={{ fontSize: previewFontSizes.channelName }}>{channel.name}</span>
-          </div>
+          {!mobile && (
+            <div className="preview-channel-badge">
+              <span className="preview-channel-num" style={{ fontSize: previewFontSizes.channelNum }}>CH {channel.number}</span>
+              <span className="preview-channel-name" style={{ fontSize: previewFontSizes.channelName }}>{channel.name}</span>
+            </div>
+          )}
           {program && (
             <>
               <div className="preview-title" style={{ fontSize: previewFontSizes.title }}>{program.title}</div>
-              {program.subtitle && (
+              {!mobile && program.subtitle && (
                 <div className="preview-subtitle" style={{ fontSize: previewFontSizes.subtitle }}>{program.subtitle}</div>
               )}
-              <div className="preview-meta">
-                {program.year && <span className="preview-year" style={{ fontSize: previewFontSizes.year }}>{program.year}</span>}
-                {program.rating && <span className="preview-rating" style={{ fontSize: previewFontSizes.rating }}>{program.rating}</span>}
-                {program.resolution && <span className="preview-resolution" style={{ fontSize: previewFontSizes.rating }}>{program.resolution}</span>}
-                {program.duration_ms > 0 && <span className="preview-runtime" style={{ fontSize: previewFontSizes.year }}>{formatRuntime(program.duration_ms)}</span>}
-              </div>
-              {program.genres && program.genres.length > 0 && (
+              {!mobile && (
+                <div className="preview-meta">
+                  {program.year && <span className="preview-year" style={{ fontSize: previewFontSizes.year }}>{program.year}</span>}
+                  {program.rating && <span className="preview-rating" style={{ fontSize: previewFontSizes.rating }}>{program.rating}</span>}
+                  {program.resolution && <span className="preview-resolution" style={{ fontSize: previewFontSizes.rating }}>{program.resolution}</span>}
+                  {program.duration_ms > 0 && <span className="preview-runtime" style={{ fontSize: previewFontSizes.year }}>{formatRuntime(program.duration_ms)}</span>}
+                </div>
+              )}
+              {!mobile && program.genres && program.genres.length > 0 && (
                 <div className="preview-genres" style={{ fontSize: previewFontSizes.year }}>{program.genres.join(' · ')}</div>
               )}
               <div className="preview-time" style={{ fontSize: previewFontSizes.time }}>
                 {formatTime(program.start_time)} - {formatTime(program.end_time)}
               </div>
-              {program.description && (
+              {!mobile && program.description && (
                 <div className="preview-description" style={{ fontSize: previewFontSizes.year }}>{program.description}</div>
               )}
               {program.type === 'program' && (
@@ -1044,7 +1126,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         <div className="preview-right">
           {/* Combined Audio menu (volume + audio track) */}
           <div
-            className={`preview-audio-more-wrap ${showAudioMoreMenu ? 'preview-audio-more-wrap-open' : ''}`}
+            className={`preview-audio-more-wrap ${showAudioMoreMenu && !mobile ? 'preview-audio-more-wrap-open' : ''}`}
             onClick={(e) => {
               e.stopPropagation();
               if (showAudioMoreMenu && e.target === e.currentTarget) setShowAudioMoreMenu(false);
@@ -1055,115 +1137,38 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
               onClick={(e) => { e.stopPropagation(); setShowAudioMoreMenu(prev => !prev); }}
               title="Audio"
             >
-              {muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊'}
+              <ClosedCaptioningIcon size={32} />
             </button>
-            {showAudioMoreMenu && (
-              <div className="preview-audio-more-menu" onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
-                <div className="preview-audio-more-section">
-                  <div className="preview-audio-more-section-title">VOLUME</div>
-                  <div className="preview-audio-more-volume-row">
-                    <button
-                      className={`preview-audio-more-mute ${muted ? 'muted' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); toggleMute(); }}
-                      title={muted ? 'Unmute' : 'Mute'}
-                    >
-                      {muted || volume === 0 ? '🔇' : '🔊'}
-                    </button>
-                    {!isMobile() && (
-                      <input
-                        type="range"
-                        className="preview-audio-more-slider"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        value={muted ? 0 : volume}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          setVolume(parseFloat(e.target.value));
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ '--volume-fill': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
-                      />
-                    )}
-                  </div>
-                </div>
-                {serverAudioTracks.length >= 1 && (
-                  <div className="preview-audio-more-section">
-                    <div className="preview-audio-more-section-title">AUDIO TRACK</div>
-                    {serverAudioTracks.map((track) => (
-                      <button
-                        key={track.index}
-                        className={`preview-audio-more-option ${selectedAudioStreamIndex === track.index || (selectedAudioStreamIndex === null && track.index === serverAudioTracks[0]?.index) ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSelectServerAudioTrack(track.index);
-                        }}
-                      >
-                        <span className="preview-audio-more-option-label">{formatAudioTrackNameFromServer(track)}</span>
-                        <span className="preview-audio-more-option-lang">{(track.language || 'und').toUpperCase()}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <div className="preview-audio-more-section">
-                  <div className="preview-audio-more-section-title">SUBTITLES</div>
-                  <button
-                    className={`preview-audio-more-option ${selectedSubtitleIndex === null ? 'active' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSelectSubtitleTrack(null);
-                    }}
-                  >
-                    <span className="preview-audio-more-option-label">Off</span>
-                  </button>
-                  {serverSubtitleTracks.length === 0 ? (
-                    <div className="preview-audio-more-option preview-audio-more-option-empty">No subtitles available</div>
-                  ) : (
-                    serverSubtitleTracks.map((track, positionIndex) => (
-                      <button
-                        key={track.index}
-                        className={`preview-audio-more-option ${selectedSubtitleIndex === positionIndex ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSelectSubtitleTrack(positionIndex);
-                        }}
-                      >
-                        <span className="preview-audio-more-option-label">{formatSubtitleTrackNameFromServer(track)}</span>
-                        <span className="preview-audio-more-option-lang">{(track.language || 'und').toUpperCase()}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
-                <div className="preview-audio-more-section">
-                  <div className="preview-audio-more-section-title">SUBTITLE SIZE</div>
-                  <div className="preview-subtitle-size-row">
-                    {SUBTITLE_SIZE_PRESETS.map((preset) => (
-                      <button
-                        key={preset.id}
-                        className={`preview-subtitle-size-btn ${subtitleSize.id === preset.id ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSubtitleSizeChange(preset.id);
-                        }}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            {showAudioMoreMenu && !mobile && (
+              <div className="preview-audio-more-menu">
+                {audioMenuSections}
               </div>
             )}
           </div>
-          {/* Letterbox / Fill toggle to the right of audio (same preference as fullscreen player) */}
-          <button
-            type="button"
-            className="preview-fit-btn"
-            onClick={(e) => { e.stopPropagation(); toggleVideoFit(); }}
-            title={videoFit === 'contain' ? 'Fill (crop to fill)' : 'Letterbox (fit entire video)'}
-            aria-label={videoFit === 'contain' ? 'Switch to fill' : 'Switch to letterbox'}
-          >
-            {videoFit === 'contain' ? '⊡' : '▢'}
-          </button>
+          {showAudioMoreMenu && mobile && createPortal(
+            <div
+              className="preview-audio-more-wrap preview-audio-more-wrap-open"
+              onClick={(e) => { if (e.target === e.currentTarget) setShowAudioMoreMenu(false); }}
+            >
+              <div className="preview-audio-more-menu">
+                <div className="preview-audio-sheet-handle" />
+                {audioMenuSections}
+              </div>
+            </div>,
+            document.body
+          )}
+          {/* Letterbox / Fill toggle — hidden on mobile to reduce clutter */}
+          {!mobile && (
+            <button
+              type="button"
+              className="preview-fit-btn"
+              onClick={(e) => { e.stopPropagation(); toggleVideoFit(); }}
+              title={videoFit === 'contain' ? 'Fill (crop to fill)' : 'Letterbox (fit entire video)'}
+              aria-label={videoFit === 'contain' ? 'Switch to fill' : 'Switch to letterbox'}
+            >
+              {videoFit === 'contain' ? <ArrowsOutSimpleIcon size={20} weight="bold" /> : <ArrowsInSimpleIcon size={20} weight="bold" />}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -35,6 +35,7 @@ import {
   hydrateChannelColorsFromServer,
   getLastUsedColor,
 } from '../../utils/guideCustomization';
+import { CaretDown, Check, Minus } from '@phosphor-icons/react';
 
 type ViewMode = 'presets' | 'list' | 'ai';
 
@@ -920,7 +921,7 @@ export default function ChannelSettings() {
                     {selectedCount > 0 && (
                       <span className="settings-preset-category-count">{selectedCount} selected</span>
                     )}
-                    <span className={`settings-preset-category-arrow ${isExpanded ? 'expanded' : ''}`}>▼</span>
+                    <span className={`settings-preset-category-arrow ${isExpanded ? 'expanded' : ''}`}><CaretDown size={14} weight="bold" /></span>
                   </button>
 
                   {isExpanded && (
@@ -939,7 +940,7 @@ export default function ChannelSettings() {
                               className={`settings-preset-item ${isSelected ? 'selected' : ''} ${isDynamic ? 'dynamic' : ''}`}
                               onClick={() => togglePreset(preset.id)}
                             >
-                              <span className="settings-preset-check">{isSelected ? '✓' : ''}</span>
+                              <span className="settings-preset-check">{isSelected ? <Check size={14} weight="bold" /> : ''}</span>
                               <span className="settings-preset-icon">{preset.icon}</span>
                               <div className="settings-preset-info">
                                 <span className="settings-preset-name">
@@ -1006,7 +1007,7 @@ export default function ChannelSettings() {
                     className={`settings-list-item settings-list-item-draggable settings-divider-item ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
                   >
                     <div className="settings-divider-label-wrap">
-                      <span className="settings-divider-icon">―</span>
+                      <span className="settings-divider-icon"><Minus size={16} weight="bold" /></span>
                       <input
                         type="text"
                         className="settings-divider-label-input"
@@ -1184,7 +1185,7 @@ export default function ChannelSettings() {
                 ) : (
                   <span className="settings-badge settings-badge-ai-inactive">NOT CONFIGURED</span>
                 )}
-                <span className={`settings-preset-category-arrow ${aiConfigExpanded ? 'expanded' : ''}`}>▼</span>
+                <span className={`settings-preset-category-arrow ${aiConfigExpanded ? 'expanded' : ''}`}><CaretDown size={14} weight="bold" /></span>
               </div>
             </button>
 

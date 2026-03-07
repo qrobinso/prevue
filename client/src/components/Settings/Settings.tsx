@@ -6,6 +6,7 @@ import DisplaySettings from './DisplaySettings';
 import IPTVSettings from './IPTVSettings';
 import MetricsSettings from './MetricsSettings';
 import { wsClient } from '../../services/websocket';
+import { X, Check, XCircle } from '@phosphor-icons/react';
 import './Settings.css';
 
 interface SettingsProps {
@@ -68,7 +69,7 @@ export default function Settings({ onClose }: SettingsProps) {
         <div className="settings-sync-interstitial">
           <div className="settings-sync-interstitial-card">
             <div className={`settings-sync-interstitial-spinner ${syncProgress.step === 'complete' ? 'settings-sync-interstitial-spinner-done' : ''} ${syncProgress.step === 'error' ? 'settings-sync-interstitial-spinner-error' : ''}`}>
-              {syncProgress.step === 'complete' ? '✓' : syncProgress.step === 'error' ? '✗' : ''}
+              {syncProgress.step === 'complete' ? <Check size={24} weight="bold" /> : syncProgress.step === 'error' ? <XCircle size={24} weight="bold" /> : ''}
             </div>
             <div className="settings-sync-interstitial-message">{syncProgress.message}</div>
             {syncProgress.current != null && syncProgress.total != null && syncProgress.step === 'syncing' && (
@@ -85,7 +86,7 @@ export default function Settings({ onClose }: SettingsProps) {
       <div className="settings-panel">
         <div className="settings-header">
           <h2 className="settings-title">SETTINGS</h2>
-          <button className="settings-close-btn" onClick={onClose}>✕</button>
+          <button className="settings-close-btn" onClick={onClose}><X size={18} weight="bold" /></button>
         </div>
 
         <div className="settings-tabs">

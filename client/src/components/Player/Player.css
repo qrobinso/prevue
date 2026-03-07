@@ -242,7 +242,6 @@
   color: var(--text-gold);
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
   letter-spacing: 0.12em;
-  animation: blink 1s step-end infinite;
 }
 
 /* ── Error (same overlay style as TUNING) ─────────── */

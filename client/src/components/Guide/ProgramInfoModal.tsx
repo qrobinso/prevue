@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Channel, ScheduleProgram } from '../../types';
 import { getProgramDetails } from '../../services/api';
 import type { ProgramDetails } from '../../services/api';
+import { X } from '@phosphor-icons/react';
 import './Guide.css';
 
 function formatRTRating(rating: number): string {
@@ -80,7 +81,7 @@ export default function ProgramInfoModal({ channel, program, onClose }: ProgramI
             title="Close"
             aria-label="Close"
           >
-            ×
+            <X size={18} weight="bold" />
           </button>
         </div>
         <div className="program-info-body">

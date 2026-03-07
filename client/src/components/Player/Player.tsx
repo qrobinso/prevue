@@ -5,6 +5,7 @@ import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings, 
 import { getClientId } from '../../services/clientIdentity';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import { useSwipe } from '../../hooks/useSwipe';
+import { CornersIn, FrameCorners, GearSix, ArrowCounterClockwise, X } from '@phosphor-icons/react';
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
 import {
   consumePlaybackHandoff,
@@ -1463,7 +1464,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             <div className="player-error-text-wrap">
               <span className="player-error-title">ERROR</span>
               <span className="player-error-detail">{error}</span>
-              <button className="player-retry-btn" onClick={handleRetry}>↺ RETRY</button>
+              <button className="player-retry-btn" onClick={handleRetry}><ArrowCounterClockwise size={14} weight="bold" /> RETRY</button>
             </div>
           </div>
         );
@@ -1535,14 +1536,14 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
-          <span className="player-btn-icon">{isFullscreen ? '⤓' : '⤢'}</span>
+          <span className="player-btn-icon">{isFullscreen ? <CornersIn size={18} weight="bold" /> : <FrameCorners size={18} weight="bold" />}</span>
         </button>
         <button
           className={`player-control-btn player-settings-btn ${showSettingsOpen ? 'active' : ''}`}
           onClick={toggleSettings}
           title="Playback settings"
         >
-          <span className="player-btn-icon">⚙</span>
+          <span className="player-btn-icon"><GearSix size={18} weight="bold" /></span>
         </button>
       </div>
 
@@ -1558,7 +1559,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             <div className="player-settings-inner">
               <div className="player-settings-header">
                 <span className="player-settings-title">Settings</span>
-                <button type="button" className="player-settings-close" onClick={() => setShowSettingsOpen(false)} aria-label="Close settings">✕</button>
+                <button type="button" className="player-settings-close" onClick={() => setShowSettingsOpen(false)} aria-label="Close settings"><X size={18} weight="bold" /></button>
               </div>
 
               {!isInterstitial && (
@@ -1569,7 +1570,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                     onClick={handleRestartProgram}
                     title="Restart from the beginning (progress is lost when you leave)"
                   >
-                    <span className="player-btn-icon">↺</span>
+                    <span className="player-btn-icon"><ArrowCounterClockwise size={16} weight="bold" /></span>
                     Restart program
                   </button>
                 </div>
@@ -1585,7 +1586,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                     title={muted ? 'Unmute' : 'Mute'}
                     aria-label={muted ? 'Unmute' : 'Mute'}
                   >
-                    {muted || volume === 0 ? '🔇' : '🔊'}
+                    {muted || volume === 0 ? '⊘' : '♫'}
                   </button>
                   {!isMobile() && (
                     <input
@@ -1748,7 +1749,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             <div className="player-nerd-stats-panel" onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
               <div className="player-nerd-stats-header">
                 <span className="player-nerd-stats-title">STREAM & VIDEO INFO</span>
-                <button type="button" className="player-nerd-stats-close" onClick={() => setShowNerdStats(false)} aria-label="Close">✕</button>
+                <button type="button" className="player-nerd-stats-close" onClick={() => setShowNerdStats(false)} aria-label="Close"><X size={18} weight="bold" /></button>
               </div>
               <div className="player-nerd-stats-body">
                 {/* ── Now Playing ── */}

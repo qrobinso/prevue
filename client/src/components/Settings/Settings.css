@@ -805,6 +805,12 @@
   min-width: 140px;
 }
 
+.server-form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* Empty state */
 .server-empty-state {
   display: flex;
@@ -2044,16 +2050,33 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .settings-preset-item-wrap .settings-preset-item {
   flex: 1;
+  min-width: 0;
 }
 
 .settings-preset-multiplier {
   display: flex;
   gap: 2px;
   flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .settings-preset-item-wrap {
+    flex-wrap: wrap;
+  }
+
+  .settings-preset-item-wrap .settings-preset-item {
+    flex-basis: 100%;
+  }
+
+  .settings-preset-multiplier {
+    margin-left: auto;
+    padding: 0 4px 4px 0;
+  }
 }
 
 .settings-multiplier-btn {
@@ -3031,6 +3054,34 @@
     font-size: 8px;
     padding: 8px 10px;
   }
+
+  .server-connected-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .server-action-btn {
+    min-height: 48px;
+    font-size: 10px;
+  }
+
+  .server-add-connect-btn {
+    min-height: 48px;
+    align-self: stretch;
+  }
+
+  .server-form-actions {
+    flex-direction: column;
+  }
+
+  .server-form-actions .settings-btn-sm,
+  .server-form-actions .settings-btn-primary {
+    min-height: 48px;
+    width: 100%;
+  }
+
+  .server-add-card {
+    padding: 16px;
+  }
 }
 
 /* ── Touch Device Optimizations (iPad, iPhone, tablets) ── */
@@ -3049,7 +3100,8 @@
   .settings-discover-item,
   .settings-create-tab,
   .settings-genre-item,
-  .settings-list-item {
+  .settings-list-item,
+  .server-action-btn {
     min-height: 48px;
   }
 

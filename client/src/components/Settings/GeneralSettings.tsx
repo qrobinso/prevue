@@ -3,6 +3,7 @@ import ServerSettings from './ServerSettings';
 import { factoryReset, restartServer, getSettings, updateSettings, getServers } from '../../services/api';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import type { ServerInfo } from '../../services/api';
+import { CheckCircle } from '@phosphor-icons/react';
 import './Settings.css';
 
 const APP_VERSION = '1.0.0';
@@ -151,7 +152,7 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         </p>
         {isInstalled ? (
           <div className="settings-pwa-installed">
-            <span className="settings-pwa-check">✓</span> Prevue is installed
+            <span className="settings-pwa-check"><CheckCircle size={16} weight="fill" /></span> Prevue is installed
           </div>
         ) : canInstall && prompt ? (
           <button

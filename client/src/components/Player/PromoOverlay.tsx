@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Channel, ScheduleProgram } from '../../types';
 import { sanitizeImageUrl } from '../../utils/sanitize';
+import { ArrowRight } from '@phosphor-icons/react';
 import './Player.css';
 
 export interface PromoOverlayHandle {
@@ -153,6 +154,7 @@ export default function PromoOverlay({
   const [ssRendered, setSsRendered] = useState(false);
   const [ssEntered, setSsEntered] = useState(false);
 
+  const ssTouchStartY = useRef<number | null>(null);
   const scheduledTimesRef = useRef<number[]>([]);
   const programIdRef = useRef<string | null>(null);
   const sequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -401,6 +403,15 @@ export default function PromoOverlay({
           onClick={ssClickable ? handleStartingSoonClick : undefined}
           onMouseEnter={handlePromoMouseEnter}
           onMouseLeave={handlePromoMouseLeave}
+          onTouchStart={(e) => { e.stopPropagation(); ssTouchStartY.current = e.touches[0].clientY; }}
+          onTouchEnd={(e) => {
+            e.stopPropagation();
+            if (ssTouchStartY.current !== null) {
+              const dy = e.changedTouches[0].clientY - ssTouchStartY.current;
+              if (dy > 40) dismissStartingSoonBar();
+              ssTouchStartY.current = null;
+            }
+          }}
           role={ssClickable ? 'button' : undefined}
           tabIndex={ssClickable ? 0 : undefined}
           onKeyDown={ssClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleStartingSoonClick(); } : undefined}
@@ -418,7 +429,7 @@ export default function PromoOverlay({
                 )}
                 {startingSoonProgram.year && <span className="starting-soon-year">{startingSoonProgram.year}</span>}
                 {startingSoonProgram.rating && <span className="starting-soon-rating">{startingSoonProgram.rating}</span>}
-                {ssClickable && <span className="starting-soon-tune">Tune In →</span>}
+                {ssClickable && <span className="starting-soon-tune">Tune In <ArrowRight size={14} weight="bold" /></span>}
               </div>
             </div>
             {ssHdBackdrop && (

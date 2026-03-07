@@ -616,10 +616,13 @@ export class PlexClient extends AbstractMediaProvider {
     // ── Persist subtitle/audio selection via Plex's /library/parts API ──────
     // This is the canonical Plex way (used by Plex Web, Plezy, etc.) — sets the
     // preferred stream server-side so Plex knows which subtitle to include.
+    // IMPORTANT: Always persist — use subtitleStreamID=0 to disable subtitles,
+    // otherwise Plex carries over the last selected subtitle from a prior session.
     const partId = m?.Media?.[0]?.Part?.[0]?.id;
-    if (partId && options?.subtitleStreamIndex != null) {
+    if (partId) {
+      const subtitleStreamID = options?.subtitleStreamIndex != null ? options.subtitleStreamIndex : 0;
       const putParams = new URLSearchParams({
-        subtitleStreamID: String(options.subtitleStreamIndex),
+        subtitleStreamID: String(subtitleStreamID),
         allParts: '1',
         'X-Plex-Token': server.access_token || '',
       });
@@ -627,7 +630,7 @@ export class PlexClient extends AbstractMediaProvider {
         method: 'PUT',
         headers: this.getPlexHeaders(),
       }).catch((err) => console.warn('[Plex] selectStreams PUT failed:', err));
-      console.log(`[Plex] Persisted subtitle stream ${options.subtitleStreamIndex} on part ${partId}`);
+      console.log(`[Plex] Persisted subtitle stream ${subtitleStreamID} on part ${partId}`);
     }
     if (partId && options?.audioStreamIndex != null) {
       const putParams = new URLSearchParams({

@@ -334,7 +334,6 @@ html[data-preview-bg="white"] .preview-video-container {
   color: var(--text-gold);
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
   letter-spacing: 0.12em;
-  animation: blink 1s step-end infinite;
 }
 
 /* ── Preview error overlay (same style as TUNING) ─────── */
@@ -464,10 +463,6 @@ html[data-preview-bg="white"] .preview-video-container {
   pointer-events: none;
 }
 
-/* When audio menu is open, preview panel must be above guide buttons (fullscreen, settings) */
-.preview-panel.preview-panel-audio-open {
-  z-index: 25;
-}
 
 .preview-info {
   flex: 1;
@@ -632,7 +627,10 @@ html[data-preview-bg="white"] .preview-video-container {
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
   color: var(--text-primary);
-  font-size: 16px;
+  font-family: var(--font-retro);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1292,6 +1290,7 @@ html[data-preview-bg="white"] .preview-video-container {
   justify-content: center;
   padding: 0 6px;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .guide-time-header-clock {
@@ -1740,51 +1739,64 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 }
 
-/* ── Responsive - Tablet and below: full-screen audio menu (avoids menu cut-off) ─── */
+/* ── Responsive - Tablet and below: bottom sheet audio menu ─── */
 @media (max-width: 1024px) {
   .preview-audio-more-wrap-open {
     position: fixed;
     inset: 0;
     z-index: 200;
-    background: rgba(0, 0, 0, 0.85);
+    background: rgba(0, 0, 0, 0.6);
     display: flex;
     flex-direction: column;
-    align-items: stretch;
-    justify-content: flex-start;
+    justify-content: flex-end;
     padding: 0;
-    padding-top: env(safe-area-inset-top, 0);
-    padding-bottom: env(safe-area-inset-bottom, 0);
   }
 
   .preview-audio-more-wrap-open .preview-audio-more-btn {
-    position: absolute;
-    top: calc(12px + env(safe-area-inset-top, 0));
-    right: 16px;
-    left: auto;
-    z-index: 2;
+    display: none;
   }
 
   .preview-audio-more-wrap-open .preview-audio-more-menu {
     position: relative;
-    flex: 1;
     left: auto;
     right: auto;
     bottom: auto;
     top: auto;
     transform: none;
     margin: 0;
-    margin-top: 56px;
-    margin-left: 16px;
-    margin-right: 16px;
-    max-height: none;
+    max-height: 60vh;
     min-height: 0;
-    border-radius: 12px;
+    border-radius: 16px 16px 0 0;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    background: rgba(18, 18, 22, 0.98);
+    box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    animation: bottomSheetSlideUp 0.25s ease-out;
   }
 
   .preview-audio-more-wrap-open .preview-audio-more-slider {
     min-width: 100px;
+  }
+}
+
+.preview-audio-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.3);
+  margin: 10px auto 6px;
+  flex-shrink: 0;
+}
+
+@keyframes bottomSheetSlideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
   }
 }
 
@@ -1815,113 +1827,75 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-overlay {
-    padding: 12px 16px;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: flex-start;
-    gap: 6px;
-    /* Gradient dark at top so black fade is behind metadata text */
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 40%, transparent 100%);
+    padding: 10px 14px;
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+    /* Subtle bottom gradient — cinematic, minimal */
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.25) 50%, transparent 100%);
   }
 
   .preview-info {
-    width: 100%;
-    gap: 4px;
-  }
-
-  .preview-channel-badge {
-    gap: 8px;
-  }
-
-  .preview-channel-num {
-    font-size: 13px;
-  }
-
-  .preview-channel-name {
-    font-size: 10px;
+    width: auto;
+    flex: 1;
+    min-width: 0;
+    gap: 3px;
   }
 
   .preview-title {
-    font-size: 14px;
+    font-size: 13px;
     line-height: 1.2;
   }
 
-  .preview-subtitle {
-    font-size: 11px;
-  }
-
-  .preview-meta {
-    margin-top: 0;
-  }
-
-  .preview-year,
-  .preview-rating {
-    font-size: 9px;
-  }
-
   .preview-time {
-    font-size: 9px;
+    font-size: 8px;
+    opacity: 0.8;
   }
 
   .preview-progress {
     max-width: 100%;
-    height: 4px;
+    height: 3px;
   }
 
   .preview-right {
-    position: absolute;
-    bottom: 12px;
-    right: 16px;
-    top: auto;
+    position: static;
     flex-direction: row;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
+    flex-shrink: 0;
   }
 
-  .preview-clock {
-    font-size: 14px;
+  .preview-audio-more-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 15px;
+    background: rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.15);
   }
 
-  .preview-audio-more-btn,
-  .preview-fit-btn {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    min-height: 40px;
-    font-size: 16px;
-  }
-
-  .preview-audio-more-menu {
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
-    min-width: 180px;
-    /* Open above the button on mobile so menu isn't hidden below the guide */
-    top: auto;
-    bottom: 100%;
-    margin-top: 0;
-    margin-bottom: 8px;
-    max-height: min(70vh, 320px);
-    overflow-y: auto;
-  }
-
+  /* Toolbar buttons — smaller, semi-transparent, stay out of the way */
   .guide-fullscreen-btn,
   .guide-settings-btn,
   .guide-search-btn {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    min-height: 48px;
-    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 16px;
     top: 8px;
+    background: rgba(0, 0, 0, 0.35);
+    border-color: rgba(255, 255, 255, 0.1);
   }
 
   .guide-search-btn {
-    right: 120px; /* 64 + 48 + 8 */
+    right: 96px; /* 52 + 36 + 8 */
   }
 
   .guide-fullscreen-btn {
-    right: 64px; /* 8 + 48 + 8 */
+    right: 52px; /* 8 + 36 + 8 */
   }
 
   .guide-settings-btn {
@@ -2011,115 +1985,53 @@ html[data-preview-bg="white"] .preview-video-container {
 
   .preview-overlay {
     padding: 8px 10px;
-    align-items: flex-start;
-    justify-content: flex-start;
-    gap: 4px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 40%, transparent 100%);
-  }
-
-  .preview-channel-num {
-    font-size: 11px;
-  }
-
-  .preview-channel-name {
-    font-size: 9px;
+    gap: 6px;
   }
 
   .preview-title {
-    font-size: 12px;
-  }
-
-  .preview-subtitle {
-    font-size: 10px;
-    -webkit-line-clamp: 1;
-  }
-
-  .preview-meta {
-    margin-top: 0;
-  }
-
-  .preview-year,
-  .preview-rating,
-  .preview-runtime {
-    font-size: 8px;
-  }
-
-  .preview-description {
-    -webkit-line-clamp: 2;
-    font-size: 8px;
+    font-size: 11px;
   }
 
   .preview-time {
-    font-size: 8px;
+    font-size: 7px;
   }
 
   .preview-progress {
     max-width: 100%;
+    height: 2px;
   }
 
-  .preview-right {
-    bottom: max(8px, env(safe-area-inset-bottom));
-    right: 10px;
-    top: auto;
-    gap: 8px;
-  }
-
-  .preview-clock {
-    font-size: 11px;
-  }
-
-  .preview-audio-more-btn,
-  .preview-fit-btn {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    min-height: 40px;
-    font-size: 16px;
-  }
-
-  .preview-audio-more-menu {
-    min-width: 160px;
-    top: auto;
-    bottom: 100%;
-    margin-top: 0;
-    margin-bottom: 8px;
-    max-height: min(65vh, 280px);
-    overflow-y: auto;
-  }
-
-  .preview-audio-more-option {
-    padding: 10px 0;
-  }
-
-  .preview-audio-more-option-label {
-    font-size: 10px;
-  }
-
-  .preview-audio-more-slider {
-    min-width: 80px;
+  .preview-audio-more-btn {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    font-size: 14px;
   }
 
   .guide-fullscreen-btn,
   .guide-settings-btn,
   .guide-search-btn {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
-    font-size: 18px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    font-size: 14px;
     top: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.08);
   }
 
   .guide-search-btn {
-    right: 112px; /* 60 + 44 + 8 */
+    right: 86px; /* 46 + 32 + 8 */
   }
 
   .guide-fullscreen-btn {
-    right: 60px; /* 8 + 44 + 8 */
+    right: 46px; /* 6 + 32 + 8 */
   }
 
   .guide-settings-btn {
-    right: 8px;
+    right: 6px;
   }
 
   .guide-time-header {
@@ -2266,124 +2178,72 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-overlay {
-    padding: 8px 16px;
-    gap: 4px;
-    align-items: flex-start;
-    justify-content: flex-start;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 40%, transparent 100%);
+    padding: 8px 12px;
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.2) 50%, transparent 100%);
   }
 
   .preview-info {
     gap: 2px;
   }
 
-  .preview-channel-badge {
-    gap: 6px;
-  }
-
-  .preview-channel-num {
+  .preview-title {
     font-size: 11px;
   }
 
-  .preview-channel-name {
-    font-size: 9px;
-  }
-
-  .preview-title {
-    font-size: 12px;
-  }
-
-  .preview-subtitle {
-    font-size: 10px;
-    -webkit-line-clamp: 1;
-  }
-
-  .preview-meta {
-    margin-top: 0;
-  }
-
-  .preview-year,
-  .preview-rating,
-  .preview-runtime {
-    font-size: 8px;
-  }
-
-  .preview-description {
-    -webkit-line-clamp: 2;
-    font-size: 8px;
-  }
-
   .preview-time {
-    font-size: 8px;
+    font-size: 7px;
   }
 
   .preview-progress {
     max-width: 200px;
-    height: 3px;
+    height: 2px;
   }
 
   .preview-right {
-    position: absolute;
-    bottom: max(8px, env(safe-area-inset-bottom));
-    right: 12px;
-    top: auto;
+    position: static;
     flex-direction: row;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
+    flex-shrink: 0;
   }
 
-  .preview-clock {
-    font-size: 12px;
-  }
-
-  .preview-audio-more-btn,
-  .preview-fit-btn {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    min-height: 40px;
-    font-size: 16px;
-  }
-
-  .preview-audio-more-menu {
-    min-width: 140px;
-    top: auto;
-    bottom: 100%;
-    margin-top: 0;
-    margin-bottom: 8px;
-    max-height: min(60vh, 260px);
-    overflow-y: auto;
-  }
-
-  .preview-audio-more-option {
-    padding: 8px 0;
-  }
-
-  .preview-audio-more-slider {
-    min-width: 70px;
+  .preview-audio-more-btn {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    font-size: 14px;
+    background: rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.15);
   }
 
   .guide-fullscreen-btn,
   .guide-settings-btn,
   .guide-search-btn {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
-    font-size: 18px;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    font-size: 15px;
     top: 4px;
+    background: rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.08);
   }
 
   .guide-search-btn {
-    right: 112px; /* 60 + 44 + 8 */
+    right: 90px; /* 48 + 34 + 8 */
   }
 
   .guide-fullscreen-btn {
-    right: 60px; /* 8 + 44 + 8 */
+    right: 48px; /* 6 + 34 + 8 */
   }
 
   .guide-settings-btn {
-    right: 8px;
+    right: 6px;
   }
 
   /* Time header - minimal */
@@ -2501,43 +2361,16 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-overlay {
-    padding: 12px 14px;
+    padding: 8px 10px;
   }
 
   .preview-title {
-    font-size: 13px;
-  }
-
-  .preview-subtitle {
-    font-size: 11px;
-    -webkit-line-clamp: 2;
+    font-size: 12px;
   }
 
   .preview-progress {
     max-width: 100%;
-  }
-
-  .guide-fullscreen-btn,
-  .guide-settings-btn,
-  .guide-search-btn {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    min-height: 48px;
-    font-size: 20px;
-    top: 8px;
-  }
-
-  .guide-search-btn {
-    right: 120px; /* 64 + 48 + 8 */
-  }
-
-  .guide-fullscreen-btn {
-    right: 64px; /* 8 + 48 + 8 */
-  }
-
-  .guide-settings-btn {
-    right: 8px;
+    height: 3px;
   }
 }
 
