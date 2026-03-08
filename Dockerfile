@@ -31,11 +31,7 @@ COPY --from=client-build /app/client/dist ./client/dist
 COPY --from=server-build /app/server/dist ./server/dist
 COPY server/src/assets ./server/assets
 
-RUN addgroup -S prevue && adduser -S prevue -G prevue \
-    && mkdir -p /app/data \
-    && chown -R prevue:prevue /app/data
-
-USER prevue
+RUN mkdir -p /app/data
 
 ENV PORT=3080
 ENV NODE_ENV=production
