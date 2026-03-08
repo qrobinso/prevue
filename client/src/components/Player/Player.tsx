@@ -21,11 +21,13 @@ import CreditsOverlay from './CreditsOverlay';
 import PromoOverlay from './PromoOverlay';
 import type { PromoOverlayHandle } from './PromoOverlay';
 import InterstitialScreen from './InterstitialScreen';
+import IconicSceneOverlay from './IconicSceneOverlay';
 import { useSchedule } from '../../hooks/useSchedule';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer, isImageSubtitle } from '../Guide/audioTrackUtils';
 import { safeBgImage, sanitizeImageUrl } from '../../utils/sanitize';
+import { getIconicScenesEnabled } from '../Settings/GeneralSettings';
 import { formatPlaybackError } from '../../utils/playbackError';
 import { isIOSPWA, isMobile } from '../../utils/platform';
 import {
@@ -240,6 +242,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [isBuffering, setIsBuffering] = useState(false);
   const [bufferingMessage, setBufferingMessage] = useState('BUFFERING...');
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const iconicMarkersRef = useRef<(HTMLDivElement | null)[]>([]);
   const [showSettingsOpen, setShowSettingsOpen] = useState(false);
   const [showNerdStats, setShowNerdStats] = useState(false);
   const [nerdStats, setNerdStats] = useState<NerdStatsData | null>(null);
@@ -960,6 +963,22 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           progressBarRef.current.style.width = `${prog}%`;
         }
 
+        // Update iconic scene marker glow state
+        if (currentProgram.iconic_scenes?.length && iconicMarkersRef.current.length) {
+          const elapsedMin = (now - start) / 60000;
+          for (let idx = 0; idx < currentProgram.iconic_scenes.length; idx++) {
+            const el = iconicMarkersRef.current[idx];
+            if (!el) continue;
+            const sceneMin = currentProgram.iconic_scenes[idx].timestamp_minutes;
+            // Active: elapsed time has reached (or passed) the scene timestamp
+            if (elapsedMin >= sceneMin) {
+              el.classList.add('player-progress-iconic--active');
+            } else {
+              el.classList.remove('player-progress-iconic--active');
+            }
+          }
+        }
+
         // Credits overlay: show "Coming Up Next" when video reaches the outro segment
         const video = videoRef.current;
         if (video && outroStartMsRef.current != null && !video.paused) {
@@ -1017,6 +1036,35 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     return () => clearTimeout(timer);
   }, [isInterstitial, currentProgram, channel.id, currentQuality]);
 
+  // Resume playback when user returns from another tab/app.
+  // Mobile browsers pause the video when the tab loses focus; on return we
+  // seek to the correct timeline position and auto-play so the user doesn't
+  // have to tap to unpause.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) return;
+      const video = videoRef.current;
+      const prog = currentProgram ?? program;
+      if (!video || !prog || isInterstitial) return;
+
+      // Calculate where we should be in the program based on wall-clock time
+      const startMs = new Date(prog.start_time).getTime();
+      const expectedSec = Math.max(0, (Date.now() - startMs) / 1000);
+
+      // Only seek if we've drifted more than 2 seconds from the expected position
+      if (Math.abs(video.currentTime - expectedSec) > 2) {
+        video.currentTime = expectedSec;
+      }
+
+      if (video.paused) {
+        video.play().catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [currentProgram, program, isInterstitial]);
+
   // Playback progress reporting to Jellyfin (after 5 min watch threshold)
   useEffect(() => {
     const WATCH_THRESHOLD_MS = 5 * 60 * 1000;  // 5 minutes
@@ -1046,6 +1094,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       }
     };
   }, []);
+
+  // (Program facts are now fetched in batch by the Ticker via schedule data)
 
   // Keyboard controls
   const handleBackToGuide = useCallback(() => {
@@ -1507,6 +1557,11 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         <CreditsOverlay nextProgram={nextProgram} currentProgram={currentProgram} />
       )}
 
+      {/* Iconic scene overlay — shown briefly on tune-in during an iconic moment */}
+      {currentProgram && !isInterstitial && videoReady && !showCreditsOverlay && (
+        <IconicSceneOverlay program={currentProgram} />
+      )}
+
       {/* 2E Promo overlay — periodic broadcast-style promo */}
       {currentProgram && !isInterstitial && videoReady && (
         <PromoOverlay
@@ -1528,6 +1583,31 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       {showOverlay && !isInterstitial && currentProgram && (
         <div className="player-progress">
           <div className="player-progress-bar" ref={progressBarRef} />
+          {/* Iconic scene markers */}
+          {getIconicScenesEnabled() && currentProgram.content_type === 'movie' && currentProgram.iconic_scenes?.length ? (() => {
+            const startMs = new Date(currentProgram.start_time).getTime();
+            const endMs = new Date(currentProgram.end_time).getTime();
+            const totalMin = (endMs - startMs) / 60000;
+            if (totalMin <= 0) return null;
+            const TOLERANCE = 3;
+            const elapsedMin = (Date.now() - startMs) / 60000;
+            iconicMarkersRef.current = [];
+            return currentProgram.iconic_scenes!.map((scene, i) => {
+              const leftPct = Math.max(0, ((scene.timestamp_minutes - TOLERANCE) / totalMin) * 100);
+              const rightPct = Math.min(100, ((scene.timestamp_minutes + TOLERANCE) / totalMin) * 100);
+              const widthPct = rightPct - leftPct;
+              const isActive = elapsedMin >= scene.timestamp_minutes;
+              return (
+                <div
+                  key={i}
+                  ref={el => { iconicMarkersRef.current[i] = el; }}
+                  className={`player-progress-iconic${isActive ? ' player-progress-iconic--active' : ''}`}
+                  style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                  title={scene.name}
+                />
+              );
+            });
+          })() : null}
         </div>
       )}
 

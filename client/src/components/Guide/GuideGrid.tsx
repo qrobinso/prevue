@@ -13,6 +13,8 @@ import {
   getClockFormat,
   type ClockFormat,
 } from '../Settings/DisplaySettings';
+import { getIconicScenesEnabled } from '../Settings/GeneralSettings';
+import { isIconicSceneActive } from './guideFilterUtils';
 import {
   type GuideDivider,
   getGuideDividers,
@@ -150,6 +152,7 @@ interface GuideGridProps {
   smoothScroll?: boolean;
   onChannelClick: (channelIdx: number) => void;
   onProgramClick: (channelIdx: number, programIdx: number) => void;
+  hideDividers?: boolean;
 }
 
 const BASE_ROW_HEIGHT = 52;
@@ -178,6 +181,8 @@ interface GuideProgramCellProps {
   showYear: boolean;
   showResolution: boolean;
   showHdr: boolean;
+  showIconicScenes: boolean;
+  nowMs: number;
   programTitleFontSize: number;
   guideColors: { enabled: boolean; movie: string; episode: string };
   scrollLeft: number;
@@ -201,11 +206,14 @@ const GuideProgramCell = memo(function GuideProgramCell({
   showYear,
   showResolution,
   showHdr,
+  showIconicScenes,
+  nowMs,
   programTitleFontSize,
   guideColors,
   scrollLeft,
   onProgramClick,
 }: GuideProgramCellProps) {
+  const isIconicNow = showIconicScenes && isAiring && isIconicSceneActive(prog, nowMs);
   const progStart = prog.start_ms!;
   const progEnd = prog.end_ms!;
 
@@ -255,7 +263,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
         <div className="guide-program-text">
           <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
             {prog.title}
-            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution || showHdr) && (
+            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution || showHdr || isIconicNow) && (
               <>
                 {showRatings && prog.rating && (
                   <span className="guide-rating-badge">{prog.rating}</span>
@@ -268,6 +276,9 @@ const GuideProgramCell = memo(function GuideProgramCell({
                 )}
                 {showHdr && prog.is_hdr && (
                   <span className="guide-hdr-badge">HDR</span>
+                )}
+                {isIconicNow && (
+                  <span className="guide-iconic-badge">ICONIC</span>
                 )}
               </>
             )}
@@ -303,12 +314,15 @@ interface GuideRowProps {
   showYear: boolean;
   showResolution: boolean;
   showHdr: boolean;
+  showIconicScenes: boolean;
+  nowMs: number;
   programTitleFontSize: number;
   guideColors: { enabled: boolean; movie: string; episode: string };
   scrollLeft: number;
   channelNumFontSize: number;
   channelNameFontSize: number;
   channelColor?: string;
+  programStartOffset: number;
   onChannelClick: (channelIdx: number) => void;
   onProgramClick: (channelIdx: number, programIdx: number) => void;
 }
@@ -333,12 +347,15 @@ const GuideRow = memo(function GuideRow({
   showYear,
   showResolution,
   showHdr,
+  showIconicScenes,
+  nowMs,
   programTitleFontSize,
   guideColors,
   scrollLeft,
   channelNumFontSize,
   channelNameFontSize,
   channelColor,
+  programStartOffset,
   onChannelClick,
   onProgramClick,
 }: GuideRowProps) {
@@ -354,7 +371,9 @@ const GuideRow = memo(function GuideRow({
       </div>
 
       <div className="guide-programs-row" style={{ minWidth: totalSlotsWidth }}>
-        {programs.map((prog, progIdx) => (
+        {programs.map((prog, visIdx) => {
+          const progIdx = visIdx + programStartOffset;
+          return (
           <GuideProgramCell
             key={`${prog.start_time}-${progIdx}`}
             prog={prog}
@@ -373,12 +392,15 @@ const GuideRow = memo(function GuideRow({
             showYear={showYear}
             showResolution={showResolution}
             showHdr={showHdr}
+            showIconicScenes={showIconicScenes}
+            nowMs={nowMs}
             programTitleFontSize={programTitleFontSize}
             guideColors={guideColors}
             scrollLeft={scrollLeft}
             onProgramClick={onProgramClick}
           />
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -395,6 +417,7 @@ function GuideGrid({
   smoothScroll = false,
   onChannelClick,
   onProgramClick,
+  hideDividers = false,
 }: GuideGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -418,6 +441,7 @@ function GuideGrid({
   const [showResolution, setShowResolution] = useState(getGuideResolution);
   const [showHdr, setShowHdr] = useState(getGuideHdr);
   const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
+  const [showIconicScenes, setShowIconicScenes] = useState(getIconicScenesEnabled);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
 
   // Channel colors & dividers from localStorage
@@ -442,6 +466,7 @@ function GuideGrid({
     const refreshClockFormat = () => setClockFormatState(getClockFormat());
     const refreshChannelColors = () => setChannelColorMap(getChannelColors());
     const refreshDividers = () => setGuideDividers(getGuideDividers());
+    const refreshIconicScenes = () => setShowIconicScenes(getIconicScenesEnabled());
 
     window.addEventListener('guidecolorschange', refreshGuideColors);
     window.addEventListener('guidebadgeschange', refreshBadges);
@@ -449,6 +474,7 @@ function GuideGrid({
     window.addEventListener('clockformatchange', refreshClockFormat);
     window.addEventListener('channelcolorschange', refreshChannelColors);
     window.addEventListener('guidedividerschange', refreshDividers);
+    window.addEventListener('iconicsceneschange', refreshIconicScenes);
 
     return () => {
       window.removeEventListener('guidecolorschange', refreshGuideColors);
@@ -457,6 +483,7 @@ function GuideGrid({
       window.removeEventListener('clockformatchange', refreshClockFormat);
       window.removeEventListener('channelcolorschange', refreshChannelColors);
       window.removeEventListener('guidedividerschange', refreshDividers);
+      window.removeEventListener('iconicsceneschange', refreshIconicScenes);
     };
   }, []);
 
@@ -681,7 +708,7 @@ function GuideGrid({
     let chIdx = 0;
     // Build separate lists
     const chList = channels.map(c => ({ sort: c.sort_order, kind: 'channel' as const, channel: c }));
-    const divList = guideDividers.map(d => ({ sort: d.sort_order, kind: 'divider' as const, divider: d }));
+    const divList = hideDividers ? [] : guideDividers.map(d => ({ sort: d.sort_order, kind: 'divider' as const, divider: d }));
     const all = [...chList, ...divList].sort((a, b) => a.sort - b.sort);
     for (const entry of all) {
       if (entry.kind === 'channel') {
@@ -692,7 +719,7 @@ function GuideGrid({
       }
     }
     return items;
-  }, [channels, guideDividers]);
+  }, [channels, guideDividers, hideDividers]);
 
   // Compute cumulative top offsets for mixed row heights
   const itemOffsets = useMemo(() => {
@@ -794,7 +821,7 @@ function GuideGrid({
                   programs={programs}
                   rowHeight={rowHeight}
                   isFocusedRow={chIdx === focusedChannelIdx}
-                  focusedProgramIdx={focusedProgramIdx - startOffset}
+                  focusedProgramIdx={focusedProgramIdx}
                   airingKeys={airingKeys}
                   rangeStartMs={rangeStartMs}
                   rangeEndMs={rangeEndMs}
@@ -808,12 +835,15 @@ function GuideGrid({
                   showYear={showYear}
                   showResolution={showResolution}
                   showHdr={showHdr}
+                  showIconicScenes={showIconicScenes}
+                  nowMs={nowMs}
                   programTitleFontSize={programTitleFontSize}
                   guideColors={guideColors}
                   scrollLeft={scrollLeftRef.current}
                   channelNumFontSize={channelNumFontSize}
                   channelNameFontSize={channelNameFontSize}
                   channelColor={channelColorMap[channel.id]}
+                  programStartOffset={startOffset}
                   onChannelClick={onChannelClick}
                   onProgramClick={onProgramClick}
                 />

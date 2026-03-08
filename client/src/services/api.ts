@@ -642,6 +642,51 @@ export async function getIPTVStatus(): Promise<IPTVStatus> {
   return request('/iptv/status');
 }
 
+// ─── Ticker ──────────────────────────────────────────
+
+export interface TickerItem {
+  id: string;
+  text: string;
+  category: 'primetime' | 'new' | 'stat' | 'fact';
+}
+
+export interface TickerResponse {
+  items: TickerItem[];
+  generated_at: string;
+}
+
+export interface TickerBadges {
+  year?: boolean;
+  rating?: boolean;
+  resolution?: boolean;
+  hdr?: boolean;
+}
+
+export async function getTickerItems(tzOffset?: number, badges?: TickerBadges): Promise<TickerResponse> {
+  const params = new URLSearchParams();
+  params.set('tzOffset', String(tzOffset ?? new Date().getTimezoneOffset()));
+  if (badges?.year) params.set('year', '1');
+  if (badges?.rating) params.set('rating', '1');
+  if (badges?.resolution) params.set('resolution', '1');
+  if (badges?.hdr) params.set('hdr', '1');
+  return request(`/ticker?${params.toString()}`);
+}
+
+export interface BatchFactsProgram {
+  media_item_id: string;
+  title: string;
+  year?: number | null;
+  content_type?: string | null;
+  series_name?: string | null;
+}
+
+export async function getBatchProgramFacts(programs: BatchFactsProgram[]): Promise<{ facts: Record<string, string[]> }> {
+  return request('/ticker/facts/batch', {
+    method: 'POST',
+    body: JSON.stringify({ programs }),
+  });
+}
+
 // ─── Health ───────────────────────────────────────────
 
 export async function healthCheck(): Promise<{ status: string }> {

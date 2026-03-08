@@ -35,6 +35,22 @@ const CLOCK_FORMAT_KEY = 'prevue_clock_format';
 const PROMO_OVERLAY_KEY = 'prevue_promo_overlay';
 const STARTING_SOON_KEY = 'prevue_starting_soon';
 const SUBTITLE_SIZE_KEY = 'prevue_subtitle_size';
+const TICKER_KEY = 'prevue_ticker_enabled';
+const TICKER_SPEED_KEY = 'prevue_ticker_speed';
+
+export type TickerSpeedId = 'slow' | 'standard' | 'fast';
+
+export interface TickerSpeedPreset {
+  id: TickerSpeedId;
+  label: string;
+  multiplier: number; // duration multiplier (higher = slower scroll)
+}
+
+export const TICKER_SPEED_PRESETS: TickerSpeedPreset[] = [
+  { id: 'slow', label: 'Slow', multiplier: 2 },
+  { id: 'standard', label: 'Standard', multiplier: 1 },
+  { id: 'fast', label: 'Fast', multiplier: 0.5 },
+];
 
 export type PreviewBgOption = 'theme' | 'black' | 'white';
 export type PreviewStyle = 'modern' | 'classic-left' | 'classic-right';
@@ -128,6 +144,36 @@ export function getAutoScrollSpeed(): ScrollSpeedPreset {
 export function setAutoScrollSpeed(speedId: string): void {
   localStorage.setItem(AUTO_SCROLL_SPEED_KEY, speedId);
   window.dispatchEvent(new CustomEvent('autoscrollspeedchange', { detail: { speedId } }));
+}
+
+// Channel ticker helpers
+export function getTickerEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(TICKER_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return true; // Default on
+}
+
+export function setTickerEnabled(enabled: boolean): void {
+  localStorage.setItem(TICKER_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('tickerchange', { detail: { enabled } }));
+}
+
+export function getTickerSpeed(): TickerSpeedPreset {
+  try {
+    const stored = localStorage.getItem(TICKER_SPEED_KEY);
+    if (stored) {
+      const preset = TICKER_SPEED_PRESETS.find(p => p.id === stored);
+      if (preset) return preset;
+    }
+  } catch {}
+  return TICKER_SPEED_PRESETS.find(p => p.id === 'standard')!;
+}
+
+export function setTickerSpeed(speedId: TickerSpeedId): void {
+  localStorage.setItem(TICKER_SPEED_KEY, speedId);
+  window.dispatchEvent(new CustomEvent('tickerspeedchange', { detail: { speedId } }));
 }
 
 // Guide color-coding helpers
@@ -503,6 +549,8 @@ export default function DisplaySettings() {
   const [guideArtworkEnabled, setGuideArtworkEnabledState] = useState(getGuideArtwork);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
   const [subtitleSize, setSubtitleSizeState] = useState(getSubtitleSize);
+  const [tickerEnabled, setTickerEnabledState] = useState(getTickerEnabled);
+  const [tickerSpeed, setTickerSpeedState] = useState(getTickerSpeed);
   // Ensure theme is applied on mount
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', colorTheme);
@@ -546,6 +594,20 @@ export default function DisplaySettings() {
     const newValue = !autoScrollEnabled;
     setAutoScrollEnabled(newValue);
     setAutoScroll(newValue);
+  };
+
+  const handleTickerToggle = () => {
+    const newValue = !tickerEnabled;
+    setTickerEnabledState(newValue);
+    setTickerEnabled(newValue);
+  };
+
+  const handleTickerSpeedChange = (speedId: string) => {
+    const preset = TICKER_SPEED_PRESETS.find(p => p.id === speedId);
+    if (preset) {
+      setTickerSpeedState(preset);
+      setTickerSpeed(preset.id);
+    }
   };
 
   const handleScrollSpeedChange = (speedId: string) => {
@@ -990,6 +1052,40 @@ export default function DisplaySettings() {
                 className={`settings-speed-btn ${autoScrollSpeed.id === preset.id ? 'active' : ''}`}
                 onClick={() => handleScrollSpeedChange(preset.id)}
                 title={preset.description}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="settings-subsection">
+        <h4>CHANNEL TICKER</h4>
+        <p className="settings-field-hint">
+          Scrolling marquee showing tonight's highlights, new additions, and library stats.
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={tickerEnabled}
+              onChange={handleTickerToggle}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {tickerEnabled ? 'ON' : 'OFF'}
+          </span>
+        </div>
+        {tickerEnabled && (
+          <div className="settings-speed-options">
+            <span className="settings-speed-label">Speed:</span>
+            {TICKER_SPEED_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                className={`settings-speed-btn ${tickerSpeed.id === preset.id ? 'active' : ''}`}
+                onClick={() => handleTickerSpeedChange(preset.id)}
               >
                 {preset.label}
               </button>

@@ -66,6 +66,7 @@ const CAROUSEL_INTERVAL = 5000;
 const COUNTDOWN_INTERVAL = 1000;
 const SHORT_THRESHOLD = 120000; // 2 min — hero only
 const MINIMAL_THRESHOLD = 30000; // 30s — countdown only
+const LOCK_HERO_THRESHOLD = 60000; // 1 min — lock to hero countdown
 
 function formatCountdown(ms: number): string {
   if (ms <= 0) return 'NOW';
@@ -437,6 +438,26 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
     return ['ident', 'hero', 'lineup', 'spotlight'];
   }, [isMinimal, isShort, upcomingPrograms.length]);
 
+  // Track countdown in a ref so the phase cycling interval can read it without re-renders
+  const countdownMsRef = useRef(countdownMs);
+  countdownMsRef.current = countdownMs;
+
+  // When < 1 minute remains, lock to hero phase
+  const heroLocked = countdownMs > 0 && countdownMs < LOCK_HERO_THRESHOLD;
+  useEffect(() => {
+    if (heroLocked && currentPhase !== 'hero') {
+      setPhaseDirection('exiting');
+      const t = setTimeout(() => {
+        setCurrentPhase('hero');
+        currentPhaseRef.current = 'hero';
+        phaseStartRef.current = Date.now();
+        setPhaseDirection('entering');
+        transitioningRef.current = false;
+      }, 900);
+      return () => clearTimeout(t);
+    }
+  }, [heroLocked, currentPhase]);
+
   // Phase cycling with directional choreography
   const currentPhaseRef = useRef(currentPhase);
   currentPhaseRef.current = currentPhase;
@@ -453,6 +474,8 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
 
     const timer = setInterval(() => {
       if (transitioningRef.current) return;
+      // When < 1 minute remains, stay on hero — don't cycle
+      if (countdownMsRef.current > 0 && countdownMsRef.current < LOCK_HERO_THRESHOLD) return;
 
       const elapsed = Date.now() - phaseStartRef.current;
       const phase = currentPhaseRef.current;

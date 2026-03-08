@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { ServerConfig, Channel, ChannelParsed, ChannelFilter, ScheduleBlock, ScheduleBlockParsed } from '../types/index.js';
+import type { ServerConfig, Channel, ChannelParsed, ChannelFilter, ScheduleBlock, ScheduleBlockParsed, IconicScene } from '../types/index.js';
 
 // ─── Servers ──────────────────────────────────────────────
 
@@ -651,6 +651,8 @@ export function factoryReset(db: Database.Database): void {
     db.prepare('DELETE FROM watch_sessions').run();
     db.prepare('DELETE FROM watch_events').run();
     db.prepare('DELETE FROM client_registry').run();
+    db.prepare('DELETE FROM iconic_scenes').run();
+    db.prepare('DELETE FROM program_facts').run();
 
     // Re-insert default settings
     const insertSetting = db.prepare(
@@ -665,4 +667,85 @@ export function factoryReset(db: Database.Database): void {
     insertSetting.run('metrics_enabled', JSON.stringify(true));
   });
   txn();
+}
+
+// ─── Iconic Scenes ───────────────────────────────────────
+
+export function getIconicScenes(db: Database.Database, mediaItemId: string): IconicScene[] | null {
+  const row = db.prepare('SELECT scenes FROM iconic_scenes WHERE media_item_id = ?').get(mediaItemId) as { scenes: string } | undefined;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.scenes) as IconicScene[];
+  } catch {
+    return null;
+  }
+}
+
+export function upsertIconicScenes(db: Database.Database, mediaItemId: string, scenes: IconicScene[]): void {
+  db.prepare(
+    'INSERT OR REPLACE INTO iconic_scenes (media_item_id, scenes, created_at) VALUES (?, ?, datetime(\'now\'))'
+  ).run(mediaItemId, JSON.stringify(scenes));
+}
+
+export function getIconicScenesForItems(db: Database.Database, mediaItemIds: string[]): Map<string, IconicScene[]> {
+  const result = new Map<string, IconicScene[]>();
+  if (mediaItemIds.length === 0) return result;
+
+  // Batch fetch in chunks to avoid SQLite variable limit
+  const CHUNK_SIZE = 500;
+  for (let i = 0; i < mediaItemIds.length; i += CHUNK_SIZE) {
+    const chunk = mediaItemIds.slice(i, i + CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = db.prepare(
+      `SELECT media_item_id, scenes FROM iconic_scenes WHERE media_item_id IN (${placeholders})`
+    ).all(...chunk) as { media_item_id: string; scenes: string }[];
+    for (const row of rows) {
+      try {
+        result.set(row.media_item_id, JSON.parse(row.scenes) as IconicScene[]);
+      } catch {
+        // skip malformed
+      }
+    }
+  }
+  return result;
+}
+
+// ─── Program Facts Cache ──────────────────────────────
+
+export function getProgramFacts(db: Database.Database, factKey: string): string[] | null {
+  const row = db.prepare('SELECT facts FROM program_facts WHERE fact_key = ?').get(factKey) as { facts: string } | undefined;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.facts) as string[];
+  } catch {
+    return null;
+  }
+}
+
+export function upsertProgramFacts(db: Database.Database, factKey: string, facts: string[]): void {
+  db.prepare(
+    'INSERT OR REPLACE INTO program_facts (fact_key, facts, created_at) VALUES (?, ?, datetime(\'now\'))'
+  ).run(factKey, JSON.stringify(facts));
+}
+
+export function getProgramFactsForKeys(db: Database.Database, keys: string[]): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  if (keys.length === 0) return result;
+
+  const CHUNK_SIZE = 500;
+  for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
+    const chunk = keys.slice(i, i + CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = db.prepare(
+      `SELECT fact_key, facts FROM program_facts WHERE fact_key IN (${placeholders})`
+    ).all(...chunk) as { fact_key: string; facts: string }[];
+    for (const row of rows) {
+      try {
+        result.set(row.fact_key, JSON.parse(row.facts) as string[]);
+      } catch {
+        // skip malformed
+      }
+    }
+  }
+  return result;
 }

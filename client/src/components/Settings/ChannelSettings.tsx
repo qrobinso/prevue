@@ -6,7 +6,6 @@ import {
   createAIChannel,
   refreshAIChannel,
   getAIConfig,
-  updateAIConfig,
   getAISuggestions,
   getChannelPresets,
   getSelectedPresets,
@@ -126,10 +125,6 @@ export default function ChannelSettings() {
 
   // AI state
   const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
-  const [aiKeyInput, setAiKeyInput] = useState('');
-  const [aiModelInput, setAiModelInput] = useState('');
-  const [aiConfigSaving, setAiConfigSaving] = useState(false);
-  const [aiConfigExpanded, setAiConfigExpanded] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiCreating, setAiCreating] = useState(false);
   const [aiError, setAiError] = useState('');
@@ -162,11 +157,6 @@ export default function ChannelSettings() {
       setChannels(channelsData);
       if (aiConfigData) {
         setAiConfig(aiConfigData);
-        setAiModelInput(aiConfigData.model);
-        // Auto-expand config section if no key is configured
-        if (!aiConfigData.hasKey) {
-          setAiConfigExpanded(true);
-        }
       }
       setPresetData(presetsData);
       if (!separateLoadedRef.current) {
@@ -501,41 +491,6 @@ export default function ChannelSettings() {
   };
 
   // AI config handlers
-  const handleSaveAIConfig = async () => {
-    setAiConfigSaving(true);
-    setAiError('');
-    try {
-      const update: { apiKey?: string; model?: string } = {};
-      if (aiKeyInput) update.apiKey = aiKeyInput;
-      if (aiModelInput !== aiConfig?.model) update.model = aiModelInput;
-
-      const result = await updateAIConfig(update);
-      setAiConfig(result);
-      setAiKeyInput('');
-      if (result.hasUserKey) {
-        setAiConfigExpanded(false);
-      }
-    } catch (err) {
-      setAiError((err as Error).message);
-    } finally {
-      setAiConfigSaving(false);
-    }
-  };
-
-  const handleClearAIKey = async () => {
-    setAiConfigSaving(true);
-    setAiError('');
-    try {
-      const result = await updateAIConfig({ apiKey: '' });
-      setAiConfig(result);
-      setAiConfigExpanded(true);
-    } catch (err) {
-      setAiError((err as Error).message);
-    } finally {
-      setAiConfigSaving(false);
-    }
-  };
-
   const handleCreateAI = async () => {
     if (!aiPrompt.trim()) return;
     setAiCreating(true);
@@ -1172,82 +1127,6 @@ export default function ChannelSettings() {
 
       {viewMode === 'ai' && (
         <div className="settings-ai">
-          {/* OpenRouter Configuration */}
-          <div className="settings-ai-config">
-            <button
-              className="settings-ai-config-header"
-              onClick={() => setAiConfigExpanded(!aiConfigExpanded)}
-            >
-              <span className="settings-ai-config-title">OpenRouter Configuration</span>
-              <div className="settings-ai-config-status">
-                {aiConfig?.hasKey ? (
-                  <span className="settings-badge settings-badge-ai-active">CONNECTED</span>
-                ) : (
-                  <span className="settings-badge settings-badge-ai-inactive">NOT CONFIGURED</span>
-                )}
-                <span className={`settings-preset-category-arrow ${aiConfigExpanded ? 'expanded' : ''}`}><CaretDown size={14} weight="bold" /></span>
-              </div>
-            </button>
-
-            {aiConfigExpanded && (
-              <div className="settings-ai-config-body">
-                {aiConfig?.hasEnvKey && !aiConfig?.hasUserKey && (
-                  <p className="settings-field-hint">
-                    Using API key from server environment. You can override it below.
-                  </p>
-                )}
-
-                <div className="settings-field">
-                  <label>API Key</label>
-                  {aiConfig?.hasUserKey ? (
-                    <div className="settings-ai-key-configured">
-                      <span className="settings-ai-key-mask">sk-or-...configured</span>
-                      <button
-                        className="settings-btn-sm settings-btn-danger"
-                        onClick={handleClearAIKey}
-                        disabled={aiConfigSaving}
-                      >
-                        CLEAR
-                      </button>
-                    </div>
-                  ) : (
-                    <input
-                      type="password"
-                      value={aiKeyInput}
-                      onChange={e => setAiKeyInput(e.target.value)}
-                      placeholder="sk-or-..."
-                      autoComplete="off"
-                    />
-                  )}
-                  <span className="settings-field-hint">
-                    Get your API key from openrouter.ai
-                  </span>
-                </div>
-
-                <div className="settings-field">
-                  <label>Model</label>
-                  <input
-                    type="text"
-                    value={aiModelInput}
-                    onChange={e => setAiModelInput(e.target.value)}
-                    placeholder={aiConfig?.defaultModel || 'google/gemini-3-flash-preview'}
-                  />
-                  <span className="settings-field-hint">
-                    OpenRouter model ID (e.g. google/gemini-3-flash-preview, anthropic/claude-sonnet-4)
-                  </span>
-                </div>
-
-                <button
-                  className="settings-btn-primary"
-                  onClick={handleSaveAIConfig}
-                  disabled={aiConfigSaving || (!aiKeyInput && aiModelInput === aiConfig?.model)}
-                >
-                  {aiConfigSaving ? 'SAVING...' : 'SAVE CONFIGURATION'}
-                </button>
-              </div>
-            )}
-          </div>
-
           {/* AI Channel Creation */}
           <div className="settings-ai-create">
             <h3>Create a Channel with AI</h3>
@@ -1257,7 +1136,7 @@ export default function ChannelSettings() {
 
             {!aiConfig?.hasKey && !aiConfig?.hasEnvKey ? (
               <div className="settings-ai-unconfigured">
-                <p>Configure your OpenRouter API key above to start creating AI channels.</p>
+                <p>Configure your OpenRouter API key in General &rarr; AI to start creating AI channels.</p>
               </div>
             ) : (
               <>

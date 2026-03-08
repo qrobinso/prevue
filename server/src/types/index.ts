@@ -17,7 +17,7 @@ export type ChannelPresetCategory =
   | 'collections'     // Jellyfin collections (BoxSets)
   | 'time_mood'       // Time & mood based (Late Night, Saturday Morning)
   | 'era'             // Era/Decade (90s, 2000s, Classic Cinema)
-  | 'content_type'    // Content type (Movies Only, TV Only, Shorts)
+  | 'content_type'    // Content type (Movies Only, TV Only, Short Block)
   | 'audience'        // Audience rating (Kids, Family, Adults Only)
   | 'behavioral'      // Smart/behavioral (Unwatched, Favorites, Continue Watching)
   | 'thematic'        // Curated themes (Award Winners, Holiday, Director)
@@ -108,6 +108,12 @@ export interface ChannelParsed extends Omit<Channel, 'item_ids' | 'filter'> {
   filter: ChannelFilter | null;
 }
 
+export interface IconicScene {
+  name: string;              // e.g. "I am your father"
+  timestamp_minutes: number; // minutes into the film
+  why: string;               // 1-2 sentences on why it's iconic
+}
+
 export interface ScheduleProgram {
   media_item_id: string;
   title: string;
@@ -127,6 +133,7 @@ export interface ScheduleProgram {
   is_hdr: boolean | null;
   genres: string[] | null;
   description: string | null;
+  iconic_scenes?: IconicScene[] | null;
 }
 
 export interface ScheduleBlock {

@@ -1,13 +1,42 @@
 import { useState, useEffect, useCallback } from 'react';
 import ServerSettings from './ServerSettings';
-import { factoryReset, restartServer, getSettings, updateSettings, getServers } from '../../services/api';
+import { factoryReset, restartServer, getSettings, updateSettings, getServers, getAIConfig, updateAIConfig } from '../../services/api';
+import type { ServerInfo, AIConfig } from '../../services/api';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
-import type { ServerInfo } from '../../services/api';
-import { CheckCircle } from '@phosphor-icons/react';
+import { CheckCircle, CaretDown } from '@phosphor-icons/react';
 import './Settings.css';
 
 const APP_VERSION = '1.0.0';
 const GITHUB_URL = 'https://github.com/qrobinso/prevue';
+
+const ICONIC_SCENES_KEY = 'prevue_iconic_scenes_enabled';
+const PROGRAM_FACTS_KEY = 'prevue_program_facts_enabled';
+
+export function getProgramFactsEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(PROGRAM_FACTS_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return false; // default: off (opt-in AI feature)
+}
+
+export function setProgramFactsEnabled(enabled: boolean): void {
+  localStorage.setItem(PROGRAM_FACTS_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('programfactschange', { detail: { enabled } }));
+}
+
+export function getIconicScenesEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(ICONIC_SCENES_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return false; // default: off (opt-in AI feature)
+}
+
+export function setIconicScenesEnabled(enabled: boolean): void {
+  localStorage.setItem(ICONIC_SCENES_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('iconicsceneschange', { detail: { enabled } }));
+}
 
 interface GeneralSettingsProps {
   onServerAdded?: (server: ServerInfo) => void;
@@ -24,6 +53,16 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
   const [sharePlaybackProgress, setSharePlaybackProgress] = useState(false);
   const [mediaServiceName, setMediaServiceName] = useState<string>('your media server');
   const closeAbout = useCallback(() => setShowAbout(false), []);
+
+  // AI configuration state
+  const [aiConfig, setAiConfig] = useState<AIConfig | null>(null);
+  const [aiKeyInput, setAiKeyInput] = useState('');
+  const [aiModelInput, setAiModelInput] = useState('');
+  const [aiConfigSaving, setAiConfigSaving] = useState(false);
+  const [aiConfigExpanded, setAiConfigExpanded] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [iconicScenesEnabled, setIconicScenesEnabledState] = useState(getIconicScenesEnabled);
+  const [programFactsEnabled, setProgramFactsEnabledState] = useState(getProgramFactsEnabled);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
   // Close about modal on Escape
@@ -82,6 +121,13 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         }
       })
       .catch(() => {});
+    getAIConfig()
+      .then((config) => {
+        setAiConfig(config);
+        setAiModelInput(config.model);
+        if (!config.hasKey) setAiConfigExpanded(true);
+      })
+      .catch(() => {});
   }, []);
 
   const handleSharePlaybackToggle = async () => {
@@ -92,6 +138,50 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
     } catch {
       // Keep applied locally even if save fails
     }
+  };
+
+  const handleSaveAIConfig = async () => {
+    setAiConfigSaving(true);
+    setAiError('');
+    try {
+      const update: { apiKey?: string; model?: string } = {};
+      if (aiKeyInput) update.apiKey = aiKeyInput;
+      if (aiModelInput !== aiConfig?.model) update.model = aiModelInput;
+      const result = await updateAIConfig(update);
+      setAiConfig(result);
+      setAiKeyInput('');
+      if (result.hasUserKey) setAiConfigExpanded(false);
+    } catch (err) {
+      setAiError((err as Error).message);
+    } finally {
+      setAiConfigSaving(false);
+    }
+  };
+
+  const handleClearAIKey = async () => {
+    setAiConfigSaving(true);
+    setAiError('');
+    try {
+      const result = await updateAIConfig({ apiKey: '' });
+      setAiConfig(result);
+      setAiConfigExpanded(true);
+    } catch (err) {
+      setAiError((err as Error).message);
+    } finally {
+      setAiConfigSaving(false);
+    }
+  };
+
+  const handleIconicScenesToggle = () => {
+    const newValue = !iconicScenesEnabled;
+    setIconicScenesEnabledState(newValue);
+    setIconicScenesEnabled(newValue);
+  };
+
+  const handleProgramFactsToggle = () => {
+    const newValue = !programFactsEnabled;
+    setProgramFactsEnabledState(newValue);
+    setProgramFactsEnabled(newValue);
   };
 
   const handleFactoryReset = async () => {
@@ -140,6 +230,136 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         <p className="settings-field-hint">
           Syncs your watch progress to {mediaServiceName} so &quot;Continue Watching&quot; and watched status stay up to date.
         </p>
+      </div>
+
+      {/* ── AI ───────────────────────────────────────────── */}
+      <div className="settings-group-heading">AI <span className="settings-badge settings-badge-beta">BETA</span></div>
+
+      <div className="settings-subsection">
+        <div className="settings-ai-config">
+          <button
+            className="settings-ai-config-header"
+            onClick={() => setAiConfigExpanded(!aiConfigExpanded)}
+          >
+            <span className="settings-ai-config-title">Openrouter</span>
+            <div className="settings-ai-config-status">
+              {aiConfig?.hasKey ? (
+                <span className="settings-badge settings-badge-ai-active">CONNECTED</span>
+              ) : (
+                <span className="settings-badge settings-badge-ai-inactive">NOT CONFIGURED</span>
+              )}
+              <span className={`settings-preset-category-arrow ${aiConfigExpanded ? 'expanded' : ''}`}>
+                <CaretDown size={14} weight="bold" />
+              </span>
+            </div>
+          </button>
+
+          {aiConfigExpanded && (
+            <div className="settings-ai-config-body">
+              {aiConfig?.hasEnvKey && !aiConfig?.hasUserKey && (
+                <p className="settings-field-hint">
+                  Using API key from server environment. You can override it below.
+                </p>
+              )}
+
+              <div className="settings-field">
+                <label>API Key</label>
+                {aiConfig?.hasUserKey ? (
+                  <div className="settings-ai-key-configured">
+                    <span className="settings-ai-key-mask">sk-or-...configured</span>
+                    <button
+                      className="settings-btn-sm settings-btn-danger"
+                      onClick={handleClearAIKey}
+                      disabled={aiConfigSaving}
+                    >
+                      CLEAR
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="password"
+                    value={aiKeyInput}
+                    onChange={e => setAiKeyInput(e.target.value)}
+                    placeholder="sk-or-..."
+                    autoComplete="off"
+                  />
+                )}
+                <span className="settings-field-hint">
+                  Get your API key from openrouter.ai
+                </span>
+              </div>
+
+              <div className="settings-field">
+                <label>Model</label>
+                <input
+                  type="text"
+                  value={aiModelInput}
+                  onChange={e => setAiModelInput(e.target.value)}
+                  placeholder={aiConfig?.defaultModel || 'google/gemini-3-flash-preview'}
+                />
+                <span className="settings-field-hint">
+                  OpenRouter model ID (e.g. google/gemini-3-flash-preview, anthropic/claude-sonnet-4)
+                </span>
+              </div>
+
+              {aiError && <div className="settings-error">{aiError}</div>}
+
+              <button
+                className="settings-btn-primary"
+                onClick={handleSaveAIConfig}
+                disabled={aiConfigSaving || (!aiKeyInput && aiModelInput === aiConfig?.model)}
+              >
+                {aiConfigSaving ? 'SAVING...' : 'SAVE CONFIGURATION'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className={`settings-subsection ${!aiConfig?.hasKey ? 'settings-disabled' : ''}`}>
+        <h4>ICONIC SCENES</h4>
+        <p className="settings-field-hint">
+          AI-powered detection of famous movie moments. Shows a badge and filter
+          when an iconic scene is playing on any channel.
+          {!aiConfig?.hasKey && ' Configure an API key above to enable.'}
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={iconicScenesEnabled}
+              onChange={handleIconicScenesToggle}
+              disabled={!aiConfig?.hasKey}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {iconicScenesEnabled ? 'ON' : 'OFF'}
+          </span>
+        </div>
+      </div>
+
+      <div className={`settings-subsection ${!aiConfig?.hasKey ? 'settings-disabled' : ''}`}>
+        <h4>PROGRAM FACTS</h4>
+        <p className="settings-field-hint">
+          AI-generated trivia and behind-the-scenes facts about what you're watching,
+          shown in the channel ticker marquee.
+          {!aiConfig?.hasKey && ' Configure an API key above to enable.'}
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={programFactsEnabled}
+              onChange={handleProgramFactsToggle}
+              disabled={!aiConfig?.hasKey}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {programFactsEnabled ? 'ON' : 'OFF'}
+          </span>
+        </div>
       </div>
 
       {/* ── App ──────────────────────────────────────────── */}

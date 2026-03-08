@@ -44,6 +44,8 @@ export interface ScheduleProgram {
   start_ms?: number;
   /** Pre-computed numeric timestamp (ms) for end_time – set client-side by useSchedule */
   end_ms?: number;
+  /** Iconic scenes with approximate timestamps (from AI, movies only) */
+  iconic_scenes?: { name: string; timestamp_minutes: number; why: string }[] | null;
 }
 
 export interface ScheduleBlock {

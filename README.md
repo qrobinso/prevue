@@ -15,6 +15,8 @@ Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
 - **Hardware transcoding** — Leverages your media server's transcoding pipeline with selectable quality presets (Auto, 4K, 1080p, 720p, 480p) and HEVC support.
 - **Subtitle and audio track support** — Full multi-track subtitle and audio selection, with per-language preferences and persistence.
 - **Full-featured guide and player** — Retro Prevue Channel-inspired EPG grid with a built-in HLS video player, overlay controls, nerd stats, and picture-in-picture.
+- **Iconic scene detection** — AI identifies famous movie moments and marks them on the player timeline. A glowing badge appears when an iconic scene is playing, with an overlay explaining why it's iconic.
+- **Live ticker** — Scrolling marquee with primetime highlights, recently added titles, library stats, and AI-powered "Did You Know" trivia about what's currently airing.
 - **IPTV server with EPG** — Exposes an M3U playlist and XMLTV EPG feed so you can watch your channels in Kodi, VLC, Jellyfin, or any IPTV client.
 - **Open source** — Inspect, modify, and contribute. Licensed for non-commercial use.
 
@@ -111,9 +113,22 @@ With an OpenRouter API key configured, you can create channels by describing the
 
 > "80s action movies", "Studio Ghibli marathon", "movies about space exploration"
 
-Prevue sends a compact summary of your library to an AI model, which selects matching content and builds the channel automatically. Configure your API key in `.env` or in **Settings > Channels**.
+Prevue sends a compact summary of your library to an AI model, which selects matching content and builds the channel automatically. Configure your API key in `.env` or in **Settings > General > AI**.
 
 Default model: `google/gemini-3-flash-preview` (configurable in Settings).
+
+### Iconic Scene Detection
+
+When enabled in **Settings > General > AI**, Prevue uses AI to identify iconic/famous scenes in movies on your schedule (e.g. "I am your father" in Star Wars).
+
+- **Guide badge** — An "ICONIC" badge appears on guide grid cells when an iconic scene is currently playing
+- **Guide filter** — "Iconic Scene Now" filter shows only channels where an iconic scene is active
+- **Player markers** — Purple segments on the progress bar mark iconic scene windows; they glow when active
+- **Player overlay** — When tuning into a movie during an iconic scene, a brief overlay shows the scene name and why it's famous
+
+### Program Facts ("Did You Know")
+
+When enabled in **Settings > General > AI**, Prevue generates trivia facts about currently airing programs. Facts are fetched in a single batch API call, cached in SQLite, and displayed one at a time in the guide ticker — rotating to a new fact every 5 minutes.
 
 ## Guide and Player
 
@@ -125,6 +140,8 @@ Default model: `google/gemini-3-flash-preview` (configurable in Settings).
 - Color-coded entries (movies vs. episodes, customizable)
 - Per-channel color coding with preset color palette
 - Guide dividers — labeled section separators to organize your channel lineup
+- Guide filters — filter the channel lineup by what's airing now (Movies, TV Shows, Recently Started, Starting Soon, HD & 4K, Kids & Family, genre filters). Multiple filters can be active at once. Filters apply globally to both the guide and player channel navigation. Channels dynamically appear/disappear as programs change.
+- Live ticker marquee — scrolling bar showing a primetime pick, a recently added title, library stats, and a rotating AI-generated trivia fact
 - Auto-scroll with adjustable speed (slow, normal, fast)
 - Classic or modern preview style
 - Keyboard navigation (arrow keys, Enter to tune, Escape for settings)
@@ -138,6 +155,8 @@ Default model: `google/gemini-3-flash-preview` (configurable in Settings).
 - Fullscreen, picture-in-picture, and video fit (contain/cover) modes
 - Info overlay with channel name, program title, time remaining, and next up
 - Promo overlay — periodic broadcast-style popups showing what you're watching, what's coming up next, and what's starting soon on other channels (toggleable in Settings). "Starting Soon" promos are clickable — tap to tune directly to that channel.
+- Iconic scene markers on the progress bar — purple segments highlight famous movie moments, glowing when the scene is active
+- Iconic scene overlay — when you tune in during an iconic scene, a brief overlay shows the scene name and why it's iconic
 - Nerd stats panel: resolution, bitrate, codec, FPS, buffer health
 - Channel up/down while watching
 - Progress reporting back to Jellyfin/Plex
@@ -342,6 +361,8 @@ Raw SQL via `better-sqlite3` (synchronous, WAL mode). No ORM.
 | `watch_sessions` | Viewing session metrics |
 | `watch_events` | Granular watch event log |
 | `client_registry` | Known client identifiers |
+| `iconic_scenes` | AI-generated iconic scene data per movie (SQLite cache) |
+| `program_facts` | AI-generated trivia facts per program/series (SQLite cache) |
 
 Sensitive data (OpenRouter API key) is encrypted with AES-256-GCM. Key sourced from `DATA_ENCRYPTION_KEY` env var or auto-generated and persisted in `data/.encryption-key`.
 
@@ -434,6 +455,13 @@ All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs
 | `GET /api/servers/plex/servers` | List available Plex servers for authenticated user |
 | `POST /api/servers/plex/connect` | Connect to a selected Plex server |
 
+### Ticker
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/ticker` | Ticker items (primetime, new, stats) |
+| `POST /api/ticker/facts/batch` | Batch-generate AI trivia facts for currently airing programs |
+
 ### Metrics & System
 
 | Endpoint | Description |
@@ -446,6 +474,19 @@ All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs
 | `GET /api/assets/video` | Video assets (interstitial backgrounds) |
 | `GET /api/health` | Health check |
 | `GET /api/auth/status` | Whether API key auth is required |
+
+## AI Disclaimer
+
+Prevue's AI features are **entirely optional** and disabled by default. If you choose to enable them by providing an OpenRouter API key, Prevue sends metadata to the AI service you select via [OpenRouter](https://openrouter.ai). This may include:
+
+- **Movie titles**, production years, genres, and runtimes (channel creation, iconic scenes, program facts)
+- **TV series names**, season counts, episode counts, genres, and years (channel creation, program facts)
+
+No file paths, file names, server URLs, credentials, or personally identifiable information are sent.
+
+You can review the exact prompt and data format in [`server/src/services/AIService.ts`](server/src/services/AIService.ts).
+
+By using this feature, you acknowledge that library metadata is transmitted to a third-party AI provider subject to their own privacy policies. If you prefer not to share this data, simply do not configure an OpenRouter API key — all other Prevue features work without it.
 
 ## License
 

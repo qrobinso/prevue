@@ -107,6 +107,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const currentChannelIdRef = useRef<number | null>(null);
   const selectedSubtitleIndexRef = useRef<number | null>(getStoredSubtitleIndex());
   const overlayHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapTimeRef = useRef<number>(0);
   const removePlayingListenersRef = useRef<(() => void) | null>(null);
   const subtitleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,8 +161,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   // modern layout, we report the actual overlayVisible state.
   const isClassicDesktop = isClassic && typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
   useEffect(() => {
-    onOverlayVisibilityChange?.(isClassicDesktop || overlayVisible);
-  }, [overlayVisible, isClassicDesktop, onOverlayVisibilityChange]);
+    onOverlayVisibilityChange?.(!channel || isClassicDesktop || overlayVisible);
+  }, [channel, overlayVisible, isClassicDesktop, onOverlayVisibilityChange]);
 
   const { volume, muted, setVolume, toggleMute } = useVolume();
   const mutedRef = useRef(muted);
@@ -832,20 +833,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     }
   }, [streamingPaused]);
 
-  if (!channel) {
-    return (
-      <div className="preview-panel">
-        <div className="preview-logo">
-          <div className="preview-logo-text">PREVUE</div>
-          <div className="preview-logo-sub">CHANNEL GUIDE</div>
-        </div>
-      </div>
-    );
-  }
-
-  const showVideo = program && program.type !== 'interstitial';
-  const artworkSources = program ? getPreviewArtworkSources(program) : [];
-
   const swipe = useSwipe({ onSwipeUp, onSwipeDown, enabled: !showAudioMoreMenu });
 
   const scheduleOverlayHide = useCallback(() => {
@@ -858,8 +845,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       setOverlayVisible(false);
     }, OVERLAY_VISIBLE_MS);
   }, []);
-
-  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handlePreviewTap = useCallback(
     (e: React.MouseEvent | React.KeyboardEvent) => {
@@ -916,6 +901,20 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     },
     [channel, program, overlayVisible, onTune, scheduleOverlayHide]
   );
+
+  if (!channel) {
+    return (
+      <div className="preview-panel">
+        <div className="preview-logo">
+          <div className="preview-logo-text">PREVUE</div>
+          <div className="preview-logo-sub">CHANNEL GUIDE</div>
+        </div>
+      </div>
+    );
+  }
+
+  const showVideo = program && program.type !== 'interstitial';
+  const artworkSources = program ? getPreviewArtworkSources(program) : [];
 
   const audioMenuSections = (
     <>

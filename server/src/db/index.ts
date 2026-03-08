@@ -118,6 +118,20 @@ function runMigrations(db: Database.Database): void {
       last_seen TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- AI: iconic scene cache per movie
+    CREATE TABLE IF NOT EXISTS iconic_scenes (
+      media_item_id TEXT PRIMARY KEY,
+      scenes TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- AI: program facts cache (movies by media_item_id, series by series:Name)
+    CREATE TABLE IF NOT EXISTS program_facts (
+      fact_key TEXT PRIMARY KEY,
+      facts TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_schedule_channel
       ON schedule_blocks(channel_id, block_start);

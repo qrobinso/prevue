@@ -193,11 +193,11 @@ export const CHANNEL_PRESETS: ChannelPreset[] = [
     },
   },
   {
-    id: 'shorts',
-    name: 'Shorts',
-    description: 'Content under 30 minutes',
+    id: 'short-block',
+    name: 'Short Block',
+    description: 'Sitcom episodes, animated shows, and shorts under 30 minutes',
     category: 'content_type',
-    icon: '⏱️',
+    icon: '⚡',
     filter: {
       includeMovies: true,
       includeEpisodes: true,

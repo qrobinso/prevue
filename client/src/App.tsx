@@ -8,6 +8,7 @@ import { useKeyboard } from './hooks/useKeyboard';
 import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, type ChannelWithProgram } from './services/api';
 import { getClientId } from './services/clientIdentity';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
+import { getGuideFilters, applyGuideFilterSimple, isIconicSceneActive, type GuideFilterId } from './components/Guide/guideFilterUtils';
 import { isIOS } from './utils/platform';
 import type { Channel, ScheduleProgram, WSEvent } from './types';
 
@@ -60,6 +61,16 @@ function AppContent() {
   const [lastChannelId, setLastChannelId] = useState<number | null>(null);
   const [guideFocusedChannelId, setGuideFocusedChannelId] = useState<number | null>(null);
   const enterFullscreenRef = useRef(false);
+  const [activeFilters, setActiveFilters] = useState<GuideFilterId[]>(getGuideFilters);
+
+  // Listen for guide filter changes
+  useEffect(() => {
+    const handleFilterChange = (e: CustomEvent<{ filterIds: GuideFilterId[] }>) => {
+      setActiveFilters(e.detail.filterIds);
+    };
+    window.addEventListener('guidefilterchange', handleFilterChange as EventListener);
+    return () => window.removeEventListener('guidefilterchange', handleFilterChange as EventListener);
+  }, []);
 
   // iOS interaction detection (required for video autoplay)
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
@@ -181,9 +192,11 @@ function AppContent() {
   // Player channel navigation
   const handleChannelUp = useCallback(() => {
     if (channels.length === 0 || !currentChannel) return;
-    const idx = channels.findIndex(ch => ch.id === currentChannel.id);
-    const prevIdx = idx <= 0 ? channels.length - 1 : idx - 1;
-    const target = channels[prevIdx];
+    const navChannels = applyGuideFilterSimple(channels, activeFilters);
+    if (navChannels.length === 0) return;
+    const idx = navChannels.findIndex(ch => ch.id === currentChannel.id);
+    const prevIdx = idx <= 0 ? navChannels.length - 1 : idx - 1;
+    const target = navChannels[prevIdx];
     setLastChannelId(currentChannel.id);
     navigate(`/channel/${target.number}`);
     metricsChannelSwitch({
@@ -193,13 +206,15 @@ function AppContent() {
       to_channel_id: target.id,
       to_channel_name: target.name,
     }).catch(() => {});
-  }, [channels, currentChannel, navigate]);
+  }, [channels, currentChannel, navigate, activeFilters]);
 
   const handleChannelDown = useCallback(() => {
     if (channels.length === 0 || !currentChannel) return;
-    const idx = channels.findIndex(ch => ch.id === currentChannel.id);
-    const nextIdx = idx < 0 || idx >= channels.length - 1 ? 0 : idx + 1;
-    const target = channels[nextIdx];
+    const navChannels = applyGuideFilterSimple(channels, activeFilters);
+    if (navChannels.length === 0) return;
+    const idx = navChannels.findIndex(ch => ch.id === currentChannel.id);
+    const nextIdx = idx < 0 || idx >= navChannels.length - 1 ? 0 : idx + 1;
+    const target = navChannels[nextIdx];
     setLastChannelId(currentChannel.id);
     navigate(`/channel/${target.number}`);
     metricsChannelSwitch({
@@ -209,7 +224,39 @@ function AppContent() {
       to_channel_id: target.id,
       to_channel_name: target.name,
     }).catch(() => {});
-  }, [channels, currentChannel, navigate]);
+  }, [channels, currentChannel, navigate, activeFilters]);
+
+  // Iconic scene auto-advance: when the iconic-scene filter is active and the
+  // player is showing, automatically move to the next channel with an iconic
+  // scene once the current scene window passes.
+  useEffect(() => {
+    if (!playerActive || !currentChannel || !currentProgram) return;
+    if (!activeFilters.includes('iconic-scene')) return;
+
+    const timer = setInterval(() => {
+      const now = Date.now();
+      if (isIconicSceneActive(currentProgram, now)) return; // still in a scene
+
+      // Scene ended — find the next channel with an active iconic scene
+      const candidates = channels.filter(
+        ch => ch.id !== currentChannel.id && ch.current_program && isIconicSceneActive(ch.current_program, now),
+      );
+      if (candidates.length === 0) return; // no other iconic scenes right now
+
+      const target = candidates[0];
+      setLastChannelId(currentChannel.id);
+      navigate(`/channel/${target.number}`);
+      metricsChannelSwitch({
+        client_id: getClientId(),
+        from_channel_id: currentChannel.id,
+        from_channel_name: currentChannel.name,
+        to_channel_id: target.id,
+        to_channel_name: target.name,
+      }).catch(() => {});
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [playerActive, currentChannel, currentProgram, channels, activeFilters, navigate]);
 
   // Guide-level keyboard (disabled when player overlay is active)
   useKeyboard('guide', {

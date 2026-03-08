@@ -3,7 +3,37 @@ import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
+import type { IconicSceneService } from '../services/IconicSceneService.js';
+import type { ScheduleBlockParsed } from '../types/index.js';
 import { broadcast } from '../websocket/index.js';
+
+/** Enrich schedule blocks with iconic scene data from the cache. */
+function enrichBlocksWithIconicScenes(blocks: ScheduleBlockParsed[], iconicSceneService: IconicSceneService): void {
+  // Collect all unique movie media_item_ids
+  const movieIds: string[] = [];
+  for (const block of blocks) {
+    for (const prog of block.programs) {
+      if (prog.content_type === 'movie') {
+        movieIds.push(prog.media_item_id);
+      }
+    }
+  }
+  if (movieIds.length === 0) return;
+
+  const scenesMap = iconicSceneService.getScenesForItems([...new Set(movieIds)]);
+
+  // Attach to programs
+  for (const block of blocks) {
+    for (const prog of block.programs) {
+      if (prog.content_type === 'movie') {
+        const scenes = scenesMap.get(prog.media_item_id);
+        if (scenes && scenes.length > 0) {
+          prog.iconic_scenes = scenes;
+        }
+      }
+    }
+  }
+}
 
 export const scheduleRoutes = Router();
 
@@ -60,13 +90,14 @@ scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
 // GET /api/schedule - Get full schedule for all channels
 scheduleRoutes.get('/', (req: Request, res: Response) => {
   try {
-    const { db } = req.app.locals;
+    const { db, iconicSceneService } = req.app.locals;
     const now = new Date().toISOString();
     const channels = queries.getAllChannels(db);
 
     const schedule: Record<number, unknown> = {};
     for (const ch of channels) {
       const blocks = queries.getCurrentAndNextBlocks(db, ch.id, now);
+      if (iconicSceneService) enrichBlocksWithIconicScenes(blocks, iconicSceneService as IconicSceneService);
       schedule[ch.id] = {
         channel: ch,
         blocks,
@@ -82,12 +113,13 @@ scheduleRoutes.get('/', (req: Request, res: Response) => {
 // GET /api/schedule/:channelId - Get schedule for a specific channel
 scheduleRoutes.get('/:channelId', (req: Request, res: Response) => {
   try {
-    const { db } = req.app.locals;
+    const { db, iconicSceneService } = req.app.locals;
     const channelId = parseInt(req.params.channelId as string, 10);
     if (Number.isNaN(channelId) || channelId < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
     const now = new Date().toISOString();
 
     const blocks = queries.getCurrentAndNextBlocks(db, channelId, now);
+    if (iconicSceneService) enrichBlocksWithIconicScenes(blocks, iconicSceneService as IconicSceneService);
     res.json(blocks);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

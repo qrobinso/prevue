@@ -1,14 +1,16 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useSchedule } from '../../hooks/useSchedule';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import GuideGrid from './GuideGrid';
 import PreviewPanel from './PreviewPanel';
 import ProgramInfoModal from './ProgramInfoModal';
 import ChannelSearch from './ChannelSearch';
-import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle } from '../Settings/DisplaySettings';
+import GuideFilterDropdown from './GuideFilter';
+import Ticker from './Ticker';
+import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle, getTickerEnabled } from '../Settings/DisplaySettings';
 import type { PreviewStyle } from '../Settings/DisplaySettings';
 import Settings from '../Settings/Settings';
-import { MagnifyingGlass, FrameCorners, CornersIn, GearSix } from '@phosphor-icons/react';
+import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, GearSix } from '@phosphor-icons/react';
 import { isIOSPWA } from '../../utils/platform';
 import {
   getFullscreenElement,
@@ -17,6 +19,7 @@ import {
   exitFullscreen,
   type FullscreenMode,
 } from '../../utils/fullscreen';
+import { getGuideFilters, setGuideFilters, applyGuideFilter, type GuideFilterId } from './guideFilterUtils';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
 import './Guide.css';
@@ -65,12 +68,19 @@ export default function Guide({
     }
   }, [initialChannelId]);
   
+  // Ticker state
+  const [tickerEnabled, setTickerEnabledState] = useState(getTickerEnabled);
+
   // Auto-scroll state
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(getAutoScroll);
   const [autoScrollSpeed, setAutoScrollSpeed] = useState(getAutoScrollSpeed);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const autoScrollPauseTimeoutRef = useRef<number | null>(null);
   const mouseOverGuideRef = useRef(false);
+
+  // Guide filter state
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<GuideFilterId[]>(getGuideFilters);
 
   // Update preview time at low frequency so the entire guide tree does not rerender every second.
   useEffect(() => {
@@ -93,16 +103,27 @@ export default function Guide({
       setPreviewStyleState(e.detail.style);
     };
 
+    const handleFilterChange = (e: CustomEvent<{ filterIds: GuideFilterId[] }>) => {
+      setActiveFilters(e.detail.filterIds);
+    };
+    const handleTickerChange = (e: CustomEvent<{ enabled: boolean }>) => {
+      setTickerEnabledState(e.detail.enabled);
+    };
+
     window.addEventListener('autoscrollchange', handleAutoScrollChange as EventListener);
     window.addEventListener('autoscrollspeedchange', handleSpeedChange as EventListener);
     window.addEventListener('guidehourschange', handleGuideHoursChange as EventListener);
     window.addEventListener('previewstylechange', handlePreviewStyleChange as EventListener);
+    window.addEventListener('guidefilterchange', handleFilterChange as EventListener);
+    window.addEventListener('tickerchange', handleTickerChange as EventListener);
 
     return () => {
       window.removeEventListener('autoscrollchange', handleAutoScrollChange as EventListener);
       window.removeEventListener('autoscrollspeedchange', handleSpeedChange as EventListener);
       window.removeEventListener('guidehourschange', handleGuideHoursChange as EventListener);
       window.removeEventListener('previewstylechange', handlePreviewStyleChange as EventListener);
+      window.removeEventListener('guidefilterchange', handleFilterChange as EventListener);
+      window.removeEventListener('tickerchange', handleTickerChange as EventListener);
     };
   }, []);
 
@@ -118,6 +139,31 @@ export default function Guide({
     return idx >= 0 ? idx : 0;
   }, [scheduleByChannel]);
 
+  // Apply guide filter to channels
+  const filteredChannels = useMemo(
+    () => applyGuideFilter(channels, scheduleByChannel, activeFilters),
+    [channels, scheduleByChannel, activeFilters],
+  );
+
+  // When the filtered list changes, try to keep the same channel focused by ID.
+  // If the channel was filtered out, clamp to the nearest valid index.
+  const prevFocusedIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (filteredChannels.length === 0) return;
+    const prevId = prevFocusedIdRef.current;
+    if (prevId != null) {
+      const newIdx = filteredChannels.findIndex(ch => ch.id === prevId);
+      if (newIdx >= 0) {
+        setFocusedChannelIdx(newIdx);
+        return;
+      }
+    }
+    // Channel gone or first render — clamp index
+    setFocusedChannelIdx(prev =>
+      prev >= filteredChannels.length ? filteredChannels.length - 1 : prev,
+    );
+  }, [filteredChannels]);
+
   // Auto-scroll display offset (separate from focused channel for selection)
   const [autoScrollOffset, setAutoScrollOffset] = useState(0);
 
@@ -132,8 +178,8 @@ export default function Guide({
     if (autoScrollEnabled) {
       setAutoScrollPaused(false);
       setAutoScrollOffset(prev => {
-        if (channels.length === 0) return 0;
-        const safePrev = Math.max(0, Math.min(channels.length - 1, prev));
+        if (filteredChannels.length === 0) return 0;
+        const safePrev = Math.max(0, Math.min(filteredChannels.length - 1, prev));
         return safePrev;
       });
       return;
@@ -141,7 +187,7 @@ export default function Guide({
 
     // Reset paused state when auto-scroll is disabled so re-enabling resumes immediately.
     setAutoScrollPaused(false);
-  }, [autoScrollEnabled, channels.length]);
+  }, [autoScrollEnabled, filteredChannels.length]);
 
   // Restore channel position when returning from player
   useEffect(() => {
@@ -173,7 +219,7 @@ export default function Guide({
   // Auto-scroll through channels (page at a time, like classic TV Guide)
   // This only moves the display, not the user's selection
   useEffect(() => {
-    if (!autoScrollEnabled || autoScrollPaused || channels.length === 0) {
+    if (!autoScrollEnabled || autoScrollPaused || filteredChannels.length === 0) {
       return;
     }
 
@@ -183,12 +229,12 @@ export default function Guide({
         // Move by a full page of visible channels
         const nextOffset = prev + visibleChannels;
         // If we'd go past the end, loop back to the start
-        return nextOffset >= channels.length ? 0 : nextOffset;
+        return nextOffset >= filteredChannels.length ? 0 : nextOffset;
       });
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [autoScrollEnabled, autoScrollPaused, autoScrollSpeed, channels.length, visibleChannels]);
+  }, [autoScrollEnabled, autoScrollPaused, autoScrollSpeed, filteredChannels.length, visibleChannels]);
 
   // Keep auto-scroll offset in sync with user's position:
   // - While paused, follow the focused channel
@@ -250,7 +296,8 @@ export default function Guide({
     };
   }, []);
 
-  const focusedChannel = channels[focusedChannelIdx] || null;
+  const focusedChannel = filteredChannels[focusedChannelIdx] || null;
+  prevFocusedIdRef.current = focusedChannel?.id ?? null;
   const focusedPrograms = focusedChannel ? scheduleByChannel.get(focusedChannel.id) || [] : [];
   const focusedProgram = focusedPrograms[focusedProgramIdx] || null;
 
@@ -272,20 +319,20 @@ export default function Guide({
   const handleGridChannelClick = useCallback((chIdx: number) => {
     pauseAutoScroll();
     setFocusedChannelIdx(chIdx);
-    const ch = channels[chIdx];
+    const ch = filteredChannels[chIdx];
     if (ch) {
       setFocusedProgramIdx(findCurrentProgramIdx(ch.id));
     }
-  }, [pauseAutoScroll, channels, findCurrentProgramIdx]);
+  }, [pauseAutoScroll, filteredChannels, findCurrentProgramIdx]);
 
   const handlePromoChannelSelect = useCallback((channelId: number) => {
-    const idx = channels.findIndex(ch => ch.id === channelId);
+    const idx = filteredChannels.findIndex(ch => ch.id === channelId);
     if (idx >= 0) {
       pauseAutoScroll();
       setFocusedChannelIdx(idx);
       setFocusedProgramIdx(findCurrentProgramIdx(channelId));
     }
-  }, [channels, pauseAutoScroll, findCurrentProgramIdx]);
+  }, [filteredChannels, pauseAutoScroll, findCurrentProgramIdx]);
 
   /** When set, show program info modal (future program click). */
   const [programInfoModal, setProgramInfoModal] = useState<{ channel: Channel; program: ScheduleProgram } | null>(null);
@@ -299,7 +346,7 @@ export default function Guide({
 
   const handleGridProgramClick = useCallback((chIdx: number, progIdx: number) => {
     pauseAutoScroll();
-    const ch = channels[chIdx];
+    const ch = filteredChannels[chIdx];
     const progs = scheduleByChannel.get(ch?.id ?? 0) || [];
     const prog = progs[progIdx];
     if (!ch || !prog) return;
@@ -316,7 +363,7 @@ export default function Guide({
       setFocusedChannelIdx(chIdx);
       setFocusedProgramIdx(progIdx);
     }
-  }, [pauseAutoScroll, channels, scheduleByChannel, focusedChannelIdx, focusedProgramIdx, onTune, isFullscreen]);
+  }, [pauseAutoScroll, filteredChannels, scheduleByChannel, focusedChannelIdx, focusedProgramIdx, onTune, isFullscreen]);
 
   const toggleFullscreen = useCallback(() => {
     const el = guideRef.current;
@@ -400,25 +447,25 @@ export default function Guide({
     pauseAutoScroll();
     setFocusedChannelIdx(prev => {
       const newIdx = Math.max(0, prev - 1);
-      const newChannel = channels[newIdx];
+      const newChannel = filteredChannels[newIdx];
       if (newChannel) {
         setFocusedProgramIdx(findCurrentProgramIdx(newChannel.id));
       }
       return newIdx;
     });
-  }, [channels, findCurrentProgramIdx, pauseAutoScroll]);
+  }, [filteredChannels, findCurrentProgramIdx, pauseAutoScroll]);
 
   const handleDown = useCallback(() => {
     pauseAutoScroll();
     setFocusedChannelIdx(prev => {
-      const newIdx = Math.min(channels.length - 1, prev + 1);
-      const newChannel = channels[newIdx];
+      const newIdx = Math.min(filteredChannels.length - 1, prev + 1);
+      const newChannel = filteredChannels[newIdx];
       if (newChannel) {
         setFocusedProgramIdx(findCurrentProgramIdx(newChannel.id));
       }
       return newIdx;
     });
-  }, [channels, findCurrentProgramIdx, pauseAutoScroll]);
+  }, [filteredChannels, findCurrentProgramIdx, pauseAutoScroll]);
 
   const handleLeft = useCallback(() => {
     pauseAutoScroll();
@@ -510,6 +557,14 @@ export default function Guide({
         <MagnifyingGlass size={18} weight="bold" />
       </button>
       <button
+        className={`guide-filter-btn ${activeFilters.length > 0 ? 'guide-filter-btn-active' : ''} ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+        onClick={() => setFilterOpen(true)}
+        title={activeFilters.length > 0 ? `${activeFilters.length} filter${activeFilters.length > 1 ? 's' : ''} active` : 'Filter channels'}
+        aria-label="Filter channels"
+      >
+        <Funnel size={18} weight={activeFilters.length > 0 ? 'fill' : 'bold'} />
+      </button>
+      <button
         className={`guide-fullscreen-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
         onClick={toggleFullscreen}
         title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
@@ -537,6 +592,7 @@ export default function Guide({
         channels={channels}
         onSelectChannel={handlePromoChannelSelect}
       />
+      <Ticker enabled={tickerEnabled} scheduleByChannel={scheduleByChannel} />
       {programInfoModal && (
         <ProgramInfoModal
           channel={programInfoModal.channel}
@@ -546,16 +602,44 @@ export default function Guide({
       )}
       {searchOpen && (
         <ChannelSearch
-          channels={channels}
+          channels={filteredChannels}
           onSelect={(idx) => {
             pauseAutoScroll();
             setFocusedChannelIdx(idx);
-            setFocusedProgramIdx(findCurrentProgramIdx(channels[idx].id));
+            setFocusedProgramIdx(findCurrentProgramIdx(filteredChannels[idx].id));
             setScrollToChannelIdxOnce(idx);
             setSearchOpen(false);
           }}
           onClose={() => setSearchOpen(false)}
         />
+      )}
+      {filterOpen && (
+        <GuideFilterDropdown
+          channels={channels}
+          scheduleByChannel={scheduleByChannel}
+          activeFilters={activeFilters}
+          onToggleFilter={(filterId) => {
+            const next = activeFilters.includes(filterId)
+              ? activeFilters.filter(id => id !== filterId)
+              : [...activeFilters, filterId];
+            setGuideFilters(next);
+            setActiveFilters(next);
+            setFocusedChannelIdx(0);
+            setFocusedProgramIdx(0);
+          }}
+          onClearFilters={() => {
+            setGuideFilters([]);
+            setActiveFilters([]);
+            setFocusedChannelIdx(0);
+            setFocusedProgramIdx(0);
+          }}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
+      {filteredChannels.length === 0 && activeFilters.length > 0 && (
+        <div className="guide-filter-empty">
+          No channels match this filter
+        </div>
       )}
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
       <div
@@ -565,7 +649,7 @@ export default function Guide({
         style={{ display: 'contents' }}
       >
         <GuideGrid
-          channels={channels}
+          channels={filteredChannels}
           scheduleByChannel={scheduleByChannel}
           focusedChannelIdx={focusedChannelIdx}
           focusedProgramIdx={focusedProgramIdx}
@@ -575,6 +659,7 @@ export default function Guide({
           smoothScroll={scrollToChannelIdxOnce === undefined && autoScrollEnabled && !autoScrollPaused}
           onChannelClick={handleGridChannelClick}
           onProgramClick={handleGridProgramClick}
+          hideDividers={activeFilters.length > 0}
         />
       </div>
       {settingsOpen && onCloseSettings && (

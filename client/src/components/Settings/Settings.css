@@ -2297,6 +2297,23 @@
   color: var(--bg-primary);
 }
 
+.settings-badge-beta {
+  background: #e040fb;
+  color: #fff;
+  font-family: var(--font-retro);
+  font-size: 7px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-left: 8px;
+  vertical-align: middle;
+  letter-spacing: 0.5px;
+}
+
+.settings-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 .settings-ai-config-body {
   display: flex;
   flex-direction: column;

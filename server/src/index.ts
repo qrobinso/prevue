@@ -19,7 +19,10 @@ import type { MediaProvider } from './services/MediaProvider.js';
 import { ScheduleEngine } from './services/ScheduleEngine.js';
 import { ChannelManager } from './services/ChannelManager.js';
 import { MetricsService } from './services/MetricsService.js';
+import { AIService } from './services/AIService.js';
+import { IconicSceneService } from './services/IconicSceneService.js';
 import { authMiddleware, isAuthEnabled } from './middleware/auth.js';
+import { decrypt } from './utils/crypto.js';
 import * as queries from './db/queries.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,6 +95,8 @@ let mediaProvider: MediaProvider = createProvider(db);
 const scheduleEngine = new ScheduleEngine(db, mediaProvider);
 const channelManager = new ChannelManager(db, mediaProvider, scheduleEngine);
 const metricsService = new MetricsService(db);
+const aiService = new AIService();
+const iconicSceneService = new IconicSceneService(db, aiService);
 
 // Initialize WebSocket
 const wss = initWebSocket(server);
@@ -110,6 +115,7 @@ app.locals.swapProvider = () => {
   channelManager.setProvider(mediaProvider);
 };
 app.locals.metricsService = metricsService;
+app.locals.iconicSceneService = iconicSceneService;
 app.locals.wss = wss;
 
 // ─── API Documentation (Swagger UI) ──────────────────
@@ -158,6 +164,9 @@ app.use('/api/playback', playbackRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/servers', serverRoutes);
 app.use('/api/metrics', metricsRoutes);
+
+import { tickerRoutes } from './routes/ticker.js';
+app.use('/api/ticker', tickerRoutes);
 
 // Proxy routes for Jellyfin streams and images (mounted at /api root)
 import { streamRoutes, startTranscodeIdleCleanup, activeSessions, lastActivityByItemId } from './routes/stream.js';
@@ -256,6 +265,9 @@ async function bootSequence() {
     }
 
     console.log('[Prevue] Boot sequence complete!');
+
+    // Trigger iconic scene generation in background (non-blocking)
+    triggerIconicSceneGeneration().catch(() => {});
   } catch (err) {
     console.error('[Prevue] Boot error:', err);
   }
@@ -296,6 +308,54 @@ async function bootSequence() {
   activeIntervals.push(retentionId);
 
   startScheduleAutoUpdateJob();
+}
+
+/** Resolve AI API options from user settings (encrypted key + model). */
+function getAIOptions(): { apiKey?: string; model?: string } {
+  const encrypted = queries.getSetting(db, 'openrouter_api_key') as string | undefined;
+  let apiKey: string | undefined;
+  if (encrypted) {
+    try { apiKey = decrypt(encrypted); } catch { /* ignore */ }
+  }
+  const model = (queries.getSetting(db, 'openrouter_model') as string) || undefined;
+  return { apiKey, model };
+}
+
+/**
+ * Scan current schedule blocks for movies and trigger iconic scene generation
+ * for any uncached movies. Runs in background, non-blocking.
+ */
+async function triggerIconicSceneGeneration(): Promise<void> {
+  const options = getAIOptions();
+  if (!aiService.isAvailableWith(options.apiKey)) return;
+
+  const channels = queries.getAllChannels(db);
+  const now = new Date().toISOString();
+  const movies: { mediaItemId: string; title: string; year: number | null; durationMinutes: number }[] = [];
+  const seen = new Set<string>();
+
+  for (const channel of channels) {
+    const blocks = queries.getCurrentAndNextBlocks(db, channel.id, now);
+    for (const block of blocks) {
+      for (const prog of block.programs) {
+        if (prog.content_type === 'movie' && !seen.has(prog.media_item_id)) {
+          seen.add(prog.media_item_id);
+          movies.push({
+            mediaItemId: prog.media_item_id,
+            title: prog.title,
+            year: prog.year,
+            durationMinutes: Math.round(prog.duration_ms / 60000),
+          });
+        }
+      }
+    }
+  }
+
+  if (movies.length > 0) {
+    console.log(`[IconicScenes] Generating iconic scenes for ${movies.length} movies...`);
+    await iconicSceneService.generateForMovies(movies, options);
+    console.log('[IconicScenes] Generation complete.');
+  }
 }
 
 function getScheduleAutoUpdateConfig(): { enabled: boolean; hours: number } {
