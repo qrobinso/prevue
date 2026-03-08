@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { timingSafeEqual } from 'crypto';
 
 const API_KEY = process.env.PREVUE_API_KEY;
 
@@ -7,7 +8,26 @@ export function isAuthEnabled(): boolean {
   return !!API_KEY && API_KEY.length > 0;
 }
 
-/** Returns the configured API key (for WebSocket auth checks). */
+/** Timing-safe comparison to prevent timing attacks on secret values. */
+export function safeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  // Pad to equal length so timingSafeEqual doesn't throw, avoiding a length oracle
+  const maxLen = Math.max(bufA.length, bufB.length);
+  const paddedA = Buffer.alloc(maxLen);
+  const paddedB = Buffer.alloc(maxLen);
+  bufA.copy(paddedA);
+  bufB.copy(paddedB);
+  return bufA.length === bufB.length && timingSafeEqual(paddedA, paddedB);
+}
+
+/** Validate a provided key against the configured API key (constant-time). */
+export function validateApiKey(provided: string): boolean {
+  if (!API_KEY) return false;
+  return safeCompare(provided, API_KEY);
+}
+
+/** Returns the configured API key (for IPTV token embedding in URLs). */
 export function getApiKey(): string | undefined {
   return API_KEY;
 }
@@ -39,7 +59,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     (req.query.api_key as string) ||
     (req.query.token as string);
 
-  if (providedKey && providedKey === API_KEY) {
+  if (providedKey && validateApiKey(providedKey)) {
     next();
     return;
   }

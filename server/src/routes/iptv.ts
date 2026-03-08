@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import os from 'os';
 import { gzipSync } from 'zlib';
 import * as queries from '../db/queries.js';
-import { isAuthEnabled, getApiKey } from '../middleware/auth.js';
+import { isAuthEnabled, validateApiKey, getApiKey } from '../middleware/auth.js';
 import { rewriteM3u8Urls, activeSessions, lastActivityByItemId, iptvSessionInfo } from './stream.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
@@ -64,7 +64,7 @@ function appendToken(url: string, token: string | undefined): string {
 function requireIptvAuth(req: Request, res: Response): boolean {
   if (!isAuthEnabled()) return true;
   const token = getTokenParam(req);
-  if (token && token === getApiKey()) return true;
+  if (token && validateApiKey(token)) return true;
   res.status(401).json({ error: 'Unauthorized. Provide a valid token via ?token= query parameter.' });
   return false;
 }

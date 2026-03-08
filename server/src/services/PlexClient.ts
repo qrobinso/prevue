@@ -624,7 +624,6 @@ export class PlexClient extends AbstractMediaProvider {
       const putParams = new URLSearchParams({
         subtitleStreamID: String(subtitleStreamID),
         allParts: '1',
-        'X-Plex-Token': server.access_token || '',
       });
       await fetch(`${baseUrl}/library/parts/${partId}?${putParams}`, {
         method: 'PUT',
@@ -636,7 +635,6 @@ export class PlexClient extends AbstractMediaProvider {
       const putParams = new URLSearchParams({
         audioStreamID: String(options.audioStreamIndex),
         allParts: '1',
-        'X-Plex-Token': server.access_token || '',
       });
       await fetch(`${baseUrl}/library/parts/${partId}?${putParams}`, {
         method: 'PUT',
@@ -677,7 +675,6 @@ export class PlexClient extends AbstractMediaProvider {
       'X-Plex-Product': PLEX_PRODUCT,
       'X-Plex-Version': PLEX_VERSION,
       'X-Plex-Platform': 'Chrome',
-      'X-Plex-Token': server.access_token || '',
     });
 
     if (startPositionTicks) {
@@ -695,7 +692,7 @@ export class PlexClient extends AbstractMediaProvider {
     }
 
     const url = `${baseUrl}/video/:/transcode/universal/start.m3u8?${params}`;
-    console.log(`[Plex] HLS stream URL for item=${itemId}: ${url.substring(0, 200)}...`);
+    console.log(`[Plex] HLS stream for item=${itemId} session=${playSessionId}`);
     return { url, playSessionId, isHdrSource, mediaSourceId };
   }
 
@@ -778,8 +775,6 @@ export class PlexClient extends AbstractMediaProvider {
     const server = this.getActiveServer();
     if (!server) return '';
     const baseUrl = server.url.replace(/\/$/, '');
-    const token = server.access_token || '';
-
     // Ensure library cache is populated (may be empty after server restart)
     if (this.libraryItems.size === 0) {
       const cached = queries.getCachedLibrary(this.db, server.id) as MediaItem[];
@@ -798,12 +793,15 @@ export class PlexClient extends AbstractMediaProvider {
       thumbPath = item?.BackdropImageTags?.[0] ?? undefined;
     }
 
+    const token = server.access_token;
+
     if (thumbPath) {
-      return `${baseUrl}/photo/:/transcode?width=${maxWidth}&height=${Math.round(maxWidth * 1.5)}&minSize=1&upscale=1&url=${encodeURIComponent(thumbPath)}&X-Plex-Token=${token}`;
+      const qs = `width=${maxWidth}&height=${Math.round(maxWidth * 1.5)}&minSize=1&upscale=1&url=${encodeURIComponent(thumbPath)}`;
+      return `${baseUrl}/photo/:/transcode?${qs}${token ? `&X-Plex-Token=${token}` : ''}`;
     }
 
     // Fallback: direct metadata thumb (works without library cache)
-    return `${baseUrl}/library/metadata/${itemId}/thumb?X-Plex-Token=${token}`;
+    return `${baseUrl}/library/metadata/${itemId}/thumb${token ? `?X-Plex-Token=${token}` : ''}`;
   }
 
   getBaseUrl(): string {

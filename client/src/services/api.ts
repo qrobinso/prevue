@@ -498,6 +498,16 @@ export async function reauthenticateServer(id: number, password: string): Promis
   });
 }
 
+export interface LibraryStats {
+  movies: number;
+  episodes: number;
+  last_sync: string | null;
+}
+
+export async function getLibraryStats(): Promise<LibraryStats> {
+  return request('/servers/stats');
+}
+
 // ─── Plex Authentication ──────────────────────────────
 
 export interface PlexPinResponse {

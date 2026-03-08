@@ -60,9 +60,7 @@ mkdir -p "$BACKUP_DIR"
 BACKUP_FILE="$BACKUP_DIR/prevue-backup-$(date +%s).tar.gz"
 
 if tar -czf "$BACKUP_FILE" \
-  -C /home/prevue .env 2>/dev/null && \
-  tar -czf "$BACKUP_FILE" \
-  -C /home/prevue data/ 2>/dev/null; then
+  -C /home/prevue .env data/ 2>/dev/null; then
   success "Backup created: $BACKUP_FILE"
 else
   warn "Backup creation had issues, continuing anyway"

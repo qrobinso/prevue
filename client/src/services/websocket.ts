@@ -18,13 +18,16 @@ class WebSocketClient {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const key = getStoredApiKey();
-    const qs = key ? `?api_key=${encodeURIComponent(key)}` : '';
-    const url = `${protocol}//${window.location.host}/ws${qs}`;
+    const url = `${protocol}//${window.location.host}/ws`;
 
     try {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
+        // Authenticate via first message instead of URL query param (avoids key in logs/history)
+        if (key && this.ws) {
+          this.ws.send(JSON.stringify({ type: 'auth', api_key: key }));
+        }
         this.connected = true;
         this.reconnectDelay = 1000; // Reset backoff
       };

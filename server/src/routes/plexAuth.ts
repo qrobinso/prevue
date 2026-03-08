@@ -52,11 +52,16 @@ plexAuthRoutes.post('/pin', async (_req: Request, res: Response) => {
 // POST /plex/pin/:pinId/check - Poll to check if PIN was authorized
 plexAuthRoutes.post('/pin/:pinId/check', async (req: Request, res: Response) => {
   try {
-    const pinId = req.params.pinId;
+    const pinIdRaw = parseInt(req.params.pinId as string, 10);
+    if (!Number.isInteger(pinIdRaw) || pinIdRaw <= 0) {
+      res.status(400).json({ error: 'Invalid pin ID' });
+      return;
+    }
+    const pinId = String(pinIdRaw);
     const { client_id } = req.body;
 
-    if (!client_id) {
-      res.status(400).json({ error: 'client_id is required' });
+    if (!client_id || typeof client_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(client_id)) {
+      res.status(400).json({ error: 'Valid client_id (UUID) is required' });
       return;
     }
 

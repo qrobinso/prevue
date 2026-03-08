@@ -539,14 +539,13 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
     activeSessions.delete(activeItemId);
     lastActivityByItemId.delete(activeItemId);
   }
-  // Always wait briefly for Plex to release transcode resources. Even when
-  // activeSessions is empty, the client's stopPlayback (force=true) may have
-  // just stopped a session moments ago (e.g. subtitle/quality change). Plex
-  // needs time to tear down the old transcode before accepting a new one.
+  // Only wait for Plex to release transcode resources when we actually stopped
+  // a session. On first load (no active sessions), skip the delay to avoid
+  // adding unnecessary latency that can cause HLS.js manifest timeouts.
   if (stopPromises.length > 0) {
     await Promise.all(stopPromises);
+    await new Promise(r => setTimeout(r, 500));
   }
-  await new Promise(r => setTimeout(r, 500));
 
   // Read quality, subtitle, and audio params from request
   const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : undefined;
@@ -753,12 +752,21 @@ async function handleJellyfinStream(provider: MediaProvider, itemId: string, req
   res.send(rewrittenMaster);
 }
 
+// Validates that an item ID matches expected format (Jellyfin UUID or Plex numeric ID)
+const VALID_ITEM_ID = /^[0-9a-f]{32}$|^[0-9a-f-]{36}$|^\d+$/i;
+const ALLOWED_IMAGE_TYPES = new Set(['Primary', 'Backdrop', 'Thumb', 'Art', 'Banner', 'Logo', 'Guide']);
+
 // GET /api/stream/:itemId - Initiate HLS stream and return master playlist
 streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
   try {
     const { mediaProvider } = req.app.locals;
     const provider = mediaProvider as MediaProvider;
     const itemId = req.params.itemId as string;
+
+    if (!VALID_ITEM_ID.test(itemId)) {
+      res.status(400).json({ error: 'Invalid item ID format' });
+      return;
+    }
 
     if (provider.providerType === 'plex') {
       await handlePlexStream(provider, itemId, req, res);
@@ -778,6 +786,16 @@ streamRoutes.get('/images/:itemId/:imageType', async (req: Request, res: Respons
     const provider = mediaProvider as MediaProvider;
     const itemId = req.params.itemId as string;
     const imageType = req.params.imageType as string;
+
+    if (!VALID_ITEM_ID.test(itemId)) {
+      res.status(400).json({ error: 'Invalid item ID format' });
+      return;
+    }
+    if (!ALLOWED_IMAGE_TYPES.has(imageType)) {
+      res.status(400).json({ error: 'Invalid image type' });
+      return;
+    }
+
     const maxWidth = parseInt(req.query.maxWidth as string || '400', 10);
 
     // Use provider's getImageUrl which handles both Jellyfin and Plex URL formats

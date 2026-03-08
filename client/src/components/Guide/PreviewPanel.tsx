@@ -17,7 +17,7 @@ import {
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer } from './audioTrackUtils';
 import { formatPlaybackError } from '../../utils/playbackError';
-import { isIOS, isMobile } from '../../utils/platform';
+import { isIOS, isMobile, isPhone } from '../../utils/platform';
 import {
   getVideoElement, reparentVideo, getSharedHls, setSharedHls,
   setSharedItemId, setSharedOwner,
@@ -89,7 +89,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   };
   const isClassic = previewStyle === 'classic-left' || previewStyle === 'classic-right';
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
-  const mobile = isMobile();
+  const mobile = isPhone();
   const previewFontSizes = {
     channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
     channelName: Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale),
@@ -316,6 +316,9 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         maxBufferLength: PREVIEW_STARTUP_MAX_BUFFER_LENGTH,
         maxMaxBufferLength: PREVIEW_STARTUP_MAX_MAX_BUFFER_LENGTH,
         maxBufferSize: 4 * 1000 * 1000,
+        // Plex transcode cold-start can take 10-30s; default 10s timeout
+        // causes cascading retries that kill in-progress transcodes.
+        manifestLoadingTimeOut: 30000,
         fragLoadingMaxRetry: 2,
         manifestLoadingMaxRetry: 2,
         levelLoadingMaxRetry: 2,
@@ -516,7 +519,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     const handoff = consumePlaybackHandoff('guide', channel.id, itemId);
     const prefetchPromise = handoff ? null : getPlaybackInfo(channel.id).catch(() => null);
 
-    const loadPreview = async () => {
+    const loadPreview = async (retryAttempt = 0) => {
       if (cancelled.current) return;
       loadingItemIdRef.current = itemId;
       try {
@@ -538,10 +541,22 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           return;
         }
 
-        // Use pre-fetched result instead of a fresh API call
-        const info = await prefetchPromise;
-        if (cancelled.current || !info || !info.stream_url || info.is_interstitial) {
-          if (!cancelled.current) loadingItemIdRef.current = null;
+        // Use pre-fetched result on first attempt, fresh call on retries
+        const info = retryAttempt === 0
+          ? await prefetchPromise
+          : await getPlaybackInfo(channel.id).catch(() => null);
+        if (cancelled.current) return;
+        if (!info || !info.stream_url || info.is_interstitial) {
+          // Retry up to 3 times with increasing delay — handles cases where
+          // the server is still booting (schedule not ready) on first load.
+          if (retryAttempt < 3) {
+            const delay = (retryAttempt + 1) * 2000;
+            console.log(`[Preview] Playback info unavailable, retrying in ${delay}ms (attempt ${retryAttempt + 1}/3)`);
+            loadingItemIdRef.current = null;
+            retryTimerId = window.setTimeout(() => loadPreview(retryAttempt + 1), delay);
+            return;
+          }
+          loadingItemIdRef.current = null;
           return;
         }
 
@@ -570,11 +585,13 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       }
     };
 
+    let retryTimerId: number | undefined;
     const timer = setTimeout(loadPreview, PREVIEW_STREAM_DELAY_MS);
     return () => {
       cancelled.current = true;
       loadingItemIdRef.current = null;
       clearTimeout(timer);
+      if (retryTimerId != null) clearTimeout(retryTimerId);
       // If the prefetch resolved but was never used (user navigated away before
       // debounce fired), stop the orphaned session so the server can free FFmpeg.
       if (prefetchPromise) {

@@ -1,10 +1,9 @@
 # Prevue
-
-![Prevue](server/src/assets/img/title1.png)
-
 A self-hosted, retro cable TV guide for Jellyfin and Plex. Prevue transforms your personal media library into a classic channel-surfing experience — complete with auto-generated channels, a full electronic program guide, a built-in video player, and IPTV output for external apps. It's a fun way to rediscover your media library.
 
 Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
+
+![Prevue](server/src/assets/img/title1.png)
 
 ## Key Features
 

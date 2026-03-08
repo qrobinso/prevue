@@ -46,6 +46,21 @@ serverRoutes.get('/discover', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/servers/stats - Library statistics for the active server
+serverRoutes.get('/stats', (req: Request, res: Response) => {
+  try {
+    const { db, mediaProvider } = req.app.locals;
+    const provider = mediaProvider as MediaProvider;
+    const items = provider.getLibraryItems();
+    const movies = items.filter(i => i.Type === 'Movie').length;
+    const episodes = items.filter(i => i.Type === 'Episode').length;
+    const lastSync = (queries.getSetting(db, 'last_library_sync') as string) || null;
+    res.json({ movies, episodes, last_sync: lastSync });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // GET /api/servers - List all servers
 serverRoutes.get('/', (req: Request, res: Response) => {
   try {
@@ -343,6 +358,7 @@ serverRoutes.post('/:id/activate', async (req: Request, res: Response) => {
     const provider = req.app.locals.mediaProvider as MediaProvider;
     provider.resetApi();
     await provider.syncLibrary();
+    queries.setSetting(db, 'last_library_sync', new Date().toISOString());
     await (channelManager as ChannelManager).autoGenerateChannels();
     await (scheduleEngine as ScheduleEngine).generateAllSchedules();
     broadcast(wss, { type: 'library:synced', payload: { item_count: provider.getLibraryItems().length } });
@@ -387,6 +403,7 @@ serverRoutes.post('/:id/resync', async (req: Request, res: Response) => {
     await provider.syncLibrary((message) => {
       broadcast(wss, { type: 'generation:progress', payload: { step: 'syncing', message } });
     });
+    queries.setSetting(db, 'last_library_sync', new Date().toISOString());
 
     broadcast(wss, {
       type: 'generation:progress',

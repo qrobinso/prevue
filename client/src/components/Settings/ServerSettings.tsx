@@ -3,8 +3,8 @@ import QRCode from 'qrcode';
 import {
   getServers, addServer, deleteServer, resyncServer,
   discoverServers, reauthenticateServer, requestPlexPin, checkPlexPin,
-  getPlexServers, connectPlexServer,
-  type ServerInfo, type DiscoveredServer, type PlexServerInfo,
+  getPlexServers, connectPlexServer, getLibraryStats,
+  type ServerInfo, type DiscoveredServer, type PlexServerInfo, type LibraryStats,
 } from '../../services/api';
 import { Hexagon } from '@phosphor-icons/react';
 
@@ -43,7 +43,18 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [plexQrDataUrl, setPlexQrDataUrl] = useState('');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [libraryStats, setLibraryStats] = useState<LibraryStats | null>(null);
+
   const activeServer = servers.find(s => s.is_active) ?? servers[0] ?? null;
+
+  const loadLibraryStats = async () => {
+    try {
+      const stats = await getLibraryStats();
+      setLibraryStats(stats);
+    } catch {
+      // Stats are non-critical
+    }
+  };
 
   const loadServers = async () => {
     try {
@@ -68,7 +79,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     }
   };
 
-  useEffect(() => { loadServers(); }, []);
+  useEffect(() => { loadServers(); loadLibraryStats(); }, []);
 
   useEffect(() => {
     if (showSetup && providerType === 'jellyfin') {
@@ -114,9 +125,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
     try {
       setError('');
       setConnecting(true);
-      if (activeServer) {
-        await deleteServer(activeServer.id);
-      }
       const server = await addServer(name, url, username, password);
       resetSetupForm();
       await loadServers();
@@ -165,6 +173,7 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
       setResyncing(true);
       await resyncServer(activeServer.id);
       await loadServers();
+      await loadLibraryStats();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -213,7 +222,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
               setPlexStep('connecting');
               setConnecting(true);
               try {
-                if (activeServer) await deleteServer(activeServer.id);
                 const connected = await connectPlexServer({
                   name: servers[0].name,
                   url: servers[0].url,
@@ -247,10 +255,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
       setError('');
       setPlexStep('connecting');
       setConnecting(true);
-
-      if (activeServer) {
-        await deleteServer(activeServer.id);
-      }
 
       const server = await connectPlexServer({
         name: plexServer.name,
@@ -312,6 +316,27 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
                 <span className="server-connected-value">{activeServer.username}</span>
               </div>
             )}
+            {libraryStats && (libraryStats.movies > 0 || libraryStats.episodes > 0) && (
+              <>
+                <div className="server-connected-row">
+                  <span className="server-connected-key">Library</span>
+                  <span className="server-connected-value">
+                    {[
+                      libraryStats.movies > 0 && `${libraryStats.movies.toLocaleString()} movie${libraryStats.movies !== 1 ? 's' : ''}`,
+                      libraryStats.episodes > 0 && `${libraryStats.episodes.toLocaleString()} episode${libraryStats.episodes !== 1 ? 's' : ''}`,
+                    ].filter(Boolean).join(', ')}
+                  </span>
+                </div>
+                {libraryStats.last_sync && (
+                  <div className="server-connected-row">
+                    <span className="server-connected-key">Last Sync</span>
+                    <span className="server-connected-value">
+                      {new Date(libraryStats.last_sync).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {needsAuth && activeServer.server_type !== 'plex' && !reauthOpen && (
@@ -366,12 +391,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
               </button>
             )}
             <button
-              className="server-action-btn"
-              onClick={() => { setShowSetup(true); setError(''); }}
-            >
-              CHANGE SERVER
-            </button>
-            <button
               className={`server-action-btn server-action-danger ${confirmDisconnect ? 'server-action-danger-confirm' : ''}`}
               onClick={handleDisconnect}
               onBlur={() => setConfirmDisconnect(false)}
@@ -401,12 +420,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
       {/* ── Setup / Change form ── */}
       {showSetup && (
         <div className="server-add-card">
-          {activeServer && (
-            <p className="settings-field-hint" style={{ marginBottom: 12 }}>
-              This will replace your current server connection.
-            </p>
-          )}
-
           {/* Provider selection */}
           <div className="server-provider-toggle">
             <button

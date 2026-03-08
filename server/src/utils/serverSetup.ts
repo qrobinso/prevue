@@ -28,6 +28,7 @@ export function runServerSetup(
       await provider.syncLibrary((message) => {
         broadcast(wss, { type: 'generation:progress', payload: { step: 'syncing', message } });
       });
+      queries.setSetting(db, 'last_library_sync', new Date().toISOString());
 
       broadcast(wss, { type: 'generation:progress', payload: { step: 'generating', message: 'Generating default channels...' } });
       const defaultPresets = ['auto-genres'];

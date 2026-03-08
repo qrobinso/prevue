@@ -472,6 +472,9 @@ export default function Guide({
             </button>
           </div>
         </div>
+        {settingsOpen && onCloseSettings && (
+          <Settings onClose={onCloseSettings} />
+        )}
       </div>
     );
   }
@@ -486,6 +489,9 @@ export default function Guide({
             SETUP
           </button>
         </div>
+        {settingsOpen && onCloseSettings && (
+          <Settings onClose={onCloseSettings} />
+        )}
       </div>
     );
   }

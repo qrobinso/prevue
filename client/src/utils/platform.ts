@@ -22,3 +22,14 @@ export function isMobile(): boolean {
   if (typeof navigator === 'undefined') return false;
   return isIOS() || /Android/i.test(navigator.userAgent);
 }
+
+/** Detect tablet-sized screens (mobile device with >= 768px width). */
+export function isTablet(): boolean {
+  if (typeof window === 'undefined') return false;
+  return isMobile() && Math.min(window.innerWidth, window.innerHeight) >= 768;
+}
+
+/** Detect phone-sized mobile devices (mobile but not tablet). */
+export function isPhone(): boolean {
+  return isMobile() && !isTablet();
+}
