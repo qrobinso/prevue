@@ -56,8 +56,11 @@ const PHASE_DURATIONS: Record<Phase, number> = {
   ident: 2000,
   hero: 8000,
   lineup: 8000,
-  spotlight: 8000,
+  spotlight: 8000, // per-program; actual duration is multiplied by spotlightCount
 };
+
+/** How many upcoming programs get their own spotlight detail view. */
+const MAX_SPOTLIGHT_PROGRAMS = 3;
 
 const CAROUSEL_INTERVAL = 5000;
 const COUNTDOWN_INTERVAL = 1000;
@@ -163,12 +166,6 @@ function HeroCountdown({
 }) {
   // Show the next real program's info, not the interstitial gap itself
   const hasRealNext = nextProgram && nextProgram.type === 'program';
-  const [showDescription, setShowDescription] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setShowDescription(true), 3000);
-    return () => clearTimeout(timer);
-  }, []);
 
   // SVG ring
   const radius = 80;
@@ -191,27 +188,27 @@ function HeroCountdown({
       <div className="interstitial-hero-label stagger-in" style={{ animationDelay: '0s' }}>{label}</div>
       {hasRealNext ? (
         <>
-          <div className="interstitial-hero-title stagger-in" style={{ animationDelay: '0.15s' }}>{nextProgram.title}</div>
+          <div className="interstitial-hero-title stagger-in" style={{ animationDelay: '0.3s' }}>{nextProgram.title}</div>
           {nextProgram.subtitle && (
-            <div className="interstitial-hero-subtitle stagger-in" style={{ animationDelay: '0.25s' }}>{nextProgram.subtitle}</div>
+            <div className="interstitial-hero-subtitle stagger-in" style={{ animationDelay: '0.5s' }}>{nextProgram.subtitle}</div>
           )}
-          <div className="interstitial-hero-meta stagger-in" style={{ animationDelay: '0.35s' }}>
+          <div className="interstitial-hero-meta stagger-in" style={{ animationDelay: '0.7s' }}>
             {nextProgram.year && <span className="interstitial-badge">{nextProgram.year}</span>}
             {nextProgram.rating && <span className="interstitial-badge">{nextProgram.rating}</span>}
             {nextProgram.duration_ms > 0 && (
               <span className="interstitial-badge">{formatRuntime(nextProgram.duration_ms)}</span>
             )}
           </div>
-          {showDescription && nextProgram.description && (
-            <div className="interstitial-hero-description">{nextProgram.description}</div>
+          {nextProgram.description && (
+            <div className="interstitial-hero-description revealed stagger-in" style={{ animationDelay: '0.9s' }}>{nextProgram.description}</div>
           )}
         </>
       ) : (
-        <div className="interstitial-hero-title stagger-in" style={{ animationDelay: '0.15s' }}>Stay Tuned</div>
+        <div className="interstitial-hero-title stagger-in" style={{ animationDelay: '0.3s' }}>Stay Tuned</div>
       )}
 
       {/* Countdown ring + timer */}
-      <div className="interstitial-hero-countdown-wrap stagger-in" style={{ animationDelay: '0.5s' }}>
+      <div className="interstitial-hero-countdown-wrap stagger-in" style={{ animationDelay: '1.1s' }}>
         <svg className="interstitial-ring" viewBox="0 0 200 200">
           <circle
             className="interstitial-ring-bg"
@@ -241,30 +238,24 @@ function HeroCountdown({
 function LineupCarousel({
   programs,
   channelName,
+  featuredIndex,
 }: {
   programs: ScheduleProgram[];
   channelName: string;
+  /** Which program card to highlight and center on. */
+  featuredIndex: number;
 }) {
-  const [activeIndex, setActiveIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (programs.length <= 1) return;
-    const timer = setInterval(() => {
-      setActiveIndex((prev) => (prev + 1) % programs.length);
-    }, CAROUSEL_INTERVAL);
-    return () => clearInterval(timer);
-  }, [programs.length]);
 
   if (programs.length === 0) return null;
 
   const { period } = getTimeOfDayContext();
 
-  // Center active card in viewport
+  // Center the featured card in viewport
   const cardWidth = 220; // card width + gap
   const trackWidth = trackRef.current?.offsetWidth || 900;
   const centerOffset = (trackWidth / 2) - (cardWidth / 2);
-  const translateX = centerOffset - (activeIndex * cardWidth);
+  const translateX = centerOffset - (featuredIndex * cardWidth);
 
   return (
     <div className="interstitial-lineup">
@@ -277,7 +268,7 @@ function LineupCarousel({
           {programs.map((prog, i) => (
             <div
               key={`${prog.media_item_id}-${prog.start_time}`}
-              className={`interstitial-lineup-card ${i === activeIndex ? 'active' : ''}`}
+              className={`interstitial-lineup-card ${i === featuredIndex ? 'active' : ''}`}
             >
               <div className="interstitial-lineup-thumb">
                 {prog.thumbnail_url ? (
@@ -308,69 +299,21 @@ function LineupCarousel({
 }
 
 // ─── Program Spotlight Scene ──────────────────────────
+// Shows details for a single program (controlled by parent via props).
 function ProgramSpotlight({
-  programs,
+  program,
+  details,
 }: {
-  programs: ScheduleProgram[];
+  program: ScheduleProgram;
+  details: ProgramDetails | null;
 }) {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [prevIndex, setPrevIndex] = useState(0);
-  const [fade, setFade] = useState(true);
-  const [fadeKey, setFadeKey] = useState(0);
-  const [details, setDetails] = useState<Map<string, ProgramDetails>>(new Map());
-
-  useEffect(() => {
-    if (programs.length <= 1) return;
-    const timer = setInterval(() => {
-      setFade(false);
-      setTimeout(() => {
-        setActiveIndex((prev) => {
-          setPrevIndex(prev);
-          setFadeKey(k => k + 1);
-          return (prev + 1) % programs.length;
-        });
-        setFade(true);
-      }, 300);
-    }, PHASE_DURATIONS.spotlight);
-    return () => clearInterval(timer);
-  }, [programs.length]);
-
-  // Fetch details for the active program
-  const activeProg = programs[activeIndex];
-  useEffect(() => {
-    if (!activeProg || details.has(activeProg.media_item_id)) return;
-    getProgramDetails(activeProg.media_item_id)
-      .then((d) => {
-        setDetails((prev) => {
-          const next = new Map(prev);
-          next.set(activeProg.media_item_id, d);
-          return next;
-        });
-      })
-      .catch(() => { /* ignore */ });
-  }, [activeProg, details]);
-
-  if (!activeProg) return null;
-
-  const progDetails = details.get(activeProg.media_item_id);
-
   return (
-    <div className={`interstitial-spotlight ${fade ? 'visible' : ''}`}>
-      {/* Cross-fading backdrops */}
+    <div className="interstitial-spotlight visible">
+      {/* Backdrop */}
       <div className="interstitial-spotlight-backdrop">
-        {prevIndex !== activeIndex && programs[prevIndex]?.backdrop_url && (
+        {program.backdrop_url && (
           <img
-            key={`prev-${fadeKey}`}
-            src={programs[prevIndex].backdrop_url!}
-            alt=""
-            className="spotlight-backdrop-leaving"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
-        )}
-        {activeProg.backdrop_url && (
-          <img
-            key={`curr-${fadeKey}`}
-            src={activeProg.backdrop_url}
+            src={program.backdrop_url}
             alt=""
             className="spotlight-backdrop-entering"
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -378,49 +321,49 @@ function ProgramSpotlight({
         )}
       </div>
       <div className="interstitial-spotlight-panel">
-        <div className="interstitial-spotlight-time stagger-in" style={{ animationDelay: '0s' }}>{formatTime(activeProg.start_time)}</div>
-        <div className="interstitial-spotlight-title stagger-in" style={{ animationDelay: '0.12s' }}>{activeProg.title}</div>
-        {activeProg.subtitle && (
-          <div className="interstitial-spotlight-subtitle stagger-in" style={{ animationDelay: '0.2s' }}>{activeProg.subtitle}</div>
+        <div className="interstitial-spotlight-time stagger-in" style={{ animationDelay: '0s' }}>{formatTime(program.start_time)}</div>
+        <div className="interstitial-spotlight-title stagger-in" style={{ animationDelay: '0.25s' }}>{program.title}</div>
+        {program.subtitle && (
+          <div className="interstitial-spotlight-subtitle stagger-in" style={{ animationDelay: '0.45s' }}>{program.subtitle}</div>
         )}
-        <div className="interstitial-spotlight-meta stagger-in" style={{ animationDelay: '0.28s' }}>
-          {activeProg.year && <span className="interstitial-badge">{activeProg.year}</span>}
-          {activeProg.rating && <span className="interstitial-badge">{activeProg.rating}</span>}
-          {activeProg.duration_ms > 0 && (
-            <span className="interstitial-badge">{formatRuntime(activeProg.duration_ms)}</span>
+        <div className="interstitial-spotlight-meta stagger-in" style={{ animationDelay: '0.6s' }}>
+          {program.year && <span className="interstitial-badge">{program.year}</span>}
+          {program.rating && <span className="interstitial-badge">{program.rating}</span>}
+          {program.duration_ms > 0 && (
+            <span className="interstitial-badge">{formatRuntime(program.duration_ms)}</span>
           )}
-          {progDetails?.communityRating != null && progDetails.communityRating > 0 && isRottenTomatoes(progDetails.ratingImage) && (
-            <span className="interstitial-badge interstitial-badge-rating" title={isFresh(progDetails.ratingImage) ? 'Fresh' : 'Rotten'}>
-              {isFresh(progDetails.ratingImage) ? '🍅' : '🪣'} {formatRTRating(progDetails.communityRating)}
+          {details?.communityRating != null && details.communityRating > 0 && isRottenTomatoes(details.ratingImage) && (
+            <span className="interstitial-badge interstitial-badge-rating" title={isFresh(details.ratingImage) ? 'Fresh' : 'Rotten'}>
+              {isFresh(details.ratingImage) ? '🍅' : '🪣'} {formatRTRating(details.communityRating)}
             </span>
           )}
-          {progDetails?.communityRating != null && progDetails.communityRating > 0 && !isRottenTomatoes(progDetails.ratingImage) && (
+          {details?.communityRating != null && details.communityRating > 0 && !isRottenTomatoes(details.ratingImage) && (
             <span className="interstitial-badge interstitial-badge-rating">
-              &#9733; {progDetails.communityRating.toFixed(1)}
+              &#9733; {details.communityRating.toFixed(1)}
             </span>
           )}
-          {progDetails?.audienceRating != null && progDetails.audienceRating > 0 && isRottenTomatoes(progDetails.audienceRatingImage) && (
-            <span className="interstitial-badge interstitial-badge-rating" title={isUpright(progDetails.audienceRatingImage) ? 'Liked it' : 'Disliked it'}>
-              🍿 {formatRTRating(progDetails.audienceRating)}
+          {details?.audienceRating != null && details.audienceRating > 0 && isRottenTomatoes(details.audienceRatingImage) && (
+            <span className="interstitial-badge interstitial-badge-rating" title={isUpright(details.audienceRatingImage) ? 'Liked it' : 'Disliked it'}>
+              🍿 {formatRTRating(details.audienceRating)}
             </span>
           )}
         </div>
-        {progDetails?.genres && progDetails.genres.length > 0 && (
-          <div className="interstitial-spotlight-genres stagger-in" style={{ animationDelay: '0.36s' }}>
-            {progDetails.genres.slice(0, 3).map(genre => (
+        {details?.genres && details.genres.length > 0 && (
+          <div className="interstitial-spotlight-genres stagger-in" style={{ animationDelay: '0.75s' }}>
+            {details.genres.slice(0, 3).map(genre => (
               <span key={genre} className="interstitial-genre-pill">
                 {GENRE_ICONS[genre] || '\u25CF'} {genre}
               </span>
             ))}
           </div>
         )}
-        {progDetails?.cast && progDetails.cast.length > 0 && (
-          <div className="interstitial-spotlight-cast stagger-in" style={{ animationDelay: '0.44s' }}>
-            {progDetails.cast.join(' \u00B7 ')}
+        {details?.cast && details.cast.length > 0 && (
+          <div className="interstitial-spotlight-cast stagger-in" style={{ animationDelay: '0.9s' }}>
+            {details.cast.join(' \u00B7 ')}
           </div>
         )}
-        <div className="interstitial-spotlight-description stagger-in" style={{ animationDelay: '0.5s' }}>
-          {progDetails?.overview || activeProg.description || ''}
+        <div className="interstitial-spotlight-description stagger-in" style={{ animationDelay: '1s' }}>
+          {details?.overview || program.description || ''}
         </div>
       </div>
     </div>
@@ -456,7 +399,37 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
       .slice(0, 6);
   }, [scheduleByChannel, channel.id]);
 
-  // Phase sequence depends on interstitial length
+  // Programs that get a dedicated spotlight detail view
+  const spotlightPrograms = useMemo(
+    () => upcomingPrograms.slice(0, MAX_SPOTLIGHT_PROGRAMS),
+    [upcomingPrograms],
+  );
+
+  // Pre-fetch details for all spotlight programs so they're ready when shown
+  const [programDetails, setProgramDetails] = useState<Map<string, ProgramDetails>>(new Map());
+  useEffect(() => {
+    spotlightPrograms.forEach((prog) => {
+      if (programDetails.has(prog.media_item_id)) return;
+      getProgramDetails(prog.media_item_id)
+        .then((d) => {
+          setProgramDetails((prev) => {
+            const next = new Map(prev);
+            next.set(prog.media_item_id, d);
+            return next;
+          });
+        })
+        .catch(() => { /* ignore */ });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotlightPrograms]);
+
+  // Which spotlight program is currently featured (used by both lineup + spotlight phases)
+  const featuredIndexRef = useRef(0);
+  const [featuredIndex, setFeaturedIndex] = useState(0);
+
+  // Phase sequence: ident → hero → [lineup → spotlight] × N → hero → ...
+  // The sequence lists the base flow; the cycling logic handles repeating
+  // lineup/spotlight pairs for each featured program.
   const phaseSequence = useMemo<Phase[]>(() => {
     if (isMinimal) return ['hero'];
     if (isShort) return ['ident', 'hero'];
@@ -465,31 +438,78 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
   }, [isMinimal, isShort, upcomingPrograms.length]);
 
   // Phase cycling with directional choreography
+  const currentPhaseRef = useRef(currentPhase);
+  currentPhaseRef.current = currentPhase;
+  const phaseSequenceRef = useRef(phaseSequence);
+  phaseSequenceRef.current = phaseSequence;
+  const transitioningRef = useRef(false);
+  const spotlightProgramsRef = useRef(spotlightPrograms);
+  spotlightProgramsRef.current = spotlightPrograms;
+
   useEffect(() => {
     if (phaseSequence.length <= 1) return;
 
+    let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
+
     const timer = setInterval(() => {
+      if (transitioningRef.current) return;
+
       const elapsed = Date.now() - phaseStartRef.current;
-      const phaseDuration = PHASE_DURATIONS[currentPhase];
+      const phase = currentPhaseRef.current;
+      const phaseDuration = PHASE_DURATIONS[phase];
 
       if (elapsed >= phaseDuration) {
+        transitioningRef.current = true;
         setPhaseDirection('exiting');
-        setTimeout(() => {
-          const currentIdx = phaseSequence.indexOf(currentPhase);
-          // Loop: after last phase, go back to second phase (skip ident on subsequent loops)
-          let nextIdx = currentIdx + 1;
-          if (nextIdx >= phaseSequence.length) {
-            nextIdx = phaseSequence.length > 1 ? 1 : 0; // skip ident on loop
+        pendingTimeout = setTimeout(() => {
+          pendingTimeout = null;
+          const seq = phaseSequenceRef.current;
+          const hasSpotlights = seq.includes('lineup');
+          let nextPhase: Phase;
+
+          if (!hasSpotlights) {
+            // No lineup/spotlight — just cycle ident ↔ hero
+            const currentIdx = seq.indexOf(phase);
+            let nextIdx = currentIdx + 1;
+            if (nextIdx >= seq.length) nextIdx = seq.length > 1 ? 1 : 0;
+            nextPhase = seq[nextIdx];
+          } else if (phase === 'ident') {
+            nextPhase = 'hero';
+          } else if (phase === 'hero') {
+            // Start featuring from program 0
+            featuredIndexRef.current = 0;
+            setFeaturedIndex(0);
+            nextPhase = 'lineup';
+          } else if (phase === 'lineup') {
+            // After lineup, show spotlight for the same program
+            nextPhase = 'spotlight';
+          } else {
+            // After spotlight, advance to next program or loop back to hero
+            const nextFeatured = featuredIndexRef.current + 1;
+            if (nextFeatured < spotlightProgramsRef.current.length) {
+              featuredIndexRef.current = nextFeatured;
+              setFeaturedIndex(nextFeatured);
+              nextPhase = 'lineup';
+            } else {
+              nextPhase = 'hero';
+            }
           }
-          setCurrentPhase(phaseSequence[nextIdx]);
+
+          setCurrentPhase(nextPhase);
+          currentPhaseRef.current = nextPhase;
           phaseStartRef.current = Date.now();
           setPhaseDirection('entering');
-        }, 400);
+          transitioningRef.current = false;
+        }, 900);
       }
     }, 500);
 
-    return () => clearInterval(timer);
-  }, [currentPhase, phaseSequence]);
+    return () => {
+      clearInterval(timer);
+      if (pendingTimeout) clearTimeout(pendingTimeout);
+      transitioningRef.current = false;
+    };
+  }, [phaseSequence]);
 
   // Countdown + progress timer
   useEffect(() => {
@@ -571,7 +591,20 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
     // Fade in over 2 seconds
     const targetVolume = audio.volume;
     audio.volume = 0;
-    audio.play().catch(() => { /* autoplay may be blocked — that's ok */ });
+
+    // On iOS, autoplay may be blocked without a direct user gesture.
+    // If the initial play() fails, listen for a tap to retry.
+    let gestureHandler: (() => void) | null = null;
+    audio.play().catch(() => {
+      gestureHandler = () => {
+        audio.play().catch(() => {});
+        document.removeEventListener('touchstart', gestureHandler!);
+        document.removeEventListener('click', gestureHandler!);
+        gestureHandler = null;
+      };
+      document.addEventListener('touchstart', gestureHandler, { once: true });
+      document.addEventListener('click', gestureHandler, { once: true });
+    });
 
     let fadeFrame: number;
     const fadeStartTime = Date.now();
@@ -587,28 +620,56 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
     fadeFrame = requestAnimationFrame(fadeIn);
 
     // Audio-reactive pulse via Web Audio API
+    // On iOS, a new AudioContext starts suspended. If we connect the audio
+    // element via createMediaElementSource before the context is running,
+    // the audio is routed exclusively through the (silent) suspended context
+    // and the user hears nothing. We therefore only connect after a
+    // successful resume; if resume fails we skip Web Audio entirely so the
+    // audio plays through the default output (no pulse effect, but audible).
     let audioContext: AudioContext | null = null;
     let analyserAnimFrame: number;
     try {
-      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const source = audioContext.createMediaElementSource(audio);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 32;
-      source.connect(analyser);
-      analyser.connect(audioContext.destination);
-      analyserRef.current = analyser;
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioContext = ctx;
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const tickAnalyser = () => {
-        analyser.getByteFrequencyData(dataArray);
-        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-        const pulse = 1 + (avg / 255) * 0.03; // subtle 0-3% scale
-        document.documentElement.style.setProperty('--audio-pulse', String(pulse));
-        analyserAnimFrame = requestAnimationFrame(tickAnalyser);
+      const connectAnalyser = () => {
+        try {
+          const source = ctx.createMediaElementSource(audio);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 32;
+          source.connect(analyser);
+          analyser.connect(ctx.destination);
+          analyserRef.current = analyser;
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const tickAnalyser = () => {
+            analyser.getByteFrequencyData(dataArray);
+            const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+            const pulse = 1 + (avg / 255) * 0.03; // subtle 0-3% scale
+            document.documentElement.style.setProperty('--audio-pulse', String(pulse));
+            analyserAnimFrame = requestAnimationFrame(tickAnalyser);
+          };
+          analyserAnimFrame = requestAnimationFrame(tickAnalyser);
+        } catch {
+          // createMediaElementSource may fail if already connected — skip
+        }
       };
-      analyserAnimFrame = requestAnimationFrame(tickAnalyser);
+
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(() => {
+          // Only connect after context is running
+          if (ctx.state === 'running') connectAnalyser();
+        }).catch(() => {
+          // Resume failed (iOS without user gesture) — close context
+          // so it doesn't silently eat the audio output
+          ctx.close().catch(() => {});
+          audioContext = null;
+        });
+      } else {
+        connectAnalyser();
+      }
     } catch {
-      // Web Audio API not available or autoplay blocked — that's fine
+      // Web Audio API not available — that's fine
     }
 
     // Listen for volume changes from the Player's volume controls
@@ -623,6 +684,11 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
     window.addEventListener('prevue_volume_change', handleVolumeChange);
 
     return () => {
+      // Clean up iOS gesture retry listeners
+      if (gestureHandler) {
+        document.removeEventListener('touchstart', gestureHandler);
+        document.removeEventListener('click', gestureHandler);
+      }
       cancelAnimationFrame(fadeFrame);
       if (analyserAnimFrame !== undefined) cancelAnimationFrame(analyserAnimFrame);
       audio.removeEventListener('ended', handleEnded);
@@ -691,21 +757,24 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
       <div className="interstitial-crt-overlay" />
 
       {/* Scene content with directional transitions */}
-      <div className={`interstitial-scene phase-${phaseDirection}`} key={currentPhase}>
+      <div className={`interstitial-scene phase-${phaseDirection}`} key={`${currentPhase}-${featuredIndex}`}>
         {currentPhase === 'ident' && <ChannelIdent channel={channel} />}
         {currentPhase === 'hero' && (
           <HeroCountdown
             program={program}
-            nextProgram={nextProgram}
+            nextProgram={nextProgram?.type === 'program' ? nextProgram : (upcomingPrograms[0] ?? nextProgram)}
             countdownMs={countdownMs}
             progressPercent={progressPercent}
           />
         )}
         {currentPhase === 'lineup' && (
-          <LineupCarousel programs={upcomingPrograms} channelName={channel.name} />
+          <LineupCarousel programs={upcomingPrograms} channelName={channel.name} featuredIndex={featuredIndex} />
         )}
-        {currentPhase === 'spotlight' && (
-          <ProgramSpotlight programs={upcomingPrograms} />
+        {currentPhase === 'spotlight' && spotlightPrograms[featuredIndex] && (
+          <ProgramSpotlight
+            program={spotlightPrograms[featuredIndex]}
+            details={programDetails.get(spotlightPrograms[featuredIndex].media_item_id) ?? null}
+          />
         )}
       </div>
 
@@ -717,10 +786,6 @@ export default function InterstitialScreen({ channel, program, nextProgram, disa
         />
       </div>
 
-      {/* Persistent mini countdown in corner */}
-      <div className="interstitial-mini-countdown">
-        {formatCountdown(countdownMs)}
-      </div>
     </div>
   );
 }

@@ -463,6 +463,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           startPosition: startPosition,  // Start at the scheduled position
           maxBufferLength: 15,
           maxMaxBufferLength: 30,
+          // Plex transcode cold-start can take 10-30s; default 10s timeout
+          // causes cascading retries that kill in-progress transcodes.
+          manifestLoadingTimeOut: 30000,
           // Limit retries to avoid hammering the server
           fragLoadingMaxRetry: 2,
           manifestLoadingMaxRetry: 2,
@@ -937,6 +940,15 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
   // Progress tracking and auto-advance
   useEffect(() => {
+    // Set correct position immediately on program change (don't wait for first interval tick)
+    if (currentProgram && progressBarRef.current) {
+      const now = Date.now();
+      const start = new Date(currentProgram.start_time).getTime();
+      const end = new Date(currentProgram.end_time).getTime();
+      const prog = end > start ? Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100)) : 0;
+      progressBarRef.current.style.width = `${prog}%`;
+    }
+
     checkTimer.current = setInterval(async () => {
       if (currentProgram) {
         const now = Date.now();
