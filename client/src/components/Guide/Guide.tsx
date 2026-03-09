@@ -22,6 +22,7 @@ import {
 import { getGuideFilters, setGuideFilters, applyGuideFilter, type GuideFilterId } from './guideFilterUtils';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
+import { requestPlaybackHandoff } from '../../services/playbackHandoff';
 import './Guide.css';
 
 interface GuideProps {
@@ -334,6 +335,15 @@ export default function Guide({
     }
   }, [filteredChannels, pauseAutoScroll, findCurrentProgramIdx]);
 
+  const handleTickerChannelSelect = useCallback((channelNumber: number) => {
+    const idx = filteredChannels.findIndex(ch => ch.number === channelNumber);
+    if (idx >= 0) {
+      pauseAutoScroll();
+      setFocusedChannelIdx(idx);
+      setFocusedProgramIdx(findCurrentProgramIdx(filteredChannels[idx].id));
+    }
+  }, [filteredChannels, pauseAutoScroll, findCurrentProgramIdx]);
+
   /** When set, show program info modal (future program click). */
   const [programInfoModal, setProgramInfoModal] = useState<{ channel: Channel; program: ScheduleProgram } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -356,14 +366,17 @@ export default function Guide({
       // Future program: only show info modal, don't change channel/preview
       setProgramInfoModal({ channel: ch, program: prog });
     } else if (chIdx === focusedChannelIdx && progIdx === focusedProgramIdx) {
-      // Already focused: navigate to player
+      // Already focused: navigate to player — preserve stream for handoff
+      if (currentAiringProgram?.media_item_id) {
+        requestPlaybackHandoff('guide', 'player', ch.id, currentAiringProgram.media_item_id, 0);
+      }
       onTune(ch, prog, { fromFullscreen: isFullscreen });
     } else {
       // Not focused yet: focus the program (preview it)
       setFocusedChannelIdx(chIdx);
       setFocusedProgramIdx(progIdx);
     }
-  }, [pauseAutoScroll, filteredChannels, scheduleByChannel, focusedChannelIdx, focusedProgramIdx, onTune, isFullscreen]);
+  }, [pauseAutoScroll, filteredChannels, scheduleByChannel, focusedChannelIdx, focusedProgramIdx, currentAiringProgram, onTune, isFullscreen]);
 
   const toggleFullscreen = useCallback(() => {
     const el = guideRef.current;
@@ -480,9 +493,12 @@ export default function Guide({
   const handleEnter = useCallback(() => {
     pauseAutoScroll();
     if (focusedChannel && focusedProgram) {
+      if (currentAiringProgram?.media_item_id) {
+        requestPlaybackHandoff('guide', 'player', focusedChannel.id, currentAiringProgram.media_item_id, 0);
+      }
       onTune(focusedChannel, focusedProgram, { fromFullscreen: isFullscreen });
     }
-  }, [focusedChannel, focusedProgram, onTune, pauseAutoScroll, isFullscreen]);
+  }, [focusedChannel, focusedProgram, currentAiringProgram, onTune, pauseAutoScroll, isFullscreen]);
 
   useKeyboard('guide', {
     onUp: handleUp,
@@ -592,7 +608,7 @@ export default function Guide({
         channels={channels}
         onSelectChannel={handlePromoChannelSelect}
       />
-      <Ticker enabled={tickerEnabled} scheduleByChannel={scheduleByChannel} />
+      <Ticker enabled={tickerEnabled} scheduleByChannel={scheduleByChannel} onChannelSelect={handleTickerChannelSelect} />
       {programInfoModal && (
         <ProgramInfoModal
           channel={programInfoModal.channel}

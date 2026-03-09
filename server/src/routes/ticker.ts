@@ -23,7 +23,8 @@ function getUserAIModel(db: import('better-sqlite3').Database): string | undefin
 interface TickerItem {
   id: string;
   text: string;
-  category: 'primetime' | 'new' | 'stat';
+  category: 'now' | 'upcoming' | 'primetime' | 'new';
+  channel_number?: number;
 }
 
 interface BadgeOptions {
@@ -73,18 +74,32 @@ tickerRoutes.get('/', (req: Request, res: Response) => {
     }
 
     const items: TickerItem[] = [];
+    const seen = new Set<string>(); // shared across sections to avoid duplicates
 
-    // 1. Primetime highlights — programs airing between 7PM and 11PM tonight (client local time)
-    const primetimeItems = getPrimetimeHighlights(db, scheduleEngine as ScheduleEngine, tzOffset, badges);
+    // 1. Currently airing across all channels
+    const nowItems = getCurrentlyAiring(db, tzOffset, badges, seen);
+    items.push(...nowItems);
+
+    // 2. Coming up next (within 2 hours)
+    const upcomingItems = getUpcoming(db, tzOffset, badges, seen);
+    items.push(...upcomingItems);
+
+    // 3. Primetime highlights — programs airing between 7PM and 11PM tonight
+    const primetimeItems = getPrimetimeHighlights(db, scheduleEngine as ScheduleEngine, tzOffset, badges, seen);
     items.push(...primetimeItems);
 
-    // 2. Recently added to library
+    // 4. Recently added to library
     const recentItems = getRecentlyAdded(mediaProvider as MediaProvider, badges);
     items.push(...recentItems);
 
-    // 3. Library stats
-    const statItems = getLibraryStats(mediaProvider as MediaProvider);
-    items.push(...statItems);
+    // Fallback if nothing is scheduled
+    if (items.length === 0) {
+      items.push({
+        id: 'fallback',
+        text: 'Welcome to Prevue Guide — your personal TV experience',
+        category: 'now',
+      });
+    }
 
     const generated_at = new Date().toISOString();
     cache = { items, generated_at, cacheKey };
@@ -184,7 +199,8 @@ function getPrimetimeHighlights(
   db: import('better-sqlite3').Database,
   scheduleEngine: ScheduleEngine,
   tzOffset: number,
-  badges: BadgeOptions
+  badges: BadgeOptions,
+  seen: Set<string>
 ): TickerItem[] {
   const items: TickerItem[] = [];
   try {
@@ -210,9 +226,7 @@ function getPrimetimeHighlights(
     const blocks = queries.getAllScheduleBlocksInRange(db, primetimeStartUTC, primetimeEndUTC);
     const channels = queries.getAllChannels(db);
     const channelMap = new Map(channels.map(ch => [ch.id, ch]));
-
-    const seen = new Set<string>();
-    const candidates: { program: ScheduleProgram; channelName: string; hour: number }[] = [];
+    const candidates: { program: ScheduleProgram; channelName: string; channelNumber: number; hour: number }[] = [];
 
     for (const block of blocks) {
       const channel = channelMap.get(block.channel_id);
@@ -232,7 +246,7 @@ function getPrimetimeHighlights(
           // Convert start time to client local hour
           const clientStart = new Date(startUTC - tzOffset * 60 * 1000);
           const hour = clientStart.getUTCHours();
-          candidates.push({ program: prog, channelName: channel.name, hour });
+          candidates.push({ program: prog, channelName: channel.name, channelNumber: channel.number, hour });
         }
       }
     }
@@ -247,6 +261,7 @@ function getPrimetimeHighlights(
         id: `prime-${c.program.media_item_id}`,
         text: `TONIGHT AT ${hourLabel} ${ampm}: ${label} on ${c.channelName}`,
         category: 'primetime',
+        channel_number: c.channelNumber,
       });
     }
   } catch {
@@ -289,67 +304,123 @@ function getRecentlyAdded(mediaProvider: MediaProvider, badges: BadgeOptions): T
   return items;
 }
 
-function getLibraryStats(mediaProvider: MediaProvider): TickerItem[] {
+function getCurrentlyAiring(
+  db: import('better-sqlite3').Database,
+  tzOffset: number,
+  badges: BadgeOptions,
+  seen: Set<string>
+): TickerItem[] {
   const items: TickerItem[] = [];
   try {
-    const allItems = mediaProvider.getLibraryItems();
-    const movies = allItems.filter((i: MediaItem) => i.Type === 'Movie');
-    const episodes = allItems.filter((i: MediaItem) => i.Type === 'Episode');
+    const now = new Date();
+    // Query a window around now to find blocks containing current programs
+    const windowStart = new Date(now.getTime() - 4 * 60 * 60 * 1000).toISOString();
+    const windowEnd = new Date(now.getTime() + 1 * 60 * 60 * 1000).toISOString();
 
-    if (movies.length > 0) {
-      items.push({
-        id: 'stat-movies',
-        text: `${movies.length} movies in your library`,
-        category: 'stat',
-      });
-    }
+    const blocks = queries.getAllScheduleBlocksInRange(db, windowStart, windowEnd);
+    const channels = queries.getAllChannels(db);
+    const channelMap = new Map(channels.map(ch => [ch.id, ch]));
+    const candidates: { program: ScheduleProgram; channelName: string; channelNumber: number }[] = [];
 
-    if (episodes.length > 0) {
-      const seriesSet = new Set(episodes.map((e: MediaItem) => e.SeriesName).filter(Boolean));
-      items.push({
-        id: 'stat-episodes',
-        text: `${episodes.length} episodes across ${seriesSet.size} series`,
-        category: 'stat',
-      });
-    }
+    for (const block of blocks) {
+      const channel = channelMap.get(block.channel_id);
+      if (!channel) continue;
 
-    // Unwatched movies count
-    const unwatchedMovies = movies.filter((m: MediaItem) => !m.UserData?.Played);
-    if (unwatchedMovies.length > 0) {
-      items.push({
-        id: 'stat-unwatched',
-        text: `${unwatchedMovies.length} unwatched movies waiting for you`,
-        category: 'stat',
-      });
-    }
+      for (const prog of block.programs) {
+        if (prog.type === 'interstitial') continue;
+        if (seen.has(prog.media_item_id)) continue;
 
-    // Top genre spotlight
-    const genreCounts = new Map<string, number>();
-    for (const item of allItems) {
-      for (const g of item.Genres ?? []) {
-        genreCounts.set(g, (genreCounts.get(g) || 0) + 1);
+        const startMs = new Date(prog.start_time).getTime();
+        const endMs = new Date(prog.end_time).getTime();
+        const nowMs = now.getTime();
+
+        if (nowMs >= startMs && nowMs < endMs) {
+          seen.add(prog.media_item_id);
+          candidates.push({ program: prog, channelName: channel.name, channelNumber: channel.number });
+        }
       }
     }
-    const topGenre = [...genreCounts.entries()].sort((a, b) => b[1] - a[1])[0];
-    if (topGenre) {
+
+    // Pick up to 3 random currently airing programs
+    shuffle(candidates);
+    for (let i = 0; i < Math.min(3, candidates.length); i++) {
+      const c = candidates[i];
+      const label = formatProgramLabel(c.program.title, c.program, badges);
       items.push({
-        id: 'stat-genre',
-        text: `${topGenre[1]} titles in ${topGenre[0]} — your top genre`,
-        category: 'stat',
+        id: `now-${c.program.media_item_id}`,
+        text: `NOW PLAYING: ${label} on ${c.channelName}`,
+        category: 'now',
+        channel_number: c.channelNumber,
       });
     }
   } catch {
-    // Library may not be available
+    // Schedule may not be generated yet
   }
-
-  // Always have at least one fallback
-  if (items.length === 0) {
-    items.push({
-      id: 'stat-fallback',
-      text: 'Welcome to Prevue Guide — your personal TV experience',
-      category: 'stat',
-    });
-  }
-
   return items;
+}
+
+function getUpcoming(
+  db: import('better-sqlite3').Database,
+  tzOffset: number,
+  badges: BadgeOptions,
+  seen: Set<string>
+): TickerItem[] {
+  const items: TickerItem[] = [];
+  try {
+    const now = new Date();
+    const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+
+    const blocks = queries.getAllScheduleBlocksInRange(db, now.toISOString(), twoHoursLater.toISOString());
+    const channels = queries.getAllChannels(db);
+    const channelMap = new Map(channels.map(ch => [ch.id, ch]));
+
+    const candidates: { program: ScheduleProgram; channelName: string; channelNumber: number; minutesUntil: number }[] = [];
+
+    for (const block of blocks) {
+      const channel = channelMap.get(block.channel_id);
+      if (!channel) continue;
+
+      for (const prog of block.programs) {
+        if (prog.type === 'interstitial') continue;
+        if (seen.has(prog.media_item_id)) continue;
+
+        const startMs = new Date(prog.start_time).getTime();
+        const nowMs = now.getTime();
+
+        // Only future starts (not currently airing)
+        if (startMs > nowMs && startMs <= twoHoursLater.getTime()) {
+          seen.add(prog.media_item_id);
+          const minutesUntil = Math.round((startMs - nowMs) / 60000);
+          candidates.push({ program: prog, channelName: channel.name, channelNumber: channel.number, minutesUntil });
+        }
+      }
+    }
+
+    // Pick up to 3 random upcoming programs
+    shuffle(candidates);
+    for (let i = 0; i < Math.min(3, candidates.length); i++) {
+      const c = candidates[i];
+      const label = formatProgramLabel(c.program.title, c.program, badges);
+      const timeLabel = c.minutesUntil < 60
+        ? `IN ${c.minutesUntil} MIN`
+        : `IN ${Math.round(c.minutesUntil / 60)}h`;
+      items.push({
+        id: `up-${c.program.media_item_id}`,
+        text: `COMING UP ${timeLabel}: ${label} on ${c.channelName}`,
+        category: 'upcoming',
+        channel_number: c.channelNumber,
+      });
+    }
+  } catch {
+    // Schedule may not be generated yet
+  }
+  return items;
+}
+
+/** Fisher-Yates shuffle in-place. */
+function shuffle<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
 }

@@ -110,7 +110,8 @@ export interface ChannelParsed extends Omit<Channel, 'item_ids' | 'filter'> {
 
 export interface IconicScene {
   name: string;              // e.g. "I am your father"
-  timestamp_minutes: number; // minutes into the film
+  timestamp_minutes: number; // minutes into the film when the scene starts
+  end_minutes: number;       // minutes into the film when the scene ends
   why: string;               // 1-2 sentences on why it's iconic
 }
 

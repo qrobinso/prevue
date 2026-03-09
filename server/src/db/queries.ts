@@ -687,6 +687,15 @@ export function upsertIconicScenes(db: Database.Database, mediaItemId: string, s
   ).run(mediaItemId, JSON.stringify(scenes));
 }
 
+export function clearAllIconicScenes(db: Database.Database): void {
+  db.prepare('DELETE FROM iconic_scenes').run();
+}
+
+export function getIconicScenesLastRefreshed(db: Database.Database): string | null {
+  const row = db.prepare('SELECT MAX(created_at) as last_refreshed FROM iconic_scenes').get() as { last_refreshed: string | null } | undefined;
+  return row?.last_refreshed ?? null;
+}
+
 export function getIconicScenesForItems(db: Database.Database, mediaItemIds: string[]): Map<string, IconicScene[]> {
   const result = new Map<string, IconicScene[]>();
   if (mediaItemIds.length === 0) return result;

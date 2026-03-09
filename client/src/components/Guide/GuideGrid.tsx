@@ -278,7 +278,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
                   <span className="guide-hdr-badge">HDR</span>
                 )}
                 {isIconicNow && (
-                  <span className="guide-iconic-badge">ICONIC</span>
+                  <span className="guide-iconic-dot" />
                 )}
               </>
             )}

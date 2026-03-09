@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useTicker } from '../../hooks/useTicker';
 import { getTickerSpeed } from '../Settings/DisplaySettings';
 import type { TickerSpeedPreset } from '../Settings/DisplaySettings';
@@ -8,6 +8,7 @@ import './Ticker.css';
 interface TickerProps {
   enabled: boolean;
   scheduleByChannel?: Map<number, ScheduleProgram[]>;
+  onChannelSelect?: (channelNumber: number) => void;
 }
 
 const SEPARATOR = '  \u2666  '; // ◆ diamond
@@ -15,7 +16,7 @@ const CHARS_PER_SECOND = 7.5; // base rate at "standard" speed
 const MIN_DURATION = 60;
 const MAX_DURATION = 960;
 
-export default function Ticker({ enabled, scheduleByChannel }: TickerProps) {
+export default function Ticker({ enabled, scheduleByChannel, onChannelSelect }: TickerProps) {
   const { items } = useTicker(enabled, scheduleByChannel);
   const [speed, setSpeed] = useState<TickerSpeedPreset>(getTickerSpeed);
 
@@ -26,16 +27,43 @@ export default function Ticker({ enabled, scheduleByChannel }: TickerProps) {
     return () => window.removeEventListener('tickerspeedchange', handler);
   }, []);
 
-  const { fullText, duration } = useMemo(() => {
-    if (items.length === 0) return { fullText: '', duration: MIN_DURATION };
-    const text = items.map(i => i.text).join(SEPARATOR);
-    const len = text.length;
+  const handleItemClick = useCallback((channelNumber: number) => {
+    onChannelSelect?.(channelNumber);
+  }, [onChannelSelect]);
+
+  const { elements, duration } = useMemo(() => {
+    if (items.length === 0) return { elements: null, duration: MIN_DURATION };
+    const fullText = items.map(i => i.text).join(SEPARATOR);
+    const len = fullText.length;
     const baseDur = Math.round(len / CHARS_PER_SECOND);
     const dur = Math.max(MIN_DURATION, Math.min(MAX_DURATION, Math.round(baseDur * speed.multiplier)));
-    return { fullText: text, duration: dur };
-  }, [items, speed]);
 
-  if (!enabled || items.length === 0) return null;
+    const nodes = items.map((item, idx) => {
+      const isClickable = !!item.channel_number;
+      const separator = idx < items.length - 1 ? SEPARATOR : '';
+      if (isClickable) {
+        return (
+          <span key={item.id}>
+            <span
+              className="ticker-item ticker-item--clickable"
+              onClick={() => handleItemClick(item.channel_number!)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleItemClick(item.channel_number!); }}
+            >
+              {item.text}
+            </span>
+            {separator}
+          </span>
+        );
+      }
+      return <span key={item.id}>{item.text}{separator}</span>;
+    });
+
+    return { elements: nodes, duration: dur };
+  }, [items, speed, handleItemClick]);
+
+  if (!enabled || !elements) return null;
 
   return (
     <div className="ticker-bar">
@@ -43,8 +71,8 @@ export default function Ticker({ enabled, scheduleByChannel }: TickerProps) {
         className="ticker-track"
         style={{ '--ticker-duration': `${duration}s` } as React.CSSProperties}
       >
-        <span className="ticker-text">{fullText}</span>
-        <span className="ticker-text" aria-hidden="true">{fullText}</span>
+        <span className="ticker-text">{elements}</span>
+        <span className="ticker-text" aria-hidden="true">{elements}</span>
       </div>
     </div>
   );

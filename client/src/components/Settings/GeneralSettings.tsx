@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import ServerSettings from './ServerSettings';
-import { factoryReset, restartServer, getSettings, updateSettings, getServers, getAIConfig, updateAIConfig } from '../../services/api';
+import { factoryReset, restartServer, getSettings, updateSettings, getServers, getAIConfig, updateAIConfig, getIconicScenesStatus, refreshIconicScenes } from '../../services/api';
 import type { ServerInfo, AIConfig } from '../../services/api';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
-import { CheckCircle, CaretDown } from '@phosphor-icons/react';
+import { CheckCircle, CaretDown, ArrowClockwise } from '@phosphor-icons/react';
 import './Settings.css';
 
 const APP_VERSION = '1.0.0';
@@ -62,6 +62,8 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
   const [aiConfigExpanded, setAiConfigExpanded] = useState(false);
   const [aiError, setAiError] = useState('');
   const [iconicScenesEnabled, setIconicScenesEnabledState] = useState(getIconicScenesEnabled);
+  const [iconicLastRefreshed, setIconicLastRefreshed] = useState<string | null>(null);
+  const [iconicRefreshing, setIconicRefreshing] = useState(false);
   const [programFactsEnabled, setProgramFactsEnabledState] = useState(getProgramFactsEnabled);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
@@ -128,6 +130,9 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         if (!config.hasKey) setAiConfigExpanded(true);
       })
       .catch(() => {});
+    getIconicScenesStatus()
+      .then(({ lastRefreshed }) => setIconicLastRefreshed(lastRefreshed))
+      .catch(() => {});
   }, []);
 
   const handleSharePlaybackToggle = async () => {
@@ -176,6 +181,18 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
     const newValue = !iconicScenesEnabled;
     setIconicScenesEnabledState(newValue);
     setIconicScenesEnabled(newValue);
+  };
+
+  const handleIconicRefresh = async () => {
+    setIconicRefreshing(true);
+    try {
+      const result = await refreshIconicScenes();
+      setIconicLastRefreshed(result.lastRefreshed);
+    } catch {
+      // silently fail
+    } finally {
+      setIconicRefreshing(false);
+    }
   };
 
   const handleProgramFactsToggle = () => {
@@ -336,6 +353,21 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
           <span className="settings-toggle-label">
             {iconicScenesEnabled ? 'ON' : 'OFF'}
           </span>
+        </div>
+        <div className="settings-iconic-refresh">
+          <button
+            className="settings-btn settings-btn-sm"
+            onClick={handleIconicRefresh}
+            disabled={!aiConfig?.hasKey || iconicRefreshing}
+          >
+            <ArrowClockwise size={14} className={iconicRefreshing ? 'spin' : ''} />
+            {iconicRefreshing ? 'Refreshing...' : 'Refresh Scenes'}
+          </button>
+          {iconicLastRefreshed && (
+            <span className="settings-field-hint settings-iconic-timestamp">
+              Last refreshed: {new Date(iconicLastRefreshed + 'Z').toLocaleString()}
+            </span>
+          )}
         </div>
       </div>
 

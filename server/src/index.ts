@@ -117,6 +117,8 @@ app.locals.swapProvider = () => {
 app.locals.metricsService = metricsService;
 app.locals.iconicSceneService = iconicSceneService;
 app.locals.wss = wss;
+// Expose iconic scene generation trigger so routes can call it after schedule changes
+app.locals.triggerIconicSceneGeneration = () => triggerIconicSceneGeneration().catch(() => {});
 
 // ─── API Documentation (Swagger UI) ──────────────────
 import swaggerUi from 'swagger-ui-express';
@@ -403,6 +405,8 @@ function startScheduleAutoUpdateJob(): void {
       console.log(`[Prevue] Running scheduled extension (${hours}h interval)...`);
       await scheduleEngine.extendSchedules();
       lastRunAt = Date.now();
+      // Regenerate iconic scenes for any new movies in the extended schedule
+      triggerIconicSceneGeneration().catch(() => {});
     } catch (err) {
       console.error('[Prevue] Schedule extension error:', err);
     }

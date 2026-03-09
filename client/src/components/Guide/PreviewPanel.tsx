@@ -25,6 +25,8 @@ import {
 } from '../../services/sharedVideo';
 import InterstitialScreen from '../Player/InterstitialScreen';
 import PromoOverlay from '../Player/PromoOverlay';
+import IconicSceneOverlay from '../Player/IconicSceneOverlay';
+import { BottomNotificationProvider } from '../Player/BottomNotificationManager';
 import { getPromoOverlayEnabled, getStartingSoonEnabled, getSubtitleSize, setSubtitleSizeStorage, SUBTITLE_SIZE_PRESETS, type SubtitleSizePreset } from '../Settings/DisplaySettings';
 import { ClosedCaptioningIcon, ArrowsInSimpleIcon, ArrowsOutSimpleIcon } from '@phosphor-icons/react';
 import './Guide.css';
@@ -123,6 +125,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [isBuffering, setIsBuffering] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
+
   const [promoOverlayEnabled, setPromoOverlayEnabledState] = useState(getPromoOverlayEnabled);
   const [startingSoonEnabled, setStartingSoonEnabledState] = useState(getStartingSoonEnabled);
 
@@ -1023,6 +1026,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       onTouchStart={swipe.onTouchStart}
       onTouchEnd={swipe.onTouchEnd}
     >
+    <BottomNotificationProvider>
       {/* Video fills entire panel — shared video element is reparented here */}
       <div className="preview-video-container">
         {showVideo && (
@@ -1090,6 +1094,13 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           channels={allChannels}
           currentChannelId={channel.id}
           onTuneChannel={onSelectChannel}
+        />
+      )}
+      {/* Iconic scene overlay — shown after video loads and metadata overlay fades */}
+      {program && program.type !== 'interstitial' && (
+        <IconicSceneOverlay
+          program={program}
+          hidden={false}
         />
       )}
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}
@@ -1187,6 +1198,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           )}
         </div>
       </div>
+    </BottomNotificationProvider>
     </div>
   );
 }

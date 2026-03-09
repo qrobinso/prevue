@@ -137,6 +137,8 @@ channelRoutes.put('/:id/ai-refresh', async (req: Request, res: Response) => {
     // Update channel items with fresh AI results
     const updated = queries.updateChannel(db, id, { item_ids: aiResult.item_ids });
     (scheduleEngine as ScheduleEngine).regenerateForChannel(id);
+    const { triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
+    if (typeof triggerIconic === 'function') triggerIconic();
 
     res.json({ channel: updated, ai_description: aiResult.description });
   } catch (err) {
@@ -147,7 +149,7 @@ channelRoutes.put('/:id/ai-refresh', async (req: Request, res: Response) => {
 // PUT /api/channels/:id - Update channel
 channelRoutes.put('/:id', (req: Request, res: Response) => {
   try {
-    const { db, scheduleEngine } = req.app.locals;
+    const { db, scheduleEngine, triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
     const id = parseInt(req.params.id as string, 10);
     if (Number.isNaN(id) || id < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
     const { name, item_ids, sort_order } = req.body;
@@ -161,6 +163,7 @@ channelRoutes.put('/:id', (req: Request, res: Response) => {
     // Regenerate schedule if items changed
     if (item_ids) {
       (scheduleEngine as ScheduleEngine).regenerateForChannel(id);
+      if (typeof triggerIconic === 'function') triggerIconic();
     }
 
     res.json(channel);
@@ -358,7 +361,7 @@ channelRoutes.put('/ai/config', (req: Request, res: Response) => {
 // POST /api/channels/regenerate - Regenerate channels (presets or auto/genre-based)
 channelRoutes.post('/regenerate', async (req: Request, res: Response) => {
   try {
-    const { channelManager, scheduleEngine, wss, db } = req.app.locals;
+    const { channelManager, scheduleEngine, wss, db, triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
 
     // Check if we have saved preset selections
     const selectedPresets = queries.getSetting(db, 'selected_presets') as string[] | undefined;
@@ -374,6 +377,7 @@ channelRoutes.post('/regenerate', async (req: Request, res: Response) => {
 
     await (scheduleEngine as ScheduleEngine).generateAllSchedules();
     broadcast(wss, { type: 'channels:regenerated', payload: { count: channels.length } });
+    if (typeof triggerIconic === 'function') triggerIconic();
     res.json({ channels_created: channels.length });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -468,7 +472,7 @@ channelRoutes.get('/selected-presets', (req: Request, res: Response) => {
 // POST /api/channels/generate - Generate channels from selected presets
 channelRoutes.post('/generate', async (req: Request, res: Response) => {
   try {
-    const { channelManager, scheduleEngine, wss, db, mediaProvider } = req.app.locals;
+    const { channelManager, scheduleEngine, wss, db, mediaProvider, triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
     const { preset_ids, force_sync = false } = req.body;
 
     if (!preset_ids || !Array.isArray(preset_ids)) {
@@ -520,6 +524,7 @@ channelRoutes.post('/generate', async (req: Request, res: Response) => {
     // Done
     broadcast(wss, { type: 'generation:progress', payload: { step: 'complete', message: `Created ${channels.length} channels` } });
     broadcast(wss, { type: 'channels:regenerated', payload: { count: channels.length } });
+    if (typeof triggerIconic === 'function') triggerIconic();
     res.json({ channels_created: channels.length, channels });
   } catch (err) {
     const { wss: wssError } = req.app.locals;

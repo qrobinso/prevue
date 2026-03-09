@@ -6,6 +6,7 @@ import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { IconicSceneService } from '../services/IconicSceneService.js';
 import type { ScheduleBlockParsed } from '../types/index.js';
 import { broadcast } from '../websocket/index.js';
+import { decrypt } from '../utils/crypto.js';
 
 /** Enrich schedule blocks with iconic scene data from the cache. */
 function enrichBlocksWithIconicScenes(blocks: ScheduleBlockParsed[], iconicSceneService: IconicSceneService): void {
@@ -145,12 +146,81 @@ scheduleRoutes.get('/:channelId/now', (req: Request, res: Response) => {
   }
 });
 
+// GET /api/schedule/iconic-scenes/status - Get last refreshed timestamp
+scheduleRoutes.get('/iconic-scenes/status', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const lastRefreshed = queries.getIconicScenesLastRefreshed(db);
+    res.json({ lastRefreshed });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/schedule/iconic-scenes/refresh - Clear cache and regenerate iconic scenes
+scheduleRoutes.post('/iconic-scenes/refresh', async (req: Request, res: Response) => {
+  try {
+    const { db, iconicSceneService } = req.app.locals;
+    if (!iconicSceneService) {
+      res.status(400).json({ error: 'Iconic scene service not available. Configure an AI API key first.' });
+      return;
+    }
+
+    // Clear existing cache
+    queries.clearAllIconicScenes(db);
+
+    // Gather all movies from current schedule
+    const channels = queries.getAllChannels(db);
+    const now = new Date().toISOString();
+    const movies: { mediaItemId: string; title: string; year: number | null; durationMinutes: number }[] = [];
+    const seen = new Set<string>();
+
+    for (const channel of channels) {
+      const blocks = queries.getCurrentAndNextBlocks(db, channel.id, now);
+      for (const block of blocks) {
+        for (const prog of block.programs) {
+          if (prog.content_type === 'movie' && !seen.has(prog.media_item_id)) {
+            seen.add(prog.media_item_id);
+            movies.push({
+              mediaItemId: prog.media_item_id,
+              title: prog.title,
+              year: prog.year,
+              durationMinutes: Math.round(prog.duration_ms / 60000),
+            });
+          }
+        }
+      }
+    }
+
+    if (movies.length === 0) {
+      res.json({ success: true, count: 0 });
+      return;
+    }
+
+    // Resolve AI options from encrypted settings
+    const encrypted = queries.getSetting(db, 'openrouter_api_key') as string | undefined;
+    let apiKey: string | undefined;
+    if (encrypted) {
+      try { apiKey = decrypt(encrypted); } catch { /* ignore */ }
+    }
+    const model = (queries.getSetting(db, 'openrouter_model') as string) || undefined;
+
+    await (iconicSceneService as IconicSceneService).generateForMovies(movies, { apiKey, model });
+    const lastRefreshed = queries.getIconicScenesLastRefreshed(db);
+    res.json({ success: true, count: movies.length, lastRefreshed });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // POST /api/schedule/regenerate - Force regeneration
 scheduleRoutes.post('/regenerate', async (req: Request, res: Response) => {
   try {
-    const { scheduleEngine, wss } = req.app.locals;
+    const { scheduleEngine, wss, triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
     await (scheduleEngine as ScheduleEngine).generateAllSchedules();
     broadcast(wss, { type: 'channels:regenerated', payload: {} });
+    // Regenerate iconic scenes for any new movies in the updated schedule
+    if (typeof triggerIconic === 'function') triggerIconic();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

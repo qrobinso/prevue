@@ -279,21 +279,23 @@ Return ONLY a JSON object where each key is the bracketed identifier from the li
       return `${i + 1}. [${m.key}] "${m.title}"${yearStr} — ${m.durationMinutes} min`;
     }).join('\n');
 
-    const systemPrompt = `You are a film expert. For EACH movie, identify the most iconic/famous scenes.
+    const systemPrompt = `You are a film and television expert. For EACH program, identify the most iconic, most talked-about scenes — the moments people quote, reference, and remember.
 
 For each scene, provide:
 - "name": A short, recognizable name (e.g. "I am your father", "Here's looking at you, kid")
-- "timestamp_minutes": Approximate minutes into the film when this scene occurs
-- "why": 1-2 sentences on why it's iconic
+- "timestamp_minutes": Minutes into the program when this scene starts
+- "end_minutes": Minutes into the program when this scene ends (the scene's natural conclusion)
+- "why": 1-2 sentences on why it's iconic and widely talked about
 
 Rules:
-1. Only genuinely well-known, iconic scenes — not just any scene
-2. Timestamps must be between 0 and the movie's runtime
-3. Up to 10 scenes per movie, ordered by timestamp
-4. For lesser-known films, fewer scenes or an empty array is fine
-5. Return ONLY a JSON object keyed by the bracketed identifier. Each value is an array of scene objects.
+1. Only the most iconic, most culturally discussed scenes — the ones everyone knows and talks about
+2. timestamp_minutes and end_minutes must be between 0 and the program's runtime, and end_minutes must be greater than timestamp_minutes
+3. Scene duration (end_minutes - timestamp_minutes) should reflect the actual scene length, typically 1-5 minutes
+4. Up to 2 scenes per program maximum — choose only the very best
+5. For lesser-known programs, fewer scenes or an empty array is fine
+6. Return ONLY a JSON object keyed by the bracketed identifier. Each value is an array of scene objects.
 
-Example: {"movie_abc": [{"name": "...", "timestamp_minutes": 45, "why": "..."}], "movie_xyz": []}`;
+Example: {"movie_abc": [{"name": "...", "timestamp_minutes": 45, "end_minutes": 48, "why": "..."}], "movie_xyz": []}`;
 
     const content = await this.callLLM(`iconic-scenes (${movies.length} movies)`, [
       { role: 'system', content: systemPrompt },
@@ -313,11 +315,13 @@ Example: {"movie_abc": [{"name": "...", "timestamp_minutes": 45, "why": "..."}],
         .filter(s =>
           typeof s.name === 'string' &&
           typeof s.timestamp_minutes === 'number' &&
+          typeof s.end_minutes === 'number' &&
           typeof s.why === 'string' &&
           s.timestamp_minutes >= 0 &&
-          s.timestamp_minutes <= movie.durationMinutes
+          s.end_minutes > s.timestamp_minutes &&
+          s.end_minutes <= movie.durationMinutes
         )
-        .slice(0, 10)
+        .slice(0, 2)
         .sort((a, b) => a.timestamp_minutes - b.timestamp_minutes);
     }
     return result;

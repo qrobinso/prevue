@@ -128,7 +128,7 @@ When enabled in **Settings > General > AI**, Prevue uses AI to identify iconic/f
 
 ### Program Facts ("Did You Know")
 
-When enabled in **Settings > General > AI**, Prevue generates trivia facts about currently airing programs. Facts are fetched in a single batch API call, cached in SQLite, and displayed one at a time in the guide ticker — rotating to a new fact every 5 minutes.
+When enabled in **Settings > General > AI**, Prevue generates trivia facts about currently airing programs.
 
 ## Guide and Player
 

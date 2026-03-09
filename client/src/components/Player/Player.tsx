@@ -22,6 +22,7 @@ import PromoOverlay from './PromoOverlay';
 import type { PromoOverlayHandle } from './PromoOverlay';
 import InterstitialScreen from './InterstitialScreen';
 import IconicSceneOverlay from './IconicSceneOverlay';
+import { BottomNotificationProvider } from './BottomNotificationManager';
 import { useSchedule } from '../../hooks/useSchedule';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
@@ -1449,6 +1450,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   }, [handleClick]);
 
   return (
+    <BottomNotificationProvider>
     <div
       ref={playerContainerRef}
       className="player"
@@ -1557,8 +1559,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         <CreditsOverlay nextProgram={nextProgram} currentProgram={currentProgram} />
       )}
 
-      {/* Iconic scene overlay — shown briefly on tune-in during an iconic moment */}
-      {currentProgram && !isInterstitial && videoReady && !showCreditsOverlay && (
+      {/* Iconic scene overlay — shown while an iconic scene is playing */}
+      {currentProgram && !isInterstitial && !showCreditsOverlay && (
         <IconicSceneOverlay program={currentProgram} />
       )}
 
@@ -1589,12 +1591,13 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
             const endMs = new Date(currentProgram.end_time).getTime();
             const totalMin = (endMs - startMs) / 60000;
             if (totalMin <= 0) return null;
-            const TOLERANCE = 3;
+            const EARLY_START = 1;
             const elapsedMin = (Date.now() - startMs) / 60000;
             iconicMarkersRef.current = [];
             return currentProgram.iconic_scenes!.map((scene, i) => {
-              const leftPct = Math.max(0, ((scene.timestamp_minutes - TOLERANCE) / totalMin) * 100);
-              const rightPct = Math.min(100, ((scene.timestamp_minutes + TOLERANCE) / totalMin) * 100);
+              const sceneEnd = scene.end_minutes ?? scene.timestamp_minutes + 3; // fallback for legacy data
+              const leftPct = Math.max(0, ((scene.timestamp_minutes - EARLY_START) / totalMin) * 100);
+              const rightPct = Math.min(100, (sceneEnd / totalMin) * 100);
               const widthPct = rightPct - leftPct;
               const isActive = elapsedMin >= scene.timestamp_minutes;
               return (
@@ -1919,5 +1922,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         <div className="player-hint">Double-tap to toggle fill mode</div>
       )}
     </div>
+    </BottomNotificationProvider>
   );
 }

@@ -144,6 +144,7 @@ serverRoutes.post('/', async (req: Request, res: Response) => {
 
     // If this is the first/active server, sync and generate in background
     if (server.is_active) {
+      const { triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
       runServerSetup(
         provider,
         channelManager as ChannelManager,
@@ -151,6 +152,7 @@ serverRoutes.post('/', async (req: Request, res: Response) => {
         wss,
         db,
         'Jellyfin',
+        typeof triggerIconic === 'function' ? triggerIconic : undefined,
       );
     }
   } catch (err) {

@@ -227,6 +227,7 @@ plexAuthRoutes.post('/connect', async (req: Request, res: Response) => {
     // Background sync if this is the active server
     if (server.is_active) {
       const provider = req.app.locals.mediaProvider as MediaProvider;
+      const { triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
       runServerSetup(
         provider,
         channelManager as ChannelManager,
@@ -234,6 +235,7 @@ plexAuthRoutes.post('/connect', async (req: Request, res: Response) => {
         wss,
         db,
         'Plex',
+        typeof triggerIconic === 'function' ? triggerIconic : undefined,
       );
     }
   } catch (err) {

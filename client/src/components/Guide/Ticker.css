@@ -43,6 +43,16 @@
   animation-play-state: paused;
 }
 
+/* Clickable ticker items */
+.ticker-item--clickable {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.ticker-item--clickable:hover {
+  color: #fff;
+}
+
 /* ── Mobile (small phones) ─────────────────────────── */
 @media (max-width: 480px) {
   .ticker-bar {

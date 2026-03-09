@@ -29,7 +29,7 @@ const FIFTEEN_MIN = 15 * 60 * 1000;
 
 const KIDS_RATINGS = new Set(['G', 'PG', 'TV-Y', 'TV-Y7', 'TV-Y7-FV', 'TV-G', 'TV-PG']);
 
-const ICONIC_SCENE_TOLERANCE = 3; // ±3 minutes
+const ICONIC_EARLY_START = 1; // Show 1 minute before scene starts
 
 const BASE_FILTER_PRESETS: GuideFilterPreset[] = [
   { id: 'movies', label: 'Movies On Now' },
@@ -63,9 +63,10 @@ export function isIconicSceneActive(program: ScheduleProgram, nowMs: number): bo
   if (program.content_type !== 'movie' || !program.iconic_scenes?.length) return false;
   const startMs = program.start_ms ?? new Date(program.start_time).getTime();
   const elapsedMinutes = (nowMs - startMs) / 60000;
-  return program.iconic_scenes.some(
-    scene => Math.abs(elapsedMinutes - scene.timestamp_minutes) <= ICONIC_SCENE_TOLERANCE
-  );
+  return program.iconic_scenes.some(scene => {
+    const effectiveEnd = scene.end_minutes ?? scene.timestamp_minutes + 3; // fallback for legacy data
+    return elapsedMinutes >= scene.timestamp_minutes - ICONIC_EARLY_START && elapsedMinutes <= effectiveEnd;
+  });
 }
 
 export function getGuideFilters(): GuideFilterId[] {

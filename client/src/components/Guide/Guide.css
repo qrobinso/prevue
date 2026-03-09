@@ -1604,24 +1604,44 @@ html[data-preview-bg="white"] .preview-video-container {
   border-color: #f5c842;
 }
 
-.guide-iconic-badge {
+.guide-iconic-dot {
   display: inline-block;
+  width: 12px;
+  height: 12px;
   margin-left: 6px;
-  padding: 1px 4px;
-  font-size: 0.75em;
-  line-height: 1.3;
-  color: #e040fb;
-  border: 1px solid #e040fb;
-  border-radius: 2px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #e040fb;
   vertical-align: middle;
-  white-space: nowrap;
-  opacity: 0.8;
+  box-shadow: 0 0 6px 2px rgba(224, 64, 251, 0.5);
+  animation: iconic-dot-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
-.guide-program-focused .guide-iconic-badge {
-  color: #e040fb;
-  border-color: #e040fb;
-  opacity: 1;
+@keyframes iconic-dot-pulse {
+  0%, 100% {
+    box-shadow: 0 0 4px 1px rgba(224, 64, 251, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 10px 4px rgba(224, 64, 251, 0.7);
+    transform: scale(1.2);
+  }
+}
+
+.guide-program-focused .guide-iconic-dot {
+  animation: iconic-dot-pulse-focused 2s ease-in-out infinite;
+}
+
+@keyframes iconic-dot-pulse-focused {
+  0%, 100% {
+    box-shadow: 0 0 5px 2px rgba(224, 64, 251, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 12px 5px rgba(224, 64, 251, 0.8);
+    transform: scale(1.25);
+  }
 }
 
 .guide-program-artwork {

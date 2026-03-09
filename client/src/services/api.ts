@@ -307,6 +307,14 @@ export async function getChannelSchedule(channelId: number): Promise<ScheduleBlo
   return request(`/schedule/${channelId}`);
 }
 
+export async function getIconicScenesStatus(): Promise<{ lastRefreshed: string | null }> {
+  return request('/schedule/iconic-scenes/status');
+}
+
+export async function refreshIconicScenes(): Promise<{ success: boolean; count: number; lastRefreshed: string | null }> {
+  return request('/schedule/iconic-scenes/refresh', { method: 'POST' });
+}
+
 export async function getCurrentProgram(channelId: number): Promise<{
   program: import('../types').ScheduleProgram;
   next: import('../types').ScheduleProgram | null;
@@ -647,7 +655,8 @@ export async function getIPTVStatus(): Promise<IPTVStatus> {
 export interface TickerItem {
   id: string;
   text: string;
-  category: 'primetime' | 'new' | 'stat' | 'fact';
+  category: 'now' | 'upcoming' | 'primetime' | 'new' | 'fact';
+  channel_number?: number;
 }
 
 export interface TickerResponse {

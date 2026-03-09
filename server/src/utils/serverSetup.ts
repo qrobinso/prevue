@@ -19,6 +19,7 @@ export function runServerSetup(
   wss: WebSocketServer,
   db: Database.Database,
   providerLabel: string,
+  onScheduleReady?: () => void,
 ): void {
   (async () => {
     try {
@@ -41,6 +42,7 @@ export function runServerSetup(
       broadcast(wss, { type: 'generation:progress', payload: { step: 'complete', message: 'Setup complete!' } });
       broadcast(wss, { type: 'library:synced', payload: { item_count: provider.getLibraryItems().length } });
       broadcast(wss, { type: 'channels:regenerated', payload: {} });
+      if (onScheduleReady) onScheduleReady();
       console.log(`[Servers] ${providerLabel} background sync complete`);
     } catch (err) {
       console.error(`[Servers] ${providerLabel} background sync failed:`, err);
