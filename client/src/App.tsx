@@ -5,10 +5,13 @@ import Player from './components/Player/Player';
 import AuthGate from './components/AuthGate';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useKeyboard } from './hooks/useKeyboard';
-import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, type ChannelWithProgram } from './services/api';
+import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, type ChannelWithProgram } from './services/api';
 import { getClientId } from './services/clientIdentity';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
-import { getGuideFilters, applyGuideFilterSimple, isIconicSceneActive, type GuideFilterId } from './components/Guide/guideFilterUtils';
+import { getGuideFilters, applyGuideFilterSimple, type GuideFilterId } from './components/Guide/guideFilterUtils';
+import { isAutoTuneEnabled, getPersistedChannelNumber, setPersistedChannelNumber } from './services/autoTune';
+import { useSleepTimer } from './hooks/useSleepTimer';
+import GoodnightScreen from './components/Player/GoodnightScreen';
 import { isIOS } from './utils/platform';
 import type { Channel, ScheduleProgram, WSEvent } from './types';
 
@@ -116,6 +119,32 @@ function AppContent() {
       .catch(() => {});
   }, []);
 
+  // Auto-tune: skip guide and navigate directly to a channel on mount
+  const autoTuneAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (autoTuneAttemptedRef.current || !isAutoTuneEnabled() || channels.length === 0 || playerActive) return;
+    autoTuneAttemptedRef.current = true;
+
+    // Try persisted channel first
+    const persisted = getPersistedChannelNumber();
+    if (persisted !== null) {
+      const ch = channels.find(c => c.number === persisted);
+      if (ch) {
+        navigate(`/channel/${ch.number}`, { replace: true });
+        return;
+      }
+    }
+
+    // Fall back to smart recommendation
+    getRecommendedChannel(getClientId())
+      .then(({ channel_number }) => {
+        if (channel_number !== null) {
+          navigate(`/channel/${channel_number}`, { replace: true });
+        }
+      })
+      .catch(() => {}); // Fail silently - user sees guide as normal
+  }, [channels, playerActive, navigate]);
+
   // Apply display settings from DB on load (preview background, etc.)
   useEffect(() => {
     applyPreviewBg('theme'); // default while fetching
@@ -146,6 +175,7 @@ function AppContent() {
     const prevChannelId = lastChannelId;
     const prevChannel = prevChannelId ? channels.find(ch => ch.id === prevChannelId) : null;
     setLastChannelId(channel.id);
+    setPersistedChannelNumber(channel.number);
     enterFullscreenRef.current = opts?.fromFullscreen === true;
     navigate(`/channel/${channel.number}`);
     metricsChannelSwitch({
@@ -192,7 +222,7 @@ function AppContent() {
   // Player channel navigation
   const handleChannelUp = useCallback(() => {
     if (channels.length === 0 || !currentChannel) return;
-    const navChannels = applyGuideFilterSimple(channels, activeFilters);
+    const navChannels = applyGuideFilterSimple(channels, activeFilters, currentChannel.id);
     if (navChannels.length === 0) return;
     const idx = navChannels.findIndex(ch => ch.id === currentChannel.id);
     const prevIdx = idx <= 0 ? navChannels.length - 1 : idx - 1;
@@ -210,7 +240,7 @@ function AppContent() {
 
   const handleChannelDown = useCallback(() => {
     if (channels.length === 0 || !currentChannel) return;
-    const navChannels = applyGuideFilterSimple(channels, activeFilters);
+    const navChannels = applyGuideFilterSimple(channels, activeFilters, currentChannel.id);
     if (navChannels.length === 0) return;
     const idx = navChannels.findIndex(ch => ch.id === currentChannel.id);
     const nextIdx = idx < 0 || idx >= navChannels.length - 1 ? 0 : idx + 1;
@@ -226,37 +256,33 @@ function AppContent() {
     }).catch(() => {});
   }, [channels, currentChannel, navigate, activeFilters]);
 
-  // Iconic scene auto-advance: when the iconic-scene filter is active and the
-  // player is showing, automatically move to the next channel with an iconic
-  // scene once the current scene window passes.
-  useEffect(() => {
-    if (!playerActive || !currentChannel || !currentProgram) return;
-    if (!activeFilters.includes('iconic-scene')) return;
+  // Random channel (for player view)
+  const handleRandomChannel = useCallback(() => {
+    if (channels.length <= 1) return;
+    const navChannels = applyGuideFilterSimple(channels, activeFilters);
+    if (navChannels.length <= 1) return;
+    let target: typeof navChannels[number];
+    do {
+      target = navChannels[Math.floor(Math.random() * navChannels.length)];
+    } while (currentChannel && target.id === currentChannel.id);
+    if (currentChannel) setLastChannelId(currentChannel.id);
+    navigate(`/channel/${target.number}`);
+    metricsChannelSwitch({
+      client_id: getClientId(),
+      from_channel_id: currentChannel?.id,
+      from_channel_name: currentChannel?.name,
+      to_channel_id: target.id,
+      to_channel_name: target.name,
+    }).catch(() => {});
+  }, [channels, currentChannel, navigate, activeFilters]);
 
-    const timer = setInterval(() => {
-      const now = Date.now();
-      if (isIconicSceneActive(currentProgram, now)) return; // still in a scene
+  // Sleep timer (lives at App level so it survives channel changes and guide navigation)
+  const [sleepState, sleepActions] = useSleepTimer();
 
-      // Scene ended — find the next channel with an active iconic scene
-      const candidates = channels.filter(
-        ch => ch.id !== currentChannel.id && ch.current_program && isIconicSceneActive(ch.current_program, now),
-      );
-      if (candidates.length === 0) return; // no other iconic scenes right now
-
-      const target = candidates[0];
-      setLastChannelId(currentChannel.id);
-      navigate(`/channel/${target.number}`);
-      metricsChannelSwitch({
-        client_id: getClientId(),
-        from_channel_id: currentChannel.id,
-        from_channel_name: currentChannel.name,
-        to_channel_id: target.id,
-        to_channel_name: target.name,
-      }).catch(() => {});
-    }, 5000);
-
-    return () => clearInterval(timer);
-  }, [playerActive, currentChannel, currentProgram, channels, activeFilters, navigate]);
+  // Handle goodnight screen dismiss: resume playback
+  const handleGoodnightDismiss = useCallback(() => {
+    sleepActions.cancel();
+  }, [sleepActions]);
 
   // Guide-level keyboard (disabled when player overlay is active)
   useKeyboard('guide', {
@@ -288,6 +314,8 @@ function AppContent() {
           keyboardDisabled={playerActive}
           onFocusedChannelChange={setGuideFocusedChannelId}
           onLastChannel={handleLastChannel}
+          sleepState={sleepState}
+          sleepActions={sleepActions}
         />
 
         {/* Player overlay - shown when a channel URL is active */}
@@ -300,7 +328,10 @@ function AppContent() {
               onChannelUp={handleChannelUp}
               onChannelDown={handleChannelDown}
               onLastChannel={handleLastChannel}
+              onRandomChannel={handleRandomChannel}
               enterFullscreenOnMount={enterFullscreenOnMount}
+              sleepState={sleepState}
+              sleepActions={sleepActions}
             />
           </div>
         )}
@@ -316,6 +347,11 @@ function AppContent() {
           </div>
         )}
       </div>
+
+      {/* Goodnight screen - shown when sleep timer expires */}
+      {sleepState.isExpired && (
+        <GoodnightScreen onDismiss={handleGoodnightDismiss} />
+      )}
     </div>
   );
 }

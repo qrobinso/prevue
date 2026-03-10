@@ -15,13 +15,15 @@ import {
   updateActivePlaybackSession,
   updatePlaybackPosition,
 } from '../../services/playbackHandoff';
-import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset, getPromoOverlayEnabled, getStartingSoonEnabled, getSubtitleSize, setSubtitleSizeStorage, SUBTITLE_SIZE_PRESETS, type SubtitleSizePreset } from '../Settings/DisplaySettings';
+import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset, getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
 import InfoOverlay from './InfoOverlay';
 import CreditsOverlay from './CreditsOverlay';
 import PromoOverlay from './PromoOverlay';
 import type { PromoOverlayHandle } from './PromoOverlay';
 import InterstitialScreen from './InterstitialScreen';
 import IconicSceneOverlay from './IconicSceneOverlay';
+import CatchUpOverlay from './CatchUpOverlay';
+import ProgramInfoModal from '../Guide/ProgramInfoModal';
 import { BottomNotificationProvider } from './BottomNotificationManager';
 import { useSchedule } from '../../hooks/useSchedule';
 import type { Channel, ScheduleProgram } from '../../types';
@@ -29,6 +31,8 @@ import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer, isImageSubtitle } from '../Guide/audioTrackUtils';
 import { safeBgImage, sanitizeImageUrl } from '../../utils/sanitize';
 import { getIconicScenesEnabled } from '../Settings/GeneralSettings';
+import SleepTimerOverlay, { SleepTimerBadge } from './SleepTimerOverlay';
+import type { SleepTimerState, SleepTimerActions } from '../../hooks/useSleepTimer';
 import { formatPlaybackError } from '../../utils/playbackError';
 import { isIOSPWA, isMobile } from '../../utils/platform';
 import {
@@ -44,6 +48,7 @@ import {
   type FullscreenMode,
 } from '../../utils/fullscreen';
 import './Player.css';
+import './SleepTimerOverlay.css';
 
 interface PlayerProps {
   channel: Channel;
@@ -52,7 +57,10 @@ interface PlayerProps {
   onChannelUp?: () => void;
   onChannelDown?: () => void;
   onLastChannel?: () => void;
+  onRandomChannel?: () => void;
   enterFullscreenOnMount?: boolean;
+  sleepState?: SleepTimerState;
+  sleepActions?: SleepTimerActions;
 }
 
 const MAX_RETRIES = 2;
@@ -213,7 +221,7 @@ function collectNerdStats(video: HTMLVideoElement | null, hls: Hls | null): Nerd
   };
 }
 
-export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, onLastChannel, enterFullscreenOnMount }: PlayerProps) {
+export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, onLastChannel, onRandomChannel, enterFullscreenOnMount, sleepState, sleepActions }: PlayerProps) {
   const navigate = useNavigate();
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(getVideoElement());
@@ -228,6 +236,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [promoOverlayEnabled, setPromoOverlayEnabled] = useState(getPromoOverlayEnabled);
   const [startingSoonEnabled, setStartingSoonEnabledState] = useState(getStartingSoonEnabled);
   const promoTriggerRef = useRef<PromoOverlayHandle | null>(null);
+  const [catchUpTrigger, setCatchUpTrigger] = useState(false);
+  const [showProgramInfo, setShowProgramInfo] = useState(false);
   const { scheduleByChannel, channels: allChannels } = useSchedule();
 
   const handlePromoTune = useCallback((channelId: number) => {
@@ -254,7 +264,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getVideoFit);
-  const [subtitleSize, setSubtitleSizeState] = useState<SubtitleSizePreset>(getSubtitleSize);
   const [activeCueText, setActiveCueText] = useState('');
   const activeCueRef = useRef('');
   const [autoplayMutedLock, setAutoplayMutedLock] = useState(!hasSharedStream);
@@ -1098,6 +1107,38 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
   // (Program facts are now fetched in batch by the Ticker via schedule data)
 
+  // Browser fullscreen (take over entire screen)
+  const doToggleFullscreen = useCallback(() => {
+    const el = playerContainerRef.current;
+    if (!el) return;
+
+    // Keep parity with Guide behavior in iOS standalone/PWA mode.
+    if (isIOSPWA()) {
+      setIsFullscreen(prev => !prev);
+      return;
+    }
+
+    const isNativeFs = isFullscreenElement(el);
+    const mode = fullscreenModeRef.current;
+    if (isNativeFs || mode === 'video' || mode === 'fake') {
+      exitFullscreen(mode || 'native', { video: videoRef.current });
+      fullscreenModeRef.current = null;
+      setIsFullscreen(false);
+      return;
+    }
+
+    void (async () => {
+      const enteredMode = await enterFullscreen(el, { video: videoRef.current });
+      fullscreenModeRef.current = enteredMode;
+      setIsFullscreen(true);
+    })();
+  }, []);
+
+  const toggleFullscreen = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    doToggleFullscreen();
+  }, [doToggleFullscreen]);
+
   // Keyboard controls
   const handleBackToGuide = useCallback(() => {
     const itemId = currentItemIdRef.current;
@@ -1107,12 +1148,30 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     onBack();
   }, [channel.id, onBack]);
 
+  const handleShowInfo = useCallback(() => {
+    setShowProgramInfo(prev => !prev);
+  }, []);
+
+  const handleSleepTimerToggle = useCallback(() => {
+    sleepActions?.togglePicker();
+  }, [sleepActions]);
+
+  const handleCatchUp = useCallback(() => {
+    setCatchUpTrigger(true);
+  }, []);
+
   useKeyboard('player', {
     onEscape: handleBackToGuide,
     onEnter: showOverlayBriefly,
     onUp: onChannelUp,
     onDown: onChannelDown,
     onLastChannel,
+    onRandomChannel,
+    onFullscreen: doToggleFullscreen,
+    onInfo: handleShowInfo,
+    onGuide: handleBackToGuide,
+    onSleepTimer: handleSleepTimerToggle,
+    onCatchUp: handleCatchUp,
   });
 
   // 'P' key triggers promo overlay on demand
@@ -1142,6 +1201,21 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   // directly on the video element to avoid a race where this effect re-applies
   // muted=true between the lock release and the next React render.
   useVideoVolume(videoRef, volume, muted, autoplayMutedLock);
+
+  // Sleep timer: apply volume fade during wind-down
+  useEffect(() => {
+    if (!sleepState?.isWindingDown || autoplayMutedLock) return;
+    const video = videoRef.current;
+    if (!video || isMobile()) return;
+    video.volume = Math.max(0, volume * sleepState.volumeMultiplier);
+  }, [sleepState?.isWindingDown, sleepState?.volumeMultiplier, volume, autoplayMutedLock]);
+
+  // Sleep timer: pause video when expired
+  useEffect(() => {
+    if (sleepState?.isExpired) {
+      videoRef.current?.pause();
+    }
+  }, [sleepState?.isExpired]);
 
   // Click/tap handler with double-tap detection
   const handleClick = useCallback(() => {
@@ -1198,34 +1272,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     setShowSettingsOpen(prev => !prev);
     if (!showSettingsOpen) showOverlayBriefly();
   }, [showOverlayBriefly, showSettingsOpen]);
-
-  // Browser fullscreen (take over entire screen)
-  const toggleFullscreen = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    const el = playerContainerRef.current;
-    if (!el) return;
-
-    // Keep parity with Guide behavior in iOS standalone/PWA mode.
-    if (isIOSPWA()) {
-      setIsFullscreen(prev => !prev);
-      return;
-    }
-
-    const isNativeFs = isFullscreenElement(el);
-    const mode = fullscreenModeRef.current;
-    if (isNativeFs || mode === 'video' || mode === 'fake') {
-      exitFullscreen(mode || 'native', { video: videoRef.current });
-      fullscreenModeRef.current = null;
-      setIsFullscreen(false);
-      return;
-    }
-
-    void (async () => {
-      const enteredMode = await enterFullscreen(el, { video: videoRef.current });
-      fullscreenModeRef.current = enteredMode;
-      setIsFullscreen(true);
-    })();
-  }, []);
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -1396,22 +1442,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     return () => clearInterval(id);
   }, []);
 
-  // Listen for subtitle size changes from Settings
-  useEffect(() => {
-    const handler = () => setSubtitleSizeState(getSubtitleSize());
-    window.addEventListener('subtitlesizechange', handler);
-    return () => window.removeEventListener('subtitlesizechange', handler);
-  }, []);
-
-  // Handle subtitle size change from player settings
-  const handleSubtitleSizeChange = useCallback((sizeId: string) => {
-    const preset = SUBTITLE_SIZE_PRESETS.find(p => p.id === sizeId);
-    if (preset) {
-      setSubtitleSizeState(preset);
-      setSubtitleSizeStorage(sizeId);
-    }
-  }, []);
-
   // Handle quality change
   const handleQualityChange = useCallback(async (preset: QualityPreset) => {
     setCurrentQuality(preset);
@@ -1465,7 +1495,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
       {/* Custom subtitle overlay — rendered from activeCues for correct sync */}
       {!isInterstitial && activeCueText && (
-        <div className="player-subtitle-overlay" style={{ fontSize: subtitleSize.fontSize }}>
+        <div className="player-subtitle-overlay">
           {activeCueText.split('\n').map((line, i) => (
             <span key={i}>{line}{i < activeCueText.split('\n').length - 1 && <br />}</span>
           ))}
@@ -1562,6 +1592,16 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       {/* Iconic scene overlay — shown while an iconic scene is playing */}
       {currentProgram && !isInterstitial && !showCreditsOverlay && (
         <IconicSceneOverlay program={currentProgram} />
+      )}
+
+      {/* Catch-up overlay — summarizes what happened before the user tuned in */}
+      {currentProgram && !isInterstitial && !showCreditsOverlay && (
+        <CatchUpOverlay
+          program={currentProgram}
+          channelId={channel.id}
+          manualTrigger={catchUpTrigger}
+          onManualTriggerConsumed={() => setCatchUpTrigger(false)}
+        />
       )}
 
       {/* 2E Promo overlay — periodic broadcast-style promo */}
@@ -1784,22 +1824,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                 </div>
               </div>
 
-              <div className="player-settings-section">
-                <div className="player-settings-section-title">Subtitle size</div>
-                <div className="player-settings-options-row">
-                  {SUBTITLE_SIZE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      className={`player-settings-size-btn ${subtitleSize.id === preset.id ? 'active' : ''}`}
-                      onClick={() => handleSubtitleSizeChange(preset.id)}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div className="player-settings-section player-settings-footer">
                 <button
                   type="button"
@@ -1921,7 +1945,30 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       {showOverlay && (
         <div className="player-hint">Double-tap to toggle fill mode</div>
       )}
+
+      {/* Sleep timer badge (top-right countdown) */}
+      {sleepState && sleepActions && (
+        <SleepTimerBadge state={sleepState} onClick={() => sleepActions.togglePicker()} />
+      )}
+
+      {/* Sleep timer dim overlay (fades to black in last 60s) */}
+      {sleepState && sleepState.dimOpacity > 0 && (
+        <div className="sleep-timer-dim-overlay" style={{ opacity: sleepState.dimOpacity }} />
+      )}
     </div>
+
+    {/* Sleep timer picker overlay */}
+    {sleepState && sleepActions && (
+      <SleepTimerOverlay state={sleepState} actions={sleepActions} />
+    )}
+
+    {showProgramInfo && currentProgram && (
+      <ProgramInfoModal
+        channel={channel}
+        program={currentProgram}
+        onClose={() => setShowProgramInfo(false)}
+      />
+    )}
     </BottomNotificationProvider>
   );
 }

@@ -5,6 +5,7 @@ import type { MediaProvider } from './MediaProvider.js';
 import * as queries from '../db/queries.js';
 import { generateSeed } from '../utils/crypto.js';
 import { getBlockStart, getBlockEnd, getNextBlockStart, getBlockHours, snapForwardTo15Min } from '../utils/time.js';
+import { getHdrFlag } from '../utils/hdr.js';
 
 const EPISODE_RUN_LENGTH_MIN = 2;
 const EPISODE_RUN_LENGTH_MAX = 5;
@@ -32,31 +33,6 @@ function isUnratedOrNotRated(rating: string | undefined): boolean {
   return rating.toLowerCase().trim() === 'not rated';
 }
 
-/** Detect whether a MediaItem has HDR content, working for both Jellyfin and Plex items. */
-function getHdrFlag(item: MediaItem): boolean {
-  if (!Array.isArray(item.MediaSources) || item.MediaSources.length === 0) return false;
-  for (const source of item.MediaSources) {
-    const streams = source.MediaStreams;
-    if (!Array.isArray(streams)) continue;
-    for (const stream of streams) {
-      const s = stream as Record<string, unknown>;
-      if (String(s.Type ?? '').toLowerCase() !== 'video') continue;
-      // Plex-style fields
-      if (s.DOVIPresent === true) return true;
-      const bitDepth = Number(s.BitDepth ?? 0);
-      const primaries = String(s.ColorPrimaries ?? '').toLowerCase();
-      const trc = String(s.ColorTrc ?? '').toLowerCase();
-      if (bitDepth >= 10 && (primaries === 'bt2020' || trc === 'smpte2084' || trc === 'arib-std-b67')) return true;
-      // Jellyfin-style fields (VideoRange, VideoRangeType, etc. stored directly on stream)
-      if (s.IsHdr === true || s.IsDolbyVision === true) return true;
-      const combined = [s.VideoRange, s.VideoRangeType, s.ColorTransfer, s.ColorPrimaries, s.DisplayTitle]
-        .map(v => String(v ?? '').toLowerCase()).join(' ');
-      if (combined.includes('hdr') || combined.includes('hlg') || combined.includes('smpte2084') ||
-          combined.includes('bt2020') || combined.includes('dovi') || combined.includes('dolby vision')) return true;
-    }
-  }
-  return false;
-}
 
 /** Extract a human-readable resolution label from Jellyfin MediaSources.
  *  Checks all MediaSources and picks the highest resolution video stream. */
@@ -1134,6 +1110,10 @@ export class ScheduleEngine {
       is_hdr: getHdrFlag(item) || null,
       genres: item.Genres && item.Genres.length > 0 ? item.Genres : null,
       description: item.Overview || null,
+      community_rating: item.CommunityRating ?? null,
+      audience_rating: item.AudienceRating ?? null,
+      rating_image: item.RatingImage ?? null,
+      audience_rating_image: item.AudienceRatingImage ?? null,
     };
   }
 

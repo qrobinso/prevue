@@ -3,7 +3,8 @@ import ServerSettings from './ServerSettings';
 import { factoryReset, restartServer, getSettings, updateSettings, getServers, getAIConfig, updateAIConfig, getIconicScenesStatus, refreshIconicScenes } from '../../services/api';
 import type { ServerInfo, AIConfig } from '../../services/api';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
-import { CheckCircle, CaretDown, ArrowClockwise } from '@phosphor-icons/react';
+import { CheckCircle, CaretDown, ArrowClockwise, Television } from '@phosphor-icons/react';
+import { isAutoTuneEnabled, setAutoTuneEnabled } from '../../services/autoTune';
 import './Settings.css';
 
 const APP_VERSION = '1.0.0';
@@ -11,6 +12,7 @@ const GITHUB_URL = 'https://github.com/qrobinso/prevue';
 
 const ICONIC_SCENES_KEY = 'prevue_iconic_scenes_enabled';
 const PROGRAM_FACTS_KEY = 'prevue_program_facts_enabled';
+const CATCH_UP_KEY = 'prevue_catch_up_enabled';
 
 export function getProgramFactsEnabled(): boolean {
   try {
@@ -38,6 +40,19 @@ export function setIconicScenesEnabled(enabled: boolean): void {
   window.dispatchEvent(new CustomEvent('iconicsceneschange', { detail: { enabled } }));
 }
 
+export function getCatchUpEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(CATCH_UP_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return false; // default: off (opt-in AI feature)
+}
+
+export function setCatchUpEnabled(enabled: boolean): void {
+  localStorage.setItem(CATCH_UP_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('catchupchange', { detail: { enabled } }));
+}
+
 interface GeneralSettingsProps {
   onServerAdded?: (server: ServerInfo) => void;
 }
@@ -49,6 +64,7 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
   const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAbout, setShowAbout] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPWAInstructions, setShowPWAInstructions] = useState(false);
   const [sharePlaybackProgress, setSharePlaybackProgress] = useState(false);
   const [mediaServiceName, setMediaServiceName] = useState<string>('your media server');
@@ -65,17 +81,22 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
   const [iconicLastRefreshed, setIconicLastRefreshed] = useState<string | null>(null);
   const [iconicRefreshing, setIconicRefreshing] = useState(false);
   const [programFactsEnabled, setProgramFactsEnabledState] = useState(getProgramFactsEnabled);
+  const [catchUpEnabled, setCatchUpEnabledState] = useState(getCatchUpEnabled);
+  const [autoTuneOn, setAutoTuneOn] = useState(isAutoTuneEnabled);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
-  // Close about modal on Escape
+  // Close about / shortcuts modal on Escape
   useEffect(() => {
-    if (!showAbout) return;
+    if (!showAbout && !showShortcuts) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeAbout();
+      if (e.key === 'Escape') {
+        if (showAbout) closeAbout();
+        if (showShortcuts) setShowShortcuts(false);
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [showAbout, closeAbout]);
+  }, [showAbout, showShortcuts, closeAbout]);
 
   const handleRestart = async () => {
     if (!confirmRestart) {
@@ -201,6 +222,12 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
     setProgramFactsEnabled(newValue);
   };
 
+  const handleCatchUpToggle = () => {
+    const newValue = !catchUpEnabled;
+    setCatchUpEnabledState(newValue);
+    setCatchUpEnabled(newValue);
+  };
+
   const handleFactoryReset = async () => {
     if (!confirmReset) {
       setConfirmReset(true);
@@ -226,8 +253,33 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
     <div className="settings-section">
       <ServerSettings onServerAdded={onServerAdded} />
 
-      {/* ── Progress Tracking ────────────────────────────── */}
+      {/* ── Playback ────────────────────────────────────── */}
       <div className="settings-group-heading">PLAYBACK</div>
+
+      <div className="settings-subsection">
+        <h4>JUST WATCH</h4>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={autoTuneOn}
+              onChange={() => {
+                const next = !autoTuneOn;
+                setAutoTuneOn(next);
+                setAutoTuneEnabled(next);
+              }}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {autoTuneOn ? 'ON' : 'OFF'}
+          </span>
+        </div>
+        <p className="settings-field-hint">
+          Skip the guide and start watching immediately when you open the app.
+          Prevue picks a channel based on time of day and your watch history.
+        </p>
+      </div>
 
       <div className="settings-subsection">
         <h4>PROGRESS TRACKING</h4>
@@ -394,6 +446,29 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         </div>
       </div>
 
+      <div className={`settings-subsection ${!aiConfig?.hasKey ? 'settings-disabled' : ''}`}>
+        <h4>WHAT DID I MISS</h4>
+        <p className="settings-field-hint">
+          AI-generated plot catch-up when you tune into a movie already in progress.
+          Summarizes what&apos;s happened so far without spoiling the rest.
+          {!aiConfig?.hasKey && ' Configure an API key above to enable.'}
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={catchUpEnabled}
+              onChange={handleCatchUpToggle}
+              disabled={!aiConfig?.hasKey}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {catchUpEnabled ? 'ON' : 'OFF'}
+          </span>
+        </div>
+      </div>
+
       {/* ── App ──────────────────────────────────────────── */}
       <div className="settings-group-heading">APP</div>
 
@@ -443,6 +518,19 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
             Use your browser&apos;s menu to install (e.g. Chrome: &#x22EE; &rarr; Install app).
           </p>
         )}
+      </div>
+
+      <div className="settings-subsection">
+        <h4>KEYBOARD SHORTCUTS</h4>
+        <p className="settings-field-hint">
+          View all available keyboard shortcuts for navigating the guide and player.
+        </p>
+        <button
+          className="settings-btn-sm"
+          onClick={() => setShowShortcuts(true)}
+        >
+          VIEW SHORTCUTS
+        </button>
       </div>
 
       <div className="settings-subsection">
@@ -508,6 +596,73 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
           </button>
         )}
       </div>
+
+      {showShortcuts && (
+        <div
+          className="about-backdrop"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowShortcuts(false); }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shortcuts-title"
+        >
+          <div className="about-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="about-header">
+              <h2 id="shortcuts-title" className="about-title">KEYBOARD SHORTCUTS</h2>
+              <button
+                type="button"
+                className="about-close"
+                onClick={() => setShowShortcuts(false)}
+                title="Close"
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="about-body">
+              <div className="about-section">
+                <h3 className="about-section-title">GUIDE</h3>
+                <table className="shortcuts-table">
+                  <tbody>
+                    <tr><td className="shortcut-key"><kbd>&uarr;</kbd> / <kbd>W</kbd></td><td>Previous channel</td></tr>
+                    <tr><td className="shortcut-key"><kbd>&darr;</kbd> / <kbd>S</kbd></td><td>Next channel</td></tr>
+                    <tr><td className="shortcut-key"><kbd>&larr;</kbd></td><td>Previous time slot</td></tr>
+                    <tr><td className="shortcut-key"><kbd>&rarr;</kbd></td><td>Next time slot</td></tr>
+                    <tr><td className="shortcut-key"><kbd>Enter</kbd></td><td>Tune to channel</td></tr>
+                    <tr><td className="shortcut-key"><kbd>Escape</kbd></td><td>Open settings</td></tr>
+                    <tr><td className="shortcut-key"><kbd>Backspace</kbd></td><td>Last channel</td></tr>
+                    <tr><td className="shortcut-key"><kbd>R</kbd></td><td>Random channel</td></tr>
+                    <tr><td className="shortcut-key"><kbd>F</kbd></td><td>Toggle fullscreen</td></tr>
+                    <tr><td className="shortcut-key"><kbd>I</kbd></td><td>Program info</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="about-divider" />
+
+              <div className="about-section">
+                <h3 className="about-section-title">PLAYER</h3>
+                <table className="shortcuts-table">
+                  <tbody>
+                    <tr><td className="shortcut-key"><kbd>&uarr;</kbd> / <kbd>W</kbd></td><td>Channel up</td></tr>
+                    <tr><td className="shortcut-key"><kbd>&darr;</kbd> / <kbd>S</kbd></td><td>Channel down</td></tr>
+                    <tr><td className="shortcut-key"><kbd>Enter</kbd></td><td>Show controls</td></tr>
+                    <tr><td className="shortcut-key"><kbd>Escape</kbd></td><td>Back to guide</td></tr>
+                    <tr><td className="shortcut-key"><kbd>Backspace</kbd></td><td>Last channel</td></tr>
+                    <tr><td className="shortcut-key"><kbd>R</kbd></td><td>Random channel</td></tr>
+                    <tr><td className="shortcut-key"><kbd>F</kbd></td><td>Toggle fullscreen</td></tr>
+                    <tr><td className="shortcut-key"><kbd>I</kbd></td><td>Program info</td></tr>
+                    <tr><td className="shortcut-key"><kbd>P</kbd></td><td>Trigger promo overlay</td></tr>
+                    <tr><td className="shortcut-key"><kbd>G</kbd></td><td>Back to guide</td></tr>
+                    <tr><td className="shortcut-key"><kbd>T</kbd></td><td>Sleep timer</td></tr>
+                    <tr><td className="shortcut-key"><kbd>M</kbd></td><td>What did I miss</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAbout && (
         <div

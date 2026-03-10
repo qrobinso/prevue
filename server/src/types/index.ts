@@ -135,6 +135,10 @@ export interface ScheduleProgram {
   genres: string[] | null;
   description: string | null;
   iconic_scenes?: IconicScene[] | null;
+  community_rating?: number | null;
+  audience_rating?: number | null;
+  rating_image?: string | null;
+  audience_rating_image?: string | null;
 }
 
 export interface ScheduleBlock {

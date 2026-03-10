@@ -1617,6 +1617,12 @@
   opacity: 0.7;
 }
 
+.settings-badge-example.guide-tomato-badge {
+  color: #fa320a;
+  border-color: #fa320a;
+  opacity: 0.85;
+}
+
 /* ── Speed Options ───────────────────────────────────── */
 .settings-speed-options {
   display: flex;
@@ -3390,6 +3396,43 @@
   }
 }
 
+/* ── Keyboard Shortcuts Table ──────────────────────────── */
+
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.shortcuts-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+
+.shortcuts-table tr:last-child td {
+  border-bottom: none;
+}
+
+.shortcuts-table .shortcut-key {
+  white-space: nowrap;
+  width: 1%;
+  padding-right: 16px;
+  color: var(--text-primary);
+}
+
+.shortcuts-table kbd {
+  display: inline-block;
+  padding: 2px 7px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  min-width: 24px;
+  text-align: center;
+}
+
 /* ── Metrics ───────────────────────────────────────────── */
 
 .metrics-disabled-banner {
@@ -4015,4 +4058,86 @@
 .plex-server-relay {
   background: rgba(255, 152, 0, 0.15);
   color: #ff9800;
+}
+
+/* ── Sleep Timer Settings ──────────────────────────── */
+
+.sleep-settings-countdown {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+}
+
+.sleep-settings-countdown-ring {
+  position: relative;
+  width: 90px;
+  height: 90px;
+  flex-shrink: 0;
+}
+
+.sleep-settings-countdown-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.sleep-settings-countdown-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.sleep-settings-countdown-time {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.sleep-settings-countdown-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.sleep-settings-amber {
+  color: #fbbf24;
+}
+
+.sleep-settings-status-line {
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.sleep-settings-status-line kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: var(--font-retro);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.settings-subsection kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: var(--font-retro);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: var(--text-primary);
 }

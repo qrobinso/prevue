@@ -46,6 +46,14 @@ export interface ScheduleProgram {
   end_ms?: number;
   /** Iconic scenes with approximate timestamps (from AI, movies only) */
   iconic_scenes?: { name: string; timestamp_minutes: number; end_minutes: number; why: string }[] | null;
+  /** Community/critic rating (0-10 scale, e.g. Rotten Tomatoes) */
+  community_rating?: number | null;
+  /** Audience rating (0-10 scale) */
+  audience_rating?: number | null;
+  /** Rating source image key (e.g. "rottentomatoes://image.rating.ripe") */
+  rating_image?: string | null;
+  /** Audience rating source image key */
+  audience_rating_image?: string | null;
 }
 
 export interface ScheduleBlock {

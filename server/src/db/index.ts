@@ -132,6 +132,15 @@ function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- AI: catch-up summary cache (keyed by movie + 10-min time bucket)
+    CREATE TABLE IF NOT EXISTS catch_up_summaries (
+      media_item_id TEXT NOT NULL,
+      time_bucket INTEGER NOT NULL,
+      summary TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (media_item_id, time_bucket)
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_schedule_channel
       ON schedule_blocks(channel_id, block_start);

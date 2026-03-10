@@ -26,9 +26,10 @@ import {
 import InterstitialScreen from '../Player/InterstitialScreen';
 import PromoOverlay from '../Player/PromoOverlay';
 import IconicSceneOverlay from '../Player/IconicSceneOverlay';
+import CatchUpOverlay from '../Player/CatchUpOverlay';
 import { BottomNotificationProvider } from '../Player/BottomNotificationManager';
-import { getPromoOverlayEnabled, getStartingSoonEnabled, getSubtitleSize, setSubtitleSizeStorage, SUBTITLE_SIZE_PRESETS, type SubtitleSizePreset } from '../Settings/DisplaySettings';
-import { ClosedCaptioningIcon, ArrowsInSimpleIcon, ArrowsOutSimpleIcon } from '@phosphor-icons/react';
+import { getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
+import { ClosedCaptioningIcon, ArrowsInSimpleIcon, ArrowsOutSimpleIcon, SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react';
 import './Guide.css';
 
 /** Delay before starting preview stream (user may be browsing) */
@@ -92,6 +93,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const isClassic = previewStyle === 'classic-left' || previewStyle === 'classic-right';
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
   const mobile = isPhone();
+  const useBottomSheet = isMobile(); // Portal bottom sheet on all mobile (phones + tablets)
   const previewFontSizes = {
     channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
     channelName: Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale),
@@ -123,6 +125,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [videoReady, setVideoReady] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [catchUpTrigger, setCatchUpTrigger] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
 
@@ -178,7 +181,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getStoredVideoFit);
-  const [subtitleSize, setSubtitleSizeState] = useState<SubtitleSizePreset>(getSubtitleSize);
   const [activeCueText, setActiveCueText] = useState('');
   const activeCueRef = useRef('');
   currentChannelIdRef.current = channel?.id ?? null;
@@ -725,21 +727,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     return () => clearInterval(id);
   }, []);
 
-  // Listen for subtitle size changes from Settings
-  useEffect(() => {
-    const handler = () => setSubtitleSizeState(getSubtitleSize());
-    window.addEventListener('subtitlesizechange', handler);
-    return () => window.removeEventListener('subtitlesizechange', handler);
-  }, []);
-
-  const handleSubtitleSizeChange = useCallback((sizeId: string) => {
-    const preset = SUBTITLE_SIZE_PRESETS.find(p => p.id === sizeId);
-    if (preset) {
-      setSubtitleSizeState(preset);
-      setSubtitleSizeStorage(sizeId);
-    }
-  }, []);
-
   const handleSelectSubtitleTrack = useCallback(async (positionIndex: number | null) => {
     if (!channel) return;
     setSelectedSubtitleIndex(positionIndex);
@@ -916,22 +903,35 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     );
   }
 
+  // 'M' key triggers "What Did I Miss" in guide preview
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if ((e.key === 'm' || e.key === 'M') && videoReady) {
+        e.preventDefault();
+        setCatchUpTrigger(true);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [videoReady]);
+
   const showVideo = program && program.type !== 'interstitial';
   const artworkSources = program ? getPreviewArtworkSources(program) : [];
 
   const audioMenuSections = (
     <>
-      <div className="preview-audio-more-section">
-        <div className="preview-audio-more-section-title">VOLUME</div>
-        <div className="preview-audio-more-volume-row">
-          <button
-            className={`preview-audio-more-mute ${muted ? 'muted' : ''}`}
-            onClick={(e) => { e.stopPropagation(); toggleMute(); }}
-            title={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted || volume === 0 ? '⊘' : '♫'}
-          </button>
-          {!mobile && (
+      {!mobile && (
+        <div className="preview-audio-more-section">
+          <div className="preview-audio-more-section-title">VOLUME</div>
+          <div className="preview-audio-more-volume-row">
+            <button
+              className={`preview-audio-more-mute ${muted ? 'muted' : ''}`}
+              onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+              title={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted || volume === 0 ? '⊘' : '♫'}
+            </button>
             <input
               type="range"
               className="preview-audio-more-slider"
@@ -946,9 +946,9 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
               onClick={(e) => e.stopPropagation()}
               style={{ '--volume-fill': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
             />
-          )}
+          </div>
         </div>
-      </div>
+      )}
       {serverAudioTracks.length >= 1 && (
         <div className="preview-audio-more-section">
           <div className="preview-audio-more-section-title">AUDIO TRACK</div>
@@ -996,23 +996,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           ))
         )}
       </div>
-      <div className="preview-audio-more-section">
-        <div className="preview-audio-more-section-title">SUBTITLE SIZE</div>
-        <div className="preview-subtitle-size-row">
-          {SUBTITLE_SIZE_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              className={`preview-subtitle-size-btn ${subtitleSize.id === preset.id ? 'active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSubtitleSizeChange(preset.id);
-              }}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-      </div>
     </>
   );
 
@@ -1026,15 +1009,15 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       onTouchStart={swipe.onTouchStart}
       onTouchEnd={swipe.onTouchEnd}
     >
-    <BottomNotificationProvider>
       {/* Video fills entire panel — shared video element is reparented here */}
       <div className="preview-video-container">
+      <BottomNotificationProvider>
         {showVideo && (
           <div ref={videoContainerRef} className="preview-video-host" />
         )}
         {/* Custom subtitle overlay */}
         {showVideo && activeCueText && (
-          <div className="preview-subtitle-overlay" style={{ fontSize: subtitleSize.fontSize }}>
+          <div className="preview-subtitle-overlay">
             {activeCueText.split('\n').map((line, i) => (
               <span key={i}>{line}{i < activeCueText.split('\n').length - 1 && <br />}</span>
             ))}
@@ -1080,8 +1063,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             </div>
           </div>
         )}
-      </div>
-      {/* 2E Promo overlay — outside video container so z-index 20 beats preview-overlay z-index 10 */}
+      {/* 2E Promo overlay — renderless, registers with notification manager */}
       {program && program.type !== 'interstitial' && videoReady && (
         <PromoOverlay
           currentProgram={program}
@@ -1096,13 +1078,24 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           onTuneChannel={onSelectChannel}
         />
       )}
-      {/* Iconic scene overlay — shown after video loads and metadata overlay fades */}
+      {/* Iconic scene overlay — renderless, registers with notification manager */}
       {program && program.type !== 'interstitial' && (
         <IconicSceneOverlay
           program={program}
           hidden={false}
         />
       )}
+      {/* Catch-up overlay — only activate once the preview stream is actually playing */}
+      {program && program.type !== 'interstitial' && channel && videoReady && (
+        <CatchUpOverlay
+          program={program}
+          channelId={channel.id}
+          manualTrigger={catchUpTrigger}
+          onManualTriggerConsumed={() => setCatchUpTrigger(false)}
+        />
+      )}
+      </BottomNotificationProvider>
+      </div>
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}
       <div
         className={`preview-overlay ${overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}
@@ -1119,6 +1112,18 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           {program && (
             <>
               <div className="preview-title" style={{ fontSize: previewFontSizes.title }}>{program.title}</div>
+              {!mobile && program.community_rating != null && program.community_rating > 0 && program.rating_image?.includes('rottentomatoes') && (
+                <div className="preview-tomato-row" style={{ fontSize: previewFontSizes.year }}>
+                  <span className={`preview-tomato-badge ${program.rating_image.includes('.ripe') || program.rating_image.includes('.certified_fresh') ? 'preview-tomato-fresh' : 'preview-tomato-rotten'}`}>
+                    {program.rating_image.includes('.ripe') || program.rating_image.includes('.certified_fresh') ? '🍅' : '🪣'} {Math.round(program.community_rating * 10)}%
+                  </span>
+                  {program.audience_rating != null && program.audience_rating > 0 && program.audience_rating_image?.includes('rottentomatoes') && (
+                    <span className="preview-tomato-audience">
+                      🍿 {Math.round(program.audience_rating * 10)}%
+                    </span>
+                  )}
+                </div>
+              )}
               {!mobile && program.subtitle && (
                 <div className="preview-subtitle" style={{ fontSize: previewFontSizes.subtitle }}>{program.subtitle}</div>
               )}
@@ -1151,9 +1156,19 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           )}
         </div>
         <div className="preview-right">
-          {/* Combined Audio menu (volume + audio track) */}
+          {/* Mute / Unmute toggle */}
+          <button
+            type="button"
+            className={`preview-mute-btn ${muted ? 'preview-mute-btn-muted' : ''}`}
+            onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+            title={muted ? 'Unmute' : 'Mute'}
+            aria-label={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted ? <SpeakerSlashIcon size={22} weight="bold" /> : <SpeakerHighIcon size={22} weight="bold" />}
+          </button>
+          {/* Audio & subtitle settings menu */}
           <div
-            className={`preview-audio-more-wrap ${showAudioMoreMenu && !mobile ? 'preview-audio-more-wrap-open' : ''}`}
+            className={`preview-audio-more-wrap ${showAudioMoreMenu && !useBottomSheet ? 'preview-audio-more-wrap-open' : ''}`}
             onClick={(e) => {
               e.stopPropagation();
               if (showAudioMoreMenu && e.target === e.currentTarget) setShowAudioMoreMenu(false);
@@ -1166,13 +1181,13 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             >
               <ClosedCaptioningIcon size={32} />
             </button>
-            {showAudioMoreMenu && !mobile && (
+            {showAudioMoreMenu && !useBottomSheet && (
               <div className="preview-audio-more-menu">
                 {audioMenuSections}
               </div>
             )}
           </div>
-          {showAudioMoreMenu && mobile && createPortal(
+          {showAudioMoreMenu && useBottomSheet && createPortal(
             <div
               className="preview-audio-more-wrap preview-audio-more-wrap-open"
               onClick={(e) => { if (e.target === e.currentTarget) setShowAudioMoreMenu(false); }}
@@ -1198,7 +1213,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           )}
         </div>
       </div>
-    </BottomNotificationProvider>
     </div>
   );
 }

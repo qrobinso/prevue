@@ -8,6 +8,7 @@ import type { PlaybackInfoResult } from './MediaProvider.js';
 import { AbstractMediaProvider } from './AbstractMediaProvider.js';
 import * as queries from '../db/queries.js';
 import { ticksToMs, msToTicks } from '../utils/time.js';
+import { isHdrMediaSource } from '../utils/hdr.js';
 import { randomUUID } from 'crypto';
 
 export class JellyfinClient extends AbstractMediaProvider {
@@ -597,79 +598,7 @@ export class JellyfinClient extends AbstractMediaProvider {
     return { url, playSessionId, isHdrSource, mediaSourceId };
   }
 
-  private isHdrMediaSource(mediaSource: unknown): boolean {
-    const source = mediaSource as { MediaStreams?: unknown[] } | Record<string, unknown> | undefined;
-    const streams = Array.isArray(source?.MediaStreams) ? source.MediaStreams : [];
-
-    // MediaSource-level indicators (some libraries expose HDR metadata only here).
-    const sourceCombined = [
-      (source as Record<string, unknown> | undefined)?.VideoRange,
-      (source as Record<string, unknown> | undefined)?.VideoRangeType,
-      (source as Record<string, unknown> | undefined)?.ColorTransfer,
-      (source as Record<string, unknown> | undefined)?.ColorPrimaries,
-      (source as Record<string, unknown> | undefined)?.VideoDynamicRange,
-      (source as Record<string, unknown> | undefined)?.VideoDynamicRangeType,
-      (source as Record<string, unknown> | undefined)?.HdrType,
-      (source as Record<string, unknown> | undefined)?.VideoProfile,
-      (source as Record<string, unknown> | undefined)?.CodecTag,
-      (source as Record<string, unknown> | undefined)?.DisplayTitle,
-      (source as Record<string, unknown> | undefined)?.Name,
-    ]
-      .map(v => String(v ?? '').toLowerCase())
-      .join(' ');
-
-    if (
-      sourceCombined.includes('hdr') ||
-      sourceCombined.includes('hlg') ||
-      sourceCombined.includes('pq') ||
-      sourceCombined.includes('smpte2084') ||
-      sourceCombined.includes('bt2020') ||
-      sourceCombined.includes('dovi') ||
-      sourceCombined.includes('dolby vision') ||
-      sourceCombined.includes('hdr10') ||
-      sourceCombined.includes('hdr10+')
-    ) {
-      return true;
-    }
-
-    for (const stream of streams) {
-      const s = stream as Record<string, unknown>;
-      const type = String(s.Type ?? '').toLowerCase();
-      if (type !== 'video') continue;
-
-      if (s.IsHdr === true || s.IsDolbyVision === true) return true;
-      const bitDepth = Number(s.BitDepth ?? 0);
-      const transfer = String(s.ColorTransfer ?? '').toLowerCase();
-      const primaries = String(s.ColorPrimaries ?? '').toLowerCase();
-      if (bitDepth > 8 && (transfer.includes('smpte2084') || primaries.includes('bt2020'))) {
-        return true;
-      }
-
-      const combined = [
-        s.VideoRange,
-        s.VideoRangeType,
-        s.ColorTransfer,
-        s.ColorPrimaries,
-        s.DisplayTitle,
-      ]
-        .map(v => String(v ?? '').toLowerCase())
-        .join(' ');
-
-      if (
-        combined.includes('hdr') ||
-        combined.includes('hlg') ||
-        combined.includes('pq') ||
-        combined.includes('smpte2084') ||
-        combined.includes('bt2020') ||
-        combined.includes('dovi') ||
-        combined.includes('dolby vision')
-      ) {
-        return true;
-      }
-    }
-
-    return false;
-  }
+  private isHdrMediaSource = isHdrMediaSource;
 
   // ─── Playback Session Management ─────────────────────────
 

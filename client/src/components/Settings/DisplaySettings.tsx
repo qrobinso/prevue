@@ -30,11 +30,11 @@ const GUIDE_YEAR_KEY = 'prevue_guide_year';
 const GUIDE_RESOLUTION_KEY = 'prevue_guide_resolution';
 const GUIDE_HDR_KEY = 'prevue_guide_hdr';
 const GUIDE_ARTWORK_KEY = 'prevue_guide_artwork';
+const GUIDE_TOMATO_KEY = 'prevue_guide_tomato';
 const PREVIEW_STYLE_KEY = 'prevue_preview_style';
 const CLOCK_FORMAT_KEY = 'prevue_clock_format';
 const PROMO_OVERLAY_KEY = 'prevue_promo_overlay';
 const STARTING_SOON_KEY = 'prevue_starting_soon';
-const SUBTITLE_SIZE_KEY = 'prevue_subtitle_size';
 const TICKER_KEY = 'prevue_ticker_enabled';
 const TICKER_SPEED_KEY = 'prevue_ticker_speed';
 
@@ -286,6 +286,19 @@ export function setGuideArtwork(enabled: boolean): void {
   window.dispatchEvent(new CustomEvent('guideartworkchange'));
 }
 
+// Guide tomato rating badge helpers
+export function getGuideTomato(): boolean {
+  try {
+    return localStorage.getItem(GUIDE_TOMATO_KEY) === 'true';
+  } catch {}
+  return false;
+}
+
+export function setGuideTomato(enabled: boolean): void {
+  localStorage.setItem(GUIDE_TOMATO_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
+}
+
 // Preview style helpers
 export function getPreviewStyle(): PreviewStyle {
   try {
@@ -300,40 +313,6 @@ export function getPreviewStyle(): PreviewStyle {
 export function setPreviewStyle(style: PreviewStyle): void {
   localStorage.setItem(PREVIEW_STYLE_KEY, style);
   window.dispatchEvent(new CustomEvent('previewstylechange', { detail: { style } }));
-}
-
-// Subtitle size presets
-export type SubtitleSizeId = 'small' | 'medium' | 'large' | 'xlarge';
-
-export interface SubtitleSizePreset {
-  id: SubtitleSizeId;
-  label: string;
-  fontSize: string; // CSS value for the subtitle overlay
-}
-
-export const SUBTITLE_SIZE_PRESETS: SubtitleSizePreset[] = [
-  { id: 'small',  label: 'S',  fontSize: '0.8em' },
-  { id: 'medium', label: 'M',  fontSize: '1.1em' },
-  { id: 'large',  label: 'L',  fontSize: '1.5em' },
-  { id: 'xlarge', label: 'XL', fontSize: '2em' },
-];
-
-const DEFAULT_SUBTITLE_SIZE: SubtitleSizeId = 'medium';
-
-export function getSubtitleSize(): SubtitleSizePreset {
-  try {
-    const stored = localStorage.getItem(SUBTITLE_SIZE_KEY);
-    if (stored) {
-      const preset = SUBTITLE_SIZE_PRESETS.find(p => p.id === stored);
-      if (preset) return preset;
-    }
-  } catch {}
-  return SUBTITLE_SIZE_PRESETS.find(p => p.id === DEFAULT_SUBTITLE_SIZE)!;
-}
-
-export function setSubtitleSizeStorage(sizeId: string): void {
-  localStorage.setItem(SUBTITLE_SIZE_KEY, sizeId);
-  window.dispatchEvent(new CustomEvent('subtitlesizechange', { detail: { sizeId } }));
 }
 
 // Color theme presets
@@ -547,8 +526,8 @@ export default function DisplaySettings() {
   const [guideResolutionEnabled, setGuideResolutionEnabledState] = useState(getGuideResolution);
   const [guideHdrEnabled, setGuideHdrEnabledState] = useState(getGuideHdr);
   const [guideArtworkEnabled, setGuideArtworkEnabledState] = useState(getGuideArtwork);
+  const [guideTomatoEnabled, setGuideTomatoEnabledState] = useState(getGuideTomato);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
-  const [subtitleSize, setSubtitleSizeState] = useState(getSubtitleSize);
   const [tickerEnabled, setTickerEnabledState] = useState(getTickerEnabled);
   const [tickerSpeed, setTickerSpeedState] = useState(getTickerSpeed);
   // Ensure theme is applied on mount
@@ -670,18 +649,17 @@ export default function DisplaySettings() {
     setGuideArtwork(newValue);
   };
 
+  const handleGuideTomatoToggle = () => {
+    const newValue = !guideTomatoEnabled;
+    setGuideTomatoEnabledState(newValue);
+    setGuideTomato(newValue);
+  };
+
   const handleClockFormatChange = (format: ClockFormat) => {
     setClockFormatState(format);
     setClockFormat(format);
   };
 
-  const handleSubtitleSizeChange = (sizeId: string) => {
-    const preset = SUBTITLE_SIZE_PRESETS.find(p => p.id === sizeId);
-    if (preset) {
-      setSubtitleSizeState(preset);
-      setSubtitleSizeStorage(sizeId);
-    }
-  };
 
   const handleVisibleChannelsChange = (value: number) => {
     setVisibleChannels(value);
@@ -735,23 +713,6 @@ export default function DisplaySettings() {
         </div>
       </div>
 
-      <div className="settings-subsection">
-        <h4>SUBTITLE SIZE</h4>
-        <p className="settings-field-hint">
-          Text size for subtitle tracks when enabled.
-        </p>
-        <div className="settings-channel-count-options">
-          {SUBTITLE_SIZE_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              className={`settings-channel-count-btn ${subtitleSize.id === preset.id ? 'active' : ''}`}
-              onClick={() => handleSubtitleSizeChange(preset.id)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* ── Appearance ───────────────────────────────────── */}
       <div className="settings-group-heading">APPEARANCE</div>
@@ -1000,6 +961,18 @@ export default function DisplaySettings() {
             </label>
             <span className="settings-badge-label">HDR</span>
             <span className="settings-badge-example guide-hdr-badge">HDR</span>
+          </div>
+          <div className="settings-badge-row">
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={guideTomatoEnabled}
+                onChange={handleGuideTomatoToggle}
+              />
+              <span className="settings-toggle-slider" />
+            </label>
+            <span className="settings-badge-label">Tomato Score</span>
+            <span className="settings-badge-example guide-tomato-badge">92%</span>
           </div>
         </div>
       </div>

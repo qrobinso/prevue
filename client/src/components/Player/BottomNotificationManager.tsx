@@ -19,6 +19,8 @@ export interface NotificationData {
   autoDismissMs?: number;
   /** Pause auto-dismiss on mouse hover. */
   pauseOnHover?: boolean;
+  /** Called when the user explicitly dismisses (X button, swipe, auto-dismiss). */
+  onDismiss?: () => void;
   /** Make the bar clickable. */
   onClick?: () => void;
 }
@@ -120,7 +122,11 @@ export function BottomNotificationProvider({ children }: { children: ReactNode }
   }, [pickHighest]);
 
   const show = useCallback((id: string, priority: number, data: NotificationData) => {
-    dismissedRef.current.delete(id);
+    // Only clear dismissed state for new registrations, not updates.
+    // This prevents re-showing a notification the user explicitly closed.
+    if (!registrations.current.has(id)) {
+      dismissedRef.current.delete(id);
+    }
     registrations.current.set(id, { id, priority, data });
     reconcile();
   }, [reconcile]);
@@ -134,6 +140,8 @@ export function BottomNotificationProvider({ children }: { children: ReactNode }
   const handleDismiss = useCallback(() => {
     const id = displayedIdRef.current;
     if (id) {
+      const reg = registrations.current.get(id);
+      reg?.data.onDismiss?.();
       dismissedRef.current.add(id);
     }
     reconcile();

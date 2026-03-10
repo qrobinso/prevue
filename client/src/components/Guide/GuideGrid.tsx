@@ -10,6 +10,7 @@ import {
   getGuideResolution,
   getGuideHdr,
   getGuideArtwork,
+  getGuideTomato,
   getClockFormat,
   type ClockFormat,
 } from '../Settings/DisplaySettings';
@@ -26,6 +27,18 @@ import {
 } from '../../utils/guideCustomization';
 import { getSettings } from '../../services/api';
 import './Guide.css';
+
+function isRottenTomatoes(imageKey?: string | null): boolean {
+  return !!imageKey?.includes('rottentomatoes');
+}
+
+function isFresh(ratingImage?: string | null): boolean {
+  return !!ratingImage && (ratingImage.includes('.ripe') || ratingImage.includes('.certified_fresh'));
+}
+
+function formatRTRating(rating: number): string {
+  return `${Math.round(rating * 10)}%`;
+}
 
 const MAX_ARTWORK_CACHE = 500;
 let artworkCache = new Map<string, string>();
@@ -181,6 +194,7 @@ interface GuideProgramCellProps {
   showYear: boolean;
   showResolution: boolean;
   showHdr: boolean;
+  showTomato: boolean;
   showIconicScenes: boolean;
   nowMs: number;
   programTitleFontSize: number;
@@ -206,6 +220,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
   showYear,
   showResolution,
   showHdr,
+  showTomato,
   showIconicScenes,
   nowMs,
   programTitleFontSize,
@@ -263,10 +278,15 @@ const GuideProgramCell = memo(function GuideProgramCell({
         <div className="guide-program-text">
           <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
             {prog.title}
-            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution || showHdr || isIconicNow) && (
+            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution || showHdr || showTomato || isIconicNow) && (
               <>
                 {showRatings && prog.rating && (
                   <span className="guide-rating-badge">{prog.rating}</span>
+                )}
+                {showTomato && prog.community_rating != null && prog.community_rating > 0 && isRottenTomatoes(prog.rating_image) && (
+                  <span className={`guide-tomato-badge ${isFresh(prog.rating_image) ? 'guide-tomato-fresh' : 'guide-tomato-rotten'}`}>
+                    {isFresh(prog.rating_image) ? '🍅' : '🪣'} {formatRTRating(prog.community_rating)}
+                  </span>
                 )}
                 {showYear && prog.year && (
                   <span className="guide-year-badge">{prog.year}</span>
@@ -314,6 +334,7 @@ interface GuideRowProps {
   showYear: boolean;
   showResolution: boolean;
   showHdr: boolean;
+  showTomato: boolean;
   showIconicScenes: boolean;
   nowMs: number;
   programTitleFontSize: number;
@@ -347,6 +368,7 @@ const GuideRow = memo(function GuideRow({
   showYear,
   showResolution,
   showHdr,
+  showTomato,
   showIconicScenes,
   nowMs,
   programTitleFontSize,
@@ -392,6 +414,7 @@ const GuideRow = memo(function GuideRow({
             showYear={showYear}
             showResolution={showResolution}
             showHdr={showHdr}
+            showTomato={showTomato}
             showIconicScenes={showIconicScenes}
             nowMs={nowMs}
             programTitleFontSize={programTitleFontSize}
@@ -441,6 +464,7 @@ function GuideGrid({
   const [showResolution, setShowResolution] = useState(getGuideResolution);
   const [showHdr, setShowHdr] = useState(getGuideHdr);
   const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
+  const [showTomato, setShowTomato] = useState(getGuideTomato);
   const [showIconicScenes, setShowIconicScenes] = useState(getIconicScenesEnabled);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
 
@@ -461,6 +485,7 @@ function GuideGrid({
       setShowYear(getGuideYear());
       setShowResolution(getGuideResolution());
       setShowHdr(getGuideHdr());
+      setShowTomato(getGuideTomato());
     };
     const refreshArtwork = () => setShowArtwork(getGuideArtwork());
     const refreshClockFormat = () => setClockFormatState(getClockFormat());
@@ -835,6 +860,7 @@ function GuideGrid({
                   showYear={showYear}
                   showResolution={showResolution}
                   showHdr={showHdr}
+                  showTomato={showTomato}
                   showIconicScenes={showIconicScenes}
                   nowMs={nowMs}
                   programTitleFontSize={programTitleFontSize}

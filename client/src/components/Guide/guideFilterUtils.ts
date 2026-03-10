@@ -168,29 +168,36 @@ function evaluateFilter(
   }
 }
 
-/** Filter channels using full schedule data (for Guide). Channel must match ALL active filters. */
+/** Filter channels using full schedule data (for Guide). Channel must match ALL active filters.
+ *  If `pinnedChannelId` is provided, that channel is always included regardless of filters,
+ *  so the user's explicitly-selected channel doesn't disappear mid-viewing. */
 export function applyGuideFilter(
   channels: ChannelWithProgram[],
   scheduleByChannel: Map<number, ScheduleProgram[]>,
   filterIds: GuideFilterId[],
+  pinnedChannelId?: number | null,
 ): ChannelWithProgram[] {
   if (filterIds.length === 0) return channels;
   const now = Date.now();
   return channels.filter(ch => {
+    if (pinnedChannelId != null && ch.id === pinnedChannelId) return true;
     const schedule = scheduleByChannel.get(ch.id) ?? [];
     const current = findCurrentProgram(schedule, now) ?? ch.current_program;
     return filterIds.every(id => evaluateFilter(id, current, schedule, now));
   });
 }
 
-/** Filter channels using only current_program/next_program (for App.tsx player nav) */
+/** Filter channels using only current_program/next_program (for App.tsx player nav).
+ *  If `pinnedChannelId` is provided, that channel is always included. */
 export function applyGuideFilterSimple(
   channels: ChannelWithProgram[],
   filterIds: GuideFilterId[],
+  pinnedChannelId?: number | null,
 ): ChannelWithProgram[] {
   if (filterIds.length === 0) return channels;
   const now = Date.now();
   return channels.filter(ch => {
+    if (pinnedChannelId != null && ch.id === pinnedChannelId) return true;
     return filterIds.every(filterId => {
       // For "starting-soon", check next_program since we don't have the full schedule
       if (filterId === 'starting-soon') {

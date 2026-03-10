@@ -1,0 +1,210 @@
+/* Sleep Timer Overlay */
+
+.sleep-timer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: sleep-timer-backdrop-in 0.25s ease-out;
+}
+
+@keyframes sleep-timer-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sleep-timer-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-grid);
+  border-radius: 16px 16px 0 0;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 20px 24px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.5);
+  animation: sleep-timer-slide-up 0.3s ease-out;
+}
+
+@keyframes sleep-timer-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.sleep-timer-drag-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 auto 12px;
+}
+
+.sleep-timer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.sleep-timer-icon {
+  color: var(--text-secondary);
+}
+
+.sleep-timer-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.sleep-timer-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.sleep-timer-close:hover {
+  color: var(--text-primary);
+}
+
+/* Active status */
+.sleep-timer-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.sleep-timer-remaining {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.sleep-timer-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Presets grid */
+.sleep-timer-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sleep-timer-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-secondary);
+  gap: 2px;
+}
+
+.sleep-timer-preset:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sleep-timer-preset.active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #a5b4fc;
+}
+
+.sleep-timer-preset.last-used {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.sleep-timer-preset-value {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sleep-timer-preset-unit {
+  font-size: 11px;
+  text-transform: uppercase;
+  opacity: 0.7;
+  letter-spacing: 0.05em;
+}
+
+/* Cancel button */
+.sleep-timer-cancel {
+  width: 100%;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 10px;
+  color: #fca5a5;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sleep-timer-cancel:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* Countdown badge on player */
+.sleep-timer-badge {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  line-height: 1;
+}
+
+.sleep-timer-badge:hover {
+  background: rgba(0, 0, 0, 0.85);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.sleep-timer-badge.winding-down {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+/* Dim overlay during last minute */
+.sleep-timer-dim-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: black;
+  pointer-events: none;
+  transition: opacity 1s linear;
+}

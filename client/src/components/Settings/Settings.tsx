@@ -5,15 +5,19 @@ import ChannelSettings from './ChannelSettings';
 import DisplaySettings from './DisplaySettings';
 import IPTVSettings from './IPTVSettings';
 import MetricsSettings from './MetricsSettings';
+import SleepTimerSettings from './SleepTimerSettings';
+import type { SleepTimerState, SleepTimerActions } from '../../hooks/useSleepTimer';
 import { wsClient } from '../../services/websocket';
 import { X, Check, XCircle } from '@phosphor-icons/react';
 import './Settings.css';
 
 interface SettingsProps {
   onClose: () => void;
+  sleepState?: SleepTimerState;
+  sleepActions?: SleepTimerActions;
 }
 
-type SettingsTab = 'general' | 'filters' | 'channels' | 'display' | 'iptv' | 'metrics';
+type SettingsTab = 'general' | 'filters' | 'channels' | 'display' | 'iptv' | 'metrics' | 'timer';
 
 interface SyncProgress {
   step: string;
@@ -22,7 +26,7 @@ interface SyncProgress {
   total?: number;
 }
 
-export default function Settings({ onClose }: SettingsProps) {
+export default function Settings({ onClose, sleepState, sleepActions }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [syncInterstitialVisible, setSyncInterstitialVisible] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
@@ -97,6 +101,12 @@ export default function Settings({ onClose }: SettingsProps) {
             GENERAL
           </button>
           <button
+            className={`settings-tab ${activeTab === 'timer' ? 'settings-tab-active' : ''}`}
+            onClick={() => setActiveTab('timer')}
+          >
+            TIMER
+          </button>
+          <button
             className={`settings-tab ${activeTab === 'filters' ? 'settings-tab-active' : ''}`}
             onClick={() => setActiveTab('filters')}
           >
@@ -135,6 +145,9 @@ export default function Settings({ onClose }: SettingsProps) {
           {activeTab === 'display' && <DisplaySettings />}
           {activeTab === 'iptv' && <IPTVSettings />}
           {activeTab === 'metrics' && <MetricsSettings />}
+          {activeTab === 'timer' && sleepState && sleepActions && (
+            <SleepTimerSettings sleepState={sleepState} sleepActions={sleepActions} />
+          )}
         </div>
       </div>
     </div>

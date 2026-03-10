@@ -1540,6 +1540,58 @@
   .bottom-notification--iconic .bottom-notification-title { font-size: 14px; }
 }
 
+/* ── Catch-Up (What Did I Miss) modifier ── */
+.bottom-notification--catch-up .bottom-notification-card {
+  max-width: 560px;
+  border-color: rgba(79, 195, 247, 0.25);
+  background: rgba(5, 12, 20, 0.85);
+}
+
+.bottom-notification--catch-up .bottom-notification-label {
+  color: #4fc3f7;
+}
+
+.bottom-notification--catch-up .bottom-notification-title {
+  font-size: 16px;
+  white-space: normal;
+}
+
+.bottom-notification--catch-up .bottom-notification-subtitle {
+  white-space: normal;
+  color: #fff;
+}
+
+/* Loading state */
+.catch-up-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.catch-up-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(79, 195, 247, 0.25);
+  border-top-color: #4fc3f7;
+  border-radius: 50%;
+  animation: catch-up-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes catch-up-spin {
+  to { transform: rotate(360deg); }
+}
+
+.catch-up-loading-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+@media (max-width: 600px) {
+  .bottom-notification--catch-up .bottom-notification-title { font-size: 14px; }
+}
+
 /* ── Starting Soon modifier ── */
 .bottom-notification--starting-soon .bottom-notification-label {
   color: var(--accent-cyan);
@@ -2235,29 +2287,6 @@
   color: rgba(255, 255, 255, 0.5);
   vertical-align: middle;
   text-transform: uppercase;
-}
-
-.player-settings-size-btn {
-  flex: 1;
-  padding: 8px 0;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  color: var(--text-secondary);
-  font-family: var(--font-retro);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.player-settings-size-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.player-settings-size-btn.active {
-  color: var(--accent-cyan);
-  border-color: var(--accent-cyan);
-  background: rgba(0, 229, 255, 0.1);
 }
 
 .player-settings-nerd-btn {

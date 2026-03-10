@@ -392,26 +392,49 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
       // Create new request and track it
       const requestPromise = (async () => {
         console.log(`[Stream Proxy] ${isSegment ? 'Segment' : 'Playlist'}: ${jellyfinPath.substring(0, 80)}`);
-        const response = await fetch(jellyfinUrl, { headers: authHeaders });
-        
-        let buffer: ArrayBuffer | null = null;
-        let text: string | null = null;
-        
-        if (response.ok) {
-          if (isPlaylist) {
-            text = await response.text();
-          } else {
-            buffer = await response.arrayBuffer();
+        // Segments may take a while if Jellyfin is transcoding; use a generous timeout
+        // Retry up to 2 times on timeout errors (transient while transcoding)
+        const fetchTimeout = isSegment ? 60_000 : 30_000;
+        const maxRetries = isSegment ? 2 : 1;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            const response = await fetch(jellyfinUrl, {
+              headers: authHeaders,
+              signal: AbortSignal.timeout(fetchTimeout),
+            });
+
+            let buffer: ArrayBuffer | null = null;
+            let text: string | null = null;
+
+            if (response.ok) {
+              if (isPlaylist) {
+                text = await response.text();
+              } else {
+                buffer = await response.arrayBuffer();
+              }
+            }
+
+            return {
+              ok: response.ok,
+              status: response.status,
+              headers: response.headers,
+              buffer,
+              text,
+            };
+          } catch (err: any) {
+            const isTimeout = err?.cause?.code === 'UND_ERR_HEADERS_TIMEOUT'
+              || err?.name === 'TimeoutError';
+            if (isTimeout && attempt < maxRetries) {
+              console.warn(`[Stream Proxy] Timeout on attempt ${attempt + 1}, retrying: ${jellyfinPath.substring(0, 80)}`);
+              continue;
+            }
+            throw err;
           }
         }
-        
-        return {
-          ok: response.ok,
-          status: response.status,
-          headers: response.headers,
-          buffer,
-          text,
-        };
+
+        // Unreachable, but satisfies TypeScript
+        throw new Error('Exhausted retries');
       })();
       
       pendingRequests.set(jellyfinUrl, requestPromise);
@@ -574,9 +597,11 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
 
   // Plex may return 400 if a transcode session hasn't fully released.
   // Stop the failed session explicitly before retrying with a fresh one.
-  for (let retry = 0; !response.ok && response.status === 400 && retry < 2; retry++) {
-    const delay = (retry + 1) * 1500;
-    console.log(`[Stream Plex] Plex returned 400, stopping session ${playSessionId} and retrying (${retry + 1}/2) after ${delay}ms...`);
+  // Use escalating delays (2s, 4s, 7s) — Plex's FFmpeg cleanup can be slow.
+  const retryDelays = [2000, 4000, 7000];
+  for (let retry = 0; !response.ok && response.status === 400 && retry < retryDelays.length; retry++) {
+    const delay = retryDelays[retry];
+    console.log(`[Stream Plex] Plex returned 400, stopping session ${playSessionId} and retrying (${retry + 1}/${retryDelays.length}) after ${delay}ms...`);
     await provider.stopPlaybackSession(playSessionId).catch(() => {});
     await new Promise(r => setTimeout(r, delay));
     hlsInfo = await provider.getHlsStreamUrl(itemId, undefined, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
@@ -698,9 +723,8 @@ async function handleJellyfinStream(provider: MediaProvider, itemId: string, req
   }
   if (subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex)) {
     params.set('SubtitleStreamIndex', String(subtitleStreamIndex));
-    // Ask Jellyfin to expose subtitles as HLS text tracks instead of only burning/embedding.
-    params.set('SubtitleMethod', 'Hls');
-    params.set('EnableSubtitlesInManifest', 'true');
+    // Burn subtitles into the video stream during transcoding (works with all formats)
+    params.set('SubtitleMethod', 'Encode');
   }
 
   const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;

@@ -328,6 +328,42 @@ Example: {"movie_abc": [{"name": "...", "timestamp_minutes": 45, "end_minutes": 
   }
 
   /**
+   * Generate a catch-up summary for a movie the viewer tuned into mid-way.
+   * Returns a concise summary of where the viewer is in the story right now.
+   */
+  async generateCatchUpSummary(
+    title: string,
+    year: number | null,
+    elapsedMinutes: number,
+    durationMinutes: number,
+    options?: AIRequestOptions
+  ): Promise<string> {
+    const apiKey = this.resolveApiKey(options);
+    if (!apiKey) throw new Error('AI not configured');
+    const model = this.resolveModel(options);
+
+    const yearStr = year ? ` (${year})` : '';
+    const systemPrompt = `Catch up a viewer who tuned into a movie late. Write short, direct sentences. No filler. Say what happened and what's on screen now. Never say "you missed." No spoilers past the elapsed time. 3-4 sentences max.
+
+Return JSON: {"summary": "..."}`;
+
+    const userMessage = `Movie: "${title}"${yearStr}
+Runtime: ${durationMinutes} minutes
+Viewer tuned in at: ${elapsedMinutes} minutes into the film`;
+
+    const content = await this.callLLM('catch-up', [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage },
+    ], { model, apiKey, max_tokens: 300, temperature: 0.3 });
+
+    const parsed = JSON.parse(content) as { summary?: string };
+    if (!parsed.summary || typeof parsed.summary !== 'string') {
+      throw new Error('Invalid catch-up summary response');
+    }
+    return parsed.summary;
+  }
+
+  /**
    * Build a token-efficient library summary using short index keys.
    * Movies get M0..Mn, series get S0..Sn. Episodes are grouped under
    * their series (the AI picks a series key, we expand to all episodes).

@@ -4,9 +4,15 @@ import * as queries from '../db/queries.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { IconicSceneService } from '../services/IconicSceneService.js';
+import { AIService } from '../services/AIService.js';
 import type { ScheduleBlockParsed } from '../types/index.js';
 import { broadcast } from '../websocket/index.js';
 import { decrypt } from '../utils/crypto.js';
+
+const aiService = new AIService();
+
+// In-flight dedup for catch-up LLM calls (prevents duplicate requests for the same movie/bucket)
+const catchUpInFlight = new Map<string, Promise<string>>();
 
 /** Enrich schedule blocks with iconic scene data from the cache. */
 function enrichBlocksWithIconicScenes(blocks: ScheduleBlockParsed[], iconicSceneService: IconicSceneService): void {
@@ -208,6 +214,57 @@ scheduleRoutes.post('/iconic-scenes/refresh', async (req: Request, res: Response
     await (iconicSceneService as IconicSceneService).generateForMovies(movies, { apiKey, model });
     const lastRefreshed = queries.getIconicScenesLastRefreshed(db);
     res.json({ success: true, count: movies.length, lastRefreshed });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/schedule/catch-up - Generate a catch-up summary for a movie in progress
+scheduleRoutes.post('/catch-up', async (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const { mediaItemId, title, year, elapsedMinutes, durationMinutes } = req.body;
+
+    if (!mediaItemId || !title || typeof elapsedMinutes !== 'number' || typeof durationMinutes !== 'number') {
+      res.status(400).json({ error: 'Missing required fields: mediaItemId, title, elapsedMinutes, durationMinutes' });
+      return;
+    }
+
+    // Resolve AI credentials
+    const encrypted = queries.getSetting(db, 'openrouter_api_key') as string | undefined;
+    let apiKey: string | undefined;
+    if (encrypted) {
+      try { apiKey = decrypt(encrypted); } catch { /* ignore */ }
+    }
+    const model = (queries.getSetting(db, 'openrouter_model') as string) || undefined;
+
+    if (!aiService.isAvailableWith(apiKey)) {
+      res.status(503).json({ error: 'AI service not configured' });
+      return;
+    }
+
+    // Check cache using 10-minute time buckets
+    const timeBucket = Math.floor(elapsedMinutes / 10) * 10;
+    const cached = queries.getCatchUpSummary(db, mediaItemId, timeBucket);
+    if (cached) {
+      res.json({ summary: cached });
+      return;
+    }
+
+    // Generate via LLM (with in-flight dedup)
+    const flightKey = `${mediaItemId}:${timeBucket}`;
+    let promise = catchUpInFlight.get(flightKey);
+    if (!promise) {
+      promise = aiService.generateCatchUpSummary(title, year ?? null, elapsedMinutes, durationMinutes, { apiKey, model })
+        .then(summary => {
+          queries.setCatchUpSummary(db, mediaItemId, timeBucket, summary);
+          return summary;
+        })
+        .finally(() => catchUpInFlight.delete(flightKey));
+      catchUpInFlight.set(flightKey, promise);
+    }
+    const summary = await promise;
+    res.json({ summary });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

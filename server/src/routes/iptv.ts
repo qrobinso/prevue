@@ -382,7 +382,7 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
     const { program, seekMs } = current;
     const itemId = program.media_item_id;
 
-    // Get HLS session info from Jellyfin
+    // Get HLS session info from media provider (Plex or Jellyfin)
     const hlsInfo = await provider.getHlsStreamUrl(itemId);
     const { playSessionId, mediaSourceId } = hlsInfo;
 
@@ -395,37 +395,49 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
     const headers = provider.getProxyHeaders();
     const deviceId = provider.getDeviceId();
 
-    // Build Jellyfin HLS URL — use h264/aac for widest IPTV player compatibility
-    const params = new URLSearchParams({
-      DeviceId: deviceId,
-      MediaSourceId: mediaSourceId,
-      PlaySessionId: playSessionId,
-      VideoCodec: 'h264',
-      AudioCodec: 'aac',
-      MaxStreamingBitrate: '20000000',
-      VideoBitrate: '20000000',
-      TranscodingMaxAudioChannels: '2',
-      SegmentContainer: 'ts',
-      MinSegments: '2',
-      BreakOnNonKeyFrames: 'true',
-      AllowVideoStreamCopy: 'true',
-      AllowAudioStreamCopy: 'true',
-      EnableAutoStreamCopy: 'true',
-      MaxWidth: '1920',
-      MaxHeight: '1080',
-    });
+    let masterUrl: string;
+    let baseDir: string;
 
-    // Note: we do NOT use StartTimeTicks here — Jellyfin's static HLS ignores it
-    // and always transcodes from the beginning. Instead, the sliding-window filter
-    // in the proxy uses seekMs to expose only the segments at the live position.
+    if (provider.providerType === 'plex') {
+      // Plex: use the full URL returned by getHlsStreamUrl (universal transcode endpoint)
+      masterUrl = hlsInfo.url;
+      const masterPath = new URL(masterUrl).pathname;
+      baseDir = masterPath.substring(0, masterPath.lastIndexOf('/') + 1);
+    } else {
+      // Jellyfin: build HLS URL — use h264/aac for widest IPTV player compatibility
+      const params = new URLSearchParams({
+        DeviceId: deviceId,
+        MediaSourceId: mediaSourceId,
+        PlaySessionId: playSessionId,
+        VideoCodec: 'h264',
+        AudioCodec: 'aac',
+        MaxStreamingBitrate: '20000000',
+        VideoBitrate: '20000000',
+        TranscodingMaxAudioChannels: '2',
+        SegmentContainer: 'ts',
+        MinSegments: '2',
+        BreakOnNonKeyFrames: 'true',
+        AllowVideoStreamCopy: 'true',
+        AllowAudioStreamCopy: 'true',
+        EnableAutoStreamCopy: 'true',
+        MaxWidth: '1920',
+        MaxHeight: '1080',
+      });
 
-    const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
+      // Note: we do NOT use StartTimeTicks here — Jellyfin's static HLS ignores it
+      // and always transcodes from the beginning. Instead, the sliding-window filter
+      // in the proxy uses seekMs to expose only the segments at the live position.
+      masterUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
+      baseDir = `/Videos/${itemId}/`;
+    }
+
     console.log(`[IPTV] Channel ${channelNumber} → item=${itemId} session=${playSessionId} seek=${Math.round(seekMs / 1000)}s`);
 
-    const response = await fetch(jellyfinUrl, { headers });
+    const response = await fetch(masterUrl, { headers });
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      console.error(`[IPTV] Jellyfin returned ${response.status}: ${errorText.slice(0, 500)}`);
+      const providerName = provider.providerType === 'plex' ? 'Plex' : 'Jellyfin';
+      console.error(`[IPTV] ${providerName} returned ${response.status}: ${errorText.slice(0, 500)}`);
       try {
         await provider.stopPlaybackSession(playSessionId);
         await provider.deleteTranscodingJob(playSessionId);
@@ -433,13 +445,12 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
       activeSessions.delete(itemId);
       lastActivityByItemId.delete(itemId);
       iptvSessionInfo.delete(playSessionId);
-      res.status(502).json({ error: 'Jellyfin stream unavailable' });
+      res.status(502).json({ error: `${providerName} stream unavailable` });
       return;
     }
 
     // Rewrite URLs to route through our proxy
     const body = await response.text();
-    const baseDir = `/Videos/${itemId}/`;
     let rewritten = rewriteM3u8Urls(body, baseDir, playSessionId, deviceId);
 
     // Tag proxy URLs with iptv=1 so the proxy applies live-window filtering.

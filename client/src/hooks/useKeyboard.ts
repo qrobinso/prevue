@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { AppView } from '../App';
 
 interface KeyboardHandlers {
@@ -9,9 +9,19 @@ interface KeyboardHandlers {
   onRight?: () => void;
   onEnter?: () => void;
   onLastChannel?: () => void;
+  onRandomChannel?: () => void;
+  onFullscreen?: () => void;
+  onInfo?: () => void;
+  onGuide?: () => void;
+  onSleepTimer?: () => void;
+  onCatchUp?: () => void;
 }
 
 export function useKeyboard(view: AppView, handlers: KeyboardHandlers, enabled = true) {
+  // Store handlers in a ref so the effect doesn't re-subscribe on every render
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
   useEffect(() => {
     if (!enabled) return;
 
@@ -21,44 +31,78 @@ export function useKeyboard(view: AppView, handlers: KeyboardHandlers, enabled =
         return;
       }
 
+      const h = handlersRef.current;
+
       switch (e.key) {
         case 'Escape':
           e.preventDefault();
-          handlers.onEscape?.();
+          h.onEscape?.();
           break;
         case 'ArrowUp':
         case 'w':
         case 'W':
           e.preventDefault();
-          handlers.onUp?.();
+          h.onUp?.();
           break;
         case 'ArrowDown':
         case 's':
         case 'S':
           e.preventDefault();
-          handlers.onDown?.();
+          h.onDown?.();
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          handlers.onLeft?.();
+          h.onLeft?.();
           break;
         case 'ArrowRight':
           e.preventDefault();
-          handlers.onRight?.();
+          h.onRight?.();
           break;
         case 'Enter':
           e.preventDefault();
-          handlers.onEnter?.();
+          h.onEnter?.();
           break;
         case 'Backspace':
         case 'Delete':
           e.preventDefault();
-          handlers.onLastChannel?.();
+          h.onLastChannel?.();
+          break;
+        case 'r':
+        case 'R':
+          e.preventDefault();
+          h.onRandomChannel?.();
+          break;
+        case 'f':
+        case 'F':
+          e.preventDefault();
+          h.onFullscreen?.();
+          break;
+        case 'i':
+        case 'I':
+          e.preventDefault();
+          h.onInfo?.();
+          break;
+        case 'g':
+        case 'G':
+          e.preventDefault();
+          h.onGuide?.();
+          break;
+        case 't':
+        case 'T':
+          e.preventDefault();
+          h.onSleepTimer?.();
+          break;
+        case 'm':
+        case 'M':
+          if (h.onCatchUp) {
+            e.preventDefault();
+            h.onCatchUp();
+          }
           break;
       }
     }
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, handlers, enabled]);
+  }, [view, enabled]);
 }

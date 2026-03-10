@@ -15,8 +15,11 @@ Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
 - **Hardware transcoding** — Leverages your media server's transcoding pipeline with selectable quality presets (Auto, 4K, 1080p, 720p, 480p) and HEVC support.
 - **Subtitle and audio track support** — Full multi-track subtitle and audio selection, with per-language preferences and persistence.
 - **Full-featured guide and player** — Retro Prevue Channel-inspired EPG grid with a built-in HLS video player, overlay controls, nerd stats, and picture-in-picture.
-- **Iconic scene detection** — AI identifies famous movie moments and marks them on the player timeline. A glowing badge appears when an iconic scene is playing, with an overlay explaining why it's iconic.
+- **Iconic scene detection** — AI identifies the most famous, culturally-talked-about movie moments (scenes people quote and reference) and surfaces them across the guide, player, and filters in real time.
+- **"What Did I Miss"** — Tune into a movie already in progress and get a concise, spoiler-free catch-up summary. AI describes the story so far and what's on screen now, written in a terse Hemingway style. Triggers automatically after 15 seconds or on demand with the `M` key.
 - **Live ticker** — Scrolling marquee with primetime highlights, recently added titles, library stats, and AI-powered "Did You Know" trivia about what's currently airing.
+- **Just Watch mode** — Skip the guide entirely. Prevue picks a channel based on time of day and your watch history, so content is playing the moment you open the app. Like turning on a real TV.
+- **Sleep timer** — Set a timer (15–120 minutes) and Prevue gracefully winds down: volume fades over the last 5 minutes, the screen dims in the final minute, then a dark "Goodnight" clock screen appears. Snooze by tapping during wind-down.
 - **IPTV server with EPG** — Exposes an M3U playlist and XMLTV EPG feed so you can watch your channels in Kodi, VLC, Jellyfin, or any IPTV client.
 - **Open source** — Inspect, modify, and contribute. Licensed for non-commercial use.
 
@@ -117,18 +120,55 @@ Prevue sends a compact summary of your library to an AI model, which selects mat
 
 Default model: `google/gemini-3-flash-preview` (configurable in Settings).
 
-### Iconic Scene Detection
-
-When enabled in **Settings > General > AI**, Prevue uses AI to identify iconic/famous scenes in movies on your schedule (e.g. "I am your father" in Star Wars).
-
-- **Guide badge** — An "ICONIC" badge appears on guide grid cells when an iconic scene is currently playing
-- **Guide filter** — "Iconic Scene Now" filter shows only channels where an iconic scene is active
-- **Player markers** — Purple segments on the progress bar mark iconic scene windows; they glow when active
-- **Player overlay** — When tuning into a movie during an iconic scene, a brief overlay shows the scene name and why it's famous
-
 ### Program Facts ("Did You Know")
 
 When enabled in **Settings > General > AI**, Prevue generates trivia facts about currently airing programs.
+
+## Iconic Scene Detection
+
+Prevue uses AI to identify the most famous, culturally-talked-about moments in movies — the scenes people quote, reference, and remember — and surfaces them across the entire UI in real time. Enable it in **Settings > General > AI** with an OpenRouter API key.
+
+### How It Works
+
+When your schedule is generated or extended, Prevue sends movie titles and runtimes to an LLM (default: Gemini 3 Flash via OpenRouter). The model returns up to 2 iconic scenes per movie, each with a timestamp range and a short explanation of why the scene is famous. Results are cached in SQLite so each movie is only analyzed once.
+
+### Where Iconic Scenes Appear
+
+- **Guide grid** — A purple pulsing dot appears next to the program title when an iconic scene is currently playing on that channel.
+- **Guide filter** — The "Iconic Scene Now" filter narrows the guide to only channels where an iconic scene is active right now, so you can tune in at the perfect moment.
+- **Program info modal** — Opening a program's details shows all detected iconic scenes with their time ranges, names, and explanations.
+- **Player notification** — A bottom-of-screen notification appears when an iconic scene is approaching ("COMING UP" with countdown) or active ("NOW" with the scene name and why it's famous). Styled with a purple accent.
+- **Settings** — Toggle the feature on/off, manually refresh scene data for all scheduled movies, and see when scenes were last generated.
+
+### Example
+
+A movie like *The Empire Strikes Back* might have:
+
+| Scene | Time | Why |
+|-------|------|-----|
+| "I am your father" | 1:28–1:33 | One of the most quoted and parodied reveals in cinema history |
+| "Imperial March / AT-AT assault" | 0:12–0:18 | The Battle of Hoth is one of the most iconic sci-fi battle sequences ever filmed |
+
+When one of these scenes is playing live on a channel, the guide shows a glowing purple dot, and the player displays a brief overlay explaining the moment.
+
+## "What Did I Miss" (Catch-Up Summaries)
+
+When you tune into a channel where a movie is already in progress, Prevue can generate a brief AI-powered summary of the story so far — so you're never lost. Enable it in **Settings > General > AI** with an OpenRouter API key.
+
+### How It Works
+
+1. You land on a movie that's at least 5 minutes in
+2. After 15 seconds (to avoid wasting calls while channel surfing), Prevue calls the LLM with the movie title, runtime, and how far in it is
+3. A bottom notification appears with a concise catch-up: what's happened and what's on screen now
+4. Results are cached in 10-minute time buckets — revisiting the same movie at a similar point reuses the cached summary
+
+### Manual Trigger
+
+Press `M` at any time to request a catch-up summary on demand. If the notification is already visible, `M` dismisses it (toggle behavior). Fresh LLM calls have a 1-minute cooldown — pressing `M` within the cooldown re-shows the last result. Works in both the full-screen player and the guide preview panel.
+
+### Style
+
+The LLM prompt writes in a Hemingway style — short sentences, plain words, no fluff. It never says "you missed" (nobody wants to feel bad about tuning in late). Three to four sentences covering the plot so far and the current scene.
 
 ## Guide and Player
 
@@ -155,12 +195,24 @@ When enabled in **Settings > General > AI**, Prevue generates trivia facts about
 - Fullscreen, picture-in-picture, and video fit (contain/cover) modes
 - Info overlay with channel name, program title, time remaining, and next up
 - Promo overlay — periodic broadcast-style popups showing what you're watching, what's coming up next, and what's starting soon on other channels (toggleable in Settings). "Starting Soon" promos are clickable — tap to tune directly to that channel.
-- Iconic scene markers on the progress bar — purple segments highlight famous movie moments, glowing when the scene is active
-- Iconic scene overlay — when you tune in during an iconic scene, a brief overlay shows the scene name and why it's iconic
+- Iconic scene notifications — alerts when famous movie moments are playing (see [Iconic Scene Detection](#iconic-scene-detection))
+- "What Did I Miss" — catch-up summaries for movies in progress (see ["What Did I Miss"](#what-did-i-miss-catch-up-summaries))
+- Sleep timer — press `T` or use the player controls to set a timer. Volume fades during the last 5 minutes, screen dims in the final 60 seconds, and a dark goodnight screen appears when time is up. Interaction during wind-down prompts a snooze option.
 - Nerd stats panel: resolution, bitrate, codec, FPS, buffer health
 - Channel up/down while watching
 - Progress reporting back to Jellyfin/Plex
 - Auto-advances to next program when current one ends
+
+### Just Watch Mode
+
+Enable in **Settings > General > Just Watch** to skip the guide entirely on launch. Prevue automatically tunes to a channel using a smart recommendation algorithm:
+
+- **Time-of-day awareness** — Morning favors kids/comedy, evening favors drama/action, late night favors thriller/comedy
+- **Program freshness** — Prefers channels where the current program just started (you won't land 90 minutes into a movie)
+- **Watch history** — Avoids channels you've recently watched
+- **Channel persistence** — Remembers your last channel across page refreshes
+
+When Just Watch is enabled, the guide becomes an overlay you can pull up with `G` or `Escape`.
 
 ### Interstitial Screen
 
@@ -363,6 +415,7 @@ Raw SQL via `better-sqlite3` (synchronous, WAL mode). No ORM.
 | `client_registry` | Known client identifiers |
 | `iconic_scenes` | AI-generated iconic scene data per movie (SQLite cache) |
 | `program_facts` | AI-generated trivia facts per program/series (SQLite cache) |
+| `catch_up_summaries` | AI-generated catch-up summaries per movie, bucketed by elapsed time |
 
 Sensitive data (OpenRouter API key) is encrypted with AES-256-GCM. Key sourced from `DATA_ENCRYPTION_KEY` env var or auto-generated and persisted in `data/.encryption-key`.
 
@@ -382,6 +435,7 @@ All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/channels` | List channels with current/next programs |
+| `GET /api/channels/recommend` | Smart channel recommendation (for Just Watch) |
 | `POST /api/channels` | Create custom channel |
 | `PUT /api/channels/:id` | Update channel (name, items, sort order) |
 | `DELETE /api/channels/:id` | Delete channel |
@@ -415,6 +469,9 @@ All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs
 | `GET /api/schedule/:channelId/now` | Current program + next + seek offset |
 | `POST /api/schedule/regenerate` | Force-regenerate all schedules |
 | `GET /api/schedule/item/:itemId` | Media item details (5-min cache) |
+| `GET /api/schedule/iconic-scenes/status` | Iconic scene last-refresh timestamp |
+| `POST /api/schedule/iconic-scenes/refresh` | Clear cache and regenerate iconic scenes |
+| `POST /api/schedule/catch-up` | Generate AI catch-up summary for a movie in progress |
 
 ### Playback & Streaming
 
@@ -479,7 +536,7 @@ All endpoints prefixed with `/api`. Swagger/OpenAPI docs available at `/api/docs
 
 Prevue's AI features are **entirely optional** and disabled by default. If you choose to enable them by providing an OpenRouter API key, Prevue sends metadata to the AI service you select via [OpenRouter](https://openrouter.ai). This may include:
 
-- **Movie titles**, production years, genres, and runtimes (channel creation, iconic scenes, program facts)
+- **Movie titles**, production years, genres, and runtimes (channel creation, iconic scenes, program facts, catch-up summaries)
 - **TV series names**, season counts, episode counts, genres, and years (channel creation, program facts)
 
 No file paths, file names, server URLs, credentials, or personally identifiable information are sent.

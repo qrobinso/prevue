@@ -758,3 +758,18 @@ export function getProgramFactsForKeys(db: Database.Database, keys: string[]): M
   }
   return result;
 }
+
+// ─── Catch-Up Summaries Cache ────────────────────────
+
+export function getCatchUpSummary(db: Database.Database, mediaItemId: string, timeBucket: number): string | null {
+  const row = db.prepare(
+    'SELECT summary FROM catch_up_summaries WHERE media_item_id = ? AND time_bucket = ?'
+  ).get(mediaItemId, timeBucket) as { summary: string } | undefined;
+  return row?.summary ?? null;
+}
+
+export function setCatchUpSummary(db: Database.Database, mediaItemId: string, timeBucket: number, summary: string): void {
+  db.prepare(
+    'INSERT OR REPLACE INTO catch_up_summaries (media_item_id, time_bucket, summary, created_at) VALUES (?, ?, ?, datetime(\'now\'))'
+  ).run(mediaItemId, timeBucket, summary);
+}

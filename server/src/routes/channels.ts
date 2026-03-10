@@ -27,6 +27,91 @@ function getUserAIModel(db: import('better-sqlite3').Database): string | undefin
   return (queries.getSetting(db, 'openrouter_model') as string) || undefined;
 }
 
+// GET /api/channels/recommend - Smart channel recommendation for auto-tune
+channelRoutes.get('/recommend', (req: Request, res: Response) => {
+  try {
+    const { db, scheduleEngine } = req.app.locals;
+    const clientId = req.query.client_id as string | undefined;
+    const hour = parseInt(req.query.hour as string, 10) || new Date().getHours();
+
+    const channels = queries.getAllChannels(db);
+    if (channels.length === 0) {
+      res.json({ channel_number: null });
+      return;
+    }
+
+    // Gather current programs for all channels
+    const scored: { channel: typeof channels[0]; score: number }[] = [];
+    const nowMs = Date.now();
+
+    // Get recent watch history for this client (last 7 days)
+    let recentChannelIds = new Set<number>();
+    if (clientId) {
+      try {
+        const since = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const topChannels = queries.getTopChannels(db, since, 50);
+        recentChannelIds = new Set(topChannels.map(c => c.channel_id));
+      } catch { /* metrics tables may not exist */ }
+    }
+
+    // Time-of-day genre preferences
+    const timeGenres: Record<string, string[]> = {
+      morning: ['Animation', 'Comedy', 'Family', 'Kids'],       // 5-11
+      afternoon: ['Adventure', 'Drama', 'Action', 'Fantasy'],    // 11-17
+      evening: ['Drama', 'Action', 'Thriller', 'Crime', 'Sci-Fi'], // 17-22
+      latenight: ['Comedy', 'Horror', 'Thriller', 'Mystery'],    // 22-5
+    };
+    const timeBucket = hour >= 5 && hour < 11 ? 'morning'
+      : hour >= 11 && hour < 17 ? 'afternoon'
+      : hour >= 17 && hour < 22 ? 'evening'
+      : 'latenight';
+    const preferredGenres = new Set(timeGenres[timeBucket]);
+
+    for (const ch of channels) {
+      const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(ch.id);
+      if (!current?.program || current.program.type === 'interstitial') continue;
+
+      const prog = current.program;
+      const startMs = new Date(prog.start_time).getTime();
+      const endMs = new Date(prog.end_time).getTime();
+      const totalMs = endMs - startMs;
+      const elapsedMs = nowMs - startMs;
+
+      // 1. Program freshness (35%) - prefer programs that just started
+      const freshnessRatio = totalMs > 0 ? Math.max(0, 1 - elapsedMs / totalMs) : 0;
+      const freshnessScore = freshnessRatio * 0.35;
+
+      // 2. Time-of-day genre fit (25%)
+      const progGenres = prog.genres || [];
+      const genreMatch = progGenres.some(g => preferredGenres.has(g));
+      const genreScore = genreMatch ? 0.25 : 0.05;
+
+      // 3. Watch history avoidance (20%) - penalize recently watched
+      const recentPenalty = recentChannelIds.has(ch.id) ? 0.0 : 0.20;
+
+      // 4. Channel diversity (15%) - slight random factor for variety
+      const diversityScore = Math.random() * 0.15;
+
+      // 5. Content preference (10%) - prefer movies slightly (longer sessions)
+      const contentScore = prog.content_type === 'movie' ? 0.10 : 0.06;
+
+      const totalScore = freshnessScore + genreScore + recentPenalty + diversityScore + contentScore;
+      scored.push({ channel: ch, score: totalScore });
+    }
+
+    if (scored.length === 0) {
+      // Fallback: return first channel
+      res.json({ channel_number: channels[0].number });
+      return;
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    res.json({ channel_number: scored[0].channel.number });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // GET /api/channels - List all channels with current program info
 channelRoutes.get('/', (req: Request, res: Response) => {
   try {

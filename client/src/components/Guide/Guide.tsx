@@ -35,6 +35,8 @@ interface GuideProps {
   keyboardDisabled?: boolean;
   onFocusedChannelChange?: (channelId: number | null) => void;
   onLastChannel?: () => void;
+  sleepState?: import('../../hooks/useSleepTimer').SleepTimerState;
+  sleepActions?: import('../../hooks/useSleepTimer').SleepTimerActions;
 }
 
 export default function Guide({
@@ -47,6 +49,8 @@ export default function Guide({
   keyboardDisabled = false,
   onFocusedChannelChange,
   onLastChannel,
+  sleepState,
+  sleepActions,
 }: GuideProps) {
   const { channels, scheduleByChannel, loading, error, refresh } = useSchedule();
   const visibleChannels = getVisibleChannels();
@@ -140,15 +144,21 @@ export default function Guide({
     return idx >= 0 ? idx : 0;
   }, [scheduleByChannel]);
 
-  // Apply guide filter to channels
+  // Track which channel the user is focused on, so we can "pin" it in the
+  // filtered list even after time-sensitive filters (e.g. iconic-scene) expire.
+  const prevFocusedIdRef = useRef<number | null>(null);
+
+  // Apply guide filter to channels.
+  // Pin the currently-focused channel so it stays visible even if it no longer
+  // matches a time-sensitive filter (e.g. iconic-scene window passed).
+  const pinnedChannelId = prevFocusedIdRef.current;
   const filteredChannels = useMemo(
-    () => applyGuideFilter(channels, scheduleByChannel, activeFilters),
-    [channels, scheduleByChannel, activeFilters],
+    () => applyGuideFilter(channels, scheduleByChannel, activeFilters, pinnedChannelId),
+    [channels, scheduleByChannel, activeFilters, pinnedChannelId],
   );
 
   // When the filtered list changes, try to keep the same channel focused by ID.
   // If the channel was filtered out, clamp to the nearest valid index.
-  const prevFocusedIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (filteredChannels.length === 0) return;
     const prevId = prevFocusedIdRef.current;
@@ -500,6 +510,27 @@ export default function Guide({
     }
   }, [focusedChannel, focusedProgram, currentAiringProgram, onTune, pauseAutoScroll, isFullscreen]);
 
+  const handleRandomChannel = useCallback(() => {
+    if (filteredChannels.length <= 1) return;
+    pauseAutoScroll();
+    let randIdx: number;
+    do {
+      randIdx = Math.floor(Math.random() * filteredChannels.length);
+    } while (randIdx === focusedChannelIdx);
+    setFocusedChannelIdx(randIdx);
+    setScrollToChannelIdxOnce(randIdx);
+    const ch = filteredChannels[randIdx];
+    if (ch) {
+      setFocusedProgramIdx(findCurrentProgramIdx(ch.id));
+    }
+  }, [filteredChannels, focusedChannelIdx, pauseAutoScroll, findCurrentProgramIdx]);
+
+  const handleInfo = useCallback(() => {
+    if (focusedChannel && focusedProgram) {
+      setProgramInfoModal({ channel: focusedChannel, program: focusedProgram });
+    }
+  }, [focusedChannel, focusedProgram]);
+
   useKeyboard('guide', {
     onUp: handleUp,
     onDown: handleDown,
@@ -508,6 +539,9 @@ export default function Guide({
     onEnter: handleEnter,
     onEscape: onOpenSettings,
     onLastChannel,
+    onRandomChannel: handleRandomChannel,
+    onFullscreen: toggleFullscreen,
+    onInfo: handleInfo,
   }, !keyboardDisabled);
 
   if (loading) {
@@ -536,7 +570,7 @@ export default function Guide({
           </div>
         </div>
         {settingsOpen && onCloseSettings && (
-          <Settings onClose={onCloseSettings} />
+          <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
         )}
       </div>
     );
@@ -553,7 +587,7 @@ export default function Guide({
           </button>
         </div>
         {settingsOpen && onCloseSettings && (
-          <Settings onClose={onCloseSettings} />
+          <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
         )}
       </div>
     );
@@ -635,19 +669,40 @@ export default function Guide({
           scheduleByChannel={scheduleByChannel}
           activeFilters={activeFilters}
           onToggleFilter={(filterId) => {
+            const currentChannelId = focusedChannel?.id;
             const next = activeFilters.includes(filterId)
               ? activeFilters.filter(id => id !== filterId)
               : [...activeFilters, filterId];
             setGuideFilters(next);
             setActiveFilters(next);
-            setFocusedChannelIdx(0);
-            setFocusedProgramIdx(0);
+            // Preserve current channel position in the new filtered list
+            const newFiltered = applyGuideFilter(channels, scheduleByChannel, next);
+            if (currentChannelId != null) {
+              const newIdx = newFiltered.findIndex(ch => ch.id === currentChannelId);
+              if (newIdx >= 0) {
+                setFocusedChannelIdx(newIdx);
+                return;
+              }
+            }
+            // Channel was filtered out — clamp to nearest valid index
+            setFocusedChannelIdx(prev =>
+              prev >= newFiltered.length ? Math.max(0, newFiltered.length - 1) : prev,
+            );
           }}
           onClearFilters={() => {
+            const currentChannelId = focusedChannel?.id;
             setGuideFilters([]);
             setActiveFilters([]);
+            // Preserve current channel position in the unfiltered list
+            const newFiltered = applyGuideFilter(channels, scheduleByChannel, []);
+            if (currentChannelId != null) {
+              const newIdx = newFiltered.findIndex(ch => ch.id === currentChannelId);
+              if (newIdx >= 0) {
+                setFocusedChannelIdx(newIdx);
+                return;
+              }
+            }
             setFocusedChannelIdx(0);
-            setFocusedProgramIdx(0);
           }}
           onClose={() => setFilterOpen(false)}
         />
@@ -679,7 +734,7 @@ export default function Guide({
         />
       </div>
       {settingsOpen && onCloseSettings && (
-        <Settings onClose={onCloseSettings} />
+        <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
       )}
     </div>
   );

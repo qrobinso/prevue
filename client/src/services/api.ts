@@ -164,6 +164,11 @@ export async function getChannels(): Promise<ChannelWithProgram[]> {
   return request('/channels');
 }
 
+export async function getRecommendedChannel(clientId: string): Promise<{ channel_number: number | null }> {
+  const hour = new Date().getHours();
+  return request(`/channels/recommend?client_id=${encodeURIComponent(clientId)}&hour=${hour}`);
+}
+
 export async function createChannel(name: string, item_ids: string[]): Promise<Channel> {
   return request('/channels', {
     method: 'POST',
@@ -313,6 +318,20 @@ export async function getIconicScenesStatus(): Promise<{ lastRefreshed: string |
 
 export async function refreshIconicScenes(): Promise<{ success: boolean; count: number; lastRefreshed: string | null }> {
   return request('/schedule/iconic-scenes/refresh', { method: 'POST' });
+}
+
+export async function getCatchUpSummary(params: {
+  mediaItemId: string;
+  title: string;
+  year: number | null;
+  elapsedMinutes: number;
+  durationMinutes: number;
+}): Promise<{ summary: string }> {
+  return request('/schedule/catch-up', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
 }
 
 export async function getCurrentProgram(channelId: number): Promise<{

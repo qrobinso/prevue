@@ -30,6 +30,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'schedule_alignment',
   'guide_dividers',
   'channel_colors',
+  'auto_tune_enabled',
 ]);
 
 // GET /api/settings - Get all settings

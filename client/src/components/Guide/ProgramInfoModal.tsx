@@ -34,6 +34,12 @@ function formatDuration(ms: number): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+function formatMinutes(m: number): string {
+  const h = Math.floor(m / 60);
+  const min = Math.round(m % 60);
+  return h > 0 ? `${h}:${min.toString().padStart(2, '0')}` : `${min}m`;
+}
+
 interface ProgramInfoModalProps {
   channel: Channel;
   program: ScheduleProgram;
@@ -119,6 +125,22 @@ export default function ProgramInfoModal({ channel, program, onClose }: ProgramI
           </div>
           {details?.overview && (
             <div className="program-info-overview">{details.overview}</div>
+          )}
+          {program.iconic_scenes && program.iconic_scenes.length > 0 && (
+            <div className="program-info-iconic">
+              <h4 className="program-info-iconic-title">ICONIC SCENES</h4>
+              <ul className="program-info-iconic-list">
+                {program.iconic_scenes.map((scene, i) => (
+                  <li key={i} className="program-info-iconic-item">
+                    <span className="program-info-iconic-time">
+                      {formatMinutes(scene.timestamp_minutes)}–{formatMinutes(scene.end_minutes)}
+                    </span>
+                    <span className="program-info-iconic-name">{scene.name}</span>
+                    <span className="program-info-iconic-why">{scene.why}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       </div>
