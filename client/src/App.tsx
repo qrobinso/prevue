@@ -5,7 +5,7 @@ import Player from './components/Player/Player';
 import AuthGate from './components/AuthGate';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useKeyboard } from './hooks/useKeyboard';
-import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, type ChannelWithProgram } from './services/api';
+import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, getServers, regenerateSchedule, type ChannelWithProgram } from './services/api';
 import { getClientId } from './services/clientIdentity';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
 import { getGuideFilters, applyGuideFilterSimple, type GuideFilterId } from './components/Guide/guideFilterUtils';
@@ -113,9 +113,26 @@ function AppContent() {
   }, []);
 
   // Fetch channels on mount for player channel resolution (WS events handle subsequent updates)
+  const scheduleCheckDoneRef = useRef(false);
   useEffect(() => {
     getChannels()
-      .then(setChannels)
+      .then((chs) => {
+        setChannels(chs);
+        // Auto-regenerate schedule if server is active but no programs are playing
+        if (scheduleCheckDoneRef.current || chs.length === 0) return;
+        scheduleCheckDoneRef.current = true;
+        const hasAnyProgram = chs.some(ch => ch.current_program !== null);
+        if (!hasAnyProgram) {
+          getServers()
+            .then((servers) => {
+              if (servers.some(s => s.is_active)) {
+                regenerateSchedule()
+                  .catch(() => {}); // WS event will refresh channels automatically
+              }
+            })
+            .catch(() => {});
+        }
+      })
       .catch(() => {});
   }, []);
 

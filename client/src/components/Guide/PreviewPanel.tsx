@@ -1009,9 +1009,9 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       onTouchStart={swipe.onTouchStart}
       onTouchEnd={swipe.onTouchEnd}
     >
+      <BottomNotificationProvider>
       {/* Video fills entire panel — shared video element is reparented here */}
       <div className="preview-video-container">
-      <BottomNotificationProvider>
         {showVideo && (
           <div ref={videoContainerRef} className="preview-video-host" />
         )}
@@ -1063,7 +1063,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
             </div>
           </div>
         )}
-      {/* 2E Promo overlay — renderless, registers with notification manager */}
+      </div>
+      {/* Notification overlays — rendered outside video container so they layer above preview-overlay */}
       {program && program.type !== 'interstitial' && videoReady && (
         <PromoOverlay
           currentProgram={program}
@@ -1078,14 +1079,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           onTuneChannel={onSelectChannel}
         />
       )}
-      {/* Iconic scene overlay — renderless, registers with notification manager */}
       {program && program.type !== 'interstitial' && (
         <IconicSceneOverlay
           program={program}
           hidden={false}
         />
       )}
-      {/* Catch-up overlay — only activate once the preview stream is actually playing */}
       {program && program.type !== 'interstitial' && channel && videoReady && (
         <CatchUpOverlay
           program={program}
@@ -1095,7 +1094,6 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         />
       )}
       </BottomNotificationProvider>
-      </div>
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}
       <div
         className={`preview-overlay ${overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}

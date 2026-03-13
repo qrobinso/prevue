@@ -334,6 +334,10 @@ export async function getCatchUpSummary(params: {
   });
 }
 
+export async function regenerateSchedule(): Promise<{ success: boolean }> {
+  return request('/schedule/regenerate', { method: 'POST' }, LONG_REQUEST_TIMEOUT_MS);
+}
+
 export async function getCurrentProgram(channelId: number): Promise<{
   program: import('../types').ScheduleProgram;
   next: import('../types').ScheduleProgram | null;
