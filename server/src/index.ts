@@ -298,7 +298,7 @@ async function bootSequence() {
     lastRetentionRun = Date.now();
     try {
       const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      const eventsDeleted = db.prepare('DELETE FROM watch_events WHERE timestamp < ?').run(cutoff);
+      const eventsDeleted = db.prepare('DELETE FROM watch_events WHERE created_at < ?').run(cutoff);
       const sessionsDeleted = db.prepare('DELETE FROM watch_sessions WHERE started_at < ?').run(cutoff);
       if (eventsDeleted.changes || sessionsDeleted.changes) {
         console.log(`[Prevue] Metrics retention: pruned ${eventsDeleted.changes} events, ${sessionsDeleted.changes} sessions older than ${RETENTION_DAYS} days`);

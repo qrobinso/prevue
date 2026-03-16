@@ -448,17 +448,15 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
     }
 
     if (!responseData.ok) {
-      console.error(`[Stream Proxy] Server returned ${responseData.status}`);
-
-      // On 500 errors, stop the transcode job so cache can be freed
+      // On 500 errors, stop the transcode job so cache can be freed.
+      // Skip if the session was already cleaned up (race with in-flight segment requests).
       if (responseData.status === 500) {
-        // Try to identify the item from Jellyfin URL pattern or active session lookup
         const match = jellyfinPath.match(/\/Videos\/([^/]+)\//);
         const qp = new URLSearchParams(queryString.substring(1));
         const playSessionId = qp.get('PlaySessionId') || qp.get('session');
         const itemId = match?.[1]
           || (playSessionId ? [...activeSessions.entries()].find(([, s]) => s.playSessionId === playSessionId)?.[0] : undefined);
-        if (itemId && playSessionId) {
+        if (itemId && activeSessions.has(itemId) && playSessionId) {
           console.log(`[Stream Proxy] Stopping transcode for ${itemId} due to 500 error`);
           try {
             await provider.stopPlaybackSession(playSessionId);
@@ -468,7 +466,12 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
           }
           activeSessions.delete(itemId);
           lastActivityByItemId.delete(itemId);
+        } else {
+          // Session already stopped — expected race condition with in-flight segments
+          console.warn(`[Stream Proxy] Server returned 500 for already-stopped session (${itemId ?? 'unknown'})`);
         }
+      } else {
+        console.error(`[Stream Proxy] Server returned ${responseData.status}`);
       }
 
       res.status(responseData.status).end();
@@ -567,7 +570,7 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
   // adding unnecessary latency that can cause HLS.js manifest timeouts.
   if (stopPromises.length > 0) {
     await Promise.all(stopPromises);
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 300));
   }
 
   // Read quality, subtitle, and audio params from request
@@ -596,20 +599,24 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
   let response = await fetch(masterUrl, { headers });
 
   // Plex may return 400 if a transcode session hasn't fully released.
-  // Stop the failed session explicitly before retrying with a fresh one.
-  // Use escalating delays (2s, 4s, 7s) — Plex's FFmpeg cleanup can be slow.
-  const retryDelays = [2000, 4000, 7000];
+  // Retry 1: reuse the same session URL (PUT already persisted stream selections,
+  // so repeating them can conflict with Plex's cleanup). Only stop + re-request.
+  // Retry 2: generate a completely fresh session as a last resort.
+  const retryDelays = [1500, 3000];
   for (let retry = 0; !response.ok && response.status === 400 && retry < retryDelays.length; retry++) {
     const delay = retryDelays[retry];
     console.log(`[Stream Plex] Plex returned 400, stopping session ${playSessionId} and retrying (${retry + 1}/${retryDelays.length}) after ${delay}ms...`);
     await provider.stopPlaybackSession(playSessionId).catch(() => {});
     await new Promise(r => setTimeout(r, delay));
-    hlsInfo = await provider.getHlsStreamUrl(itemId, undefined, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
-    playSessionId = hlsInfo.playSessionId;
-    mediaSourceId = hlsInfo.mediaSourceId;
-    masterUrl = hlsInfo.url;
-    activeSessions.set(itemId, { playSessionId, mediaSourceId });
-    lastActivityByItemId.set(itemId, Date.now());
+    if (retry === retryDelays.length - 1) {
+      // Final retry: fresh session with new ID and params
+      hlsInfo = await provider.getHlsStreamUrl(itemId, undefined, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
+      playSessionId = hlsInfo.playSessionId;
+      mediaSourceId = hlsInfo.mediaSourceId;
+      masterUrl = hlsInfo.url;
+      activeSessions.set(itemId, { playSessionId, mediaSourceId });
+      lastActivityByItemId.set(itemId, Date.now());
+    }
     response = await fetch(masterUrl, { headers });
   }
 

@@ -1,5 +1,7 @@
+import { useRef } from 'react';
 import { SLEEP_PRESETS, formatSleepRemaining, type SleepTimerState, type SleepTimerActions } from '../../hooks/useSleepTimer';
 import { Moon, X } from '@phosphor-icons/react';
+import { useNavLayer, moveFocus } from '../../navigation';
 import './SleepTimerOverlay.css';
 
 interface SleepTimerOverlayProps {
@@ -7,8 +9,29 @@ interface SleepTimerOverlayProps {
   actions: SleepTimerActions;
 }
 
-export default function SleepTimerOverlay({ state, actions }: SleepTimerOverlayProps) {
-  if (!state.showPicker) return null;
+/** Inner component — only mounts when picker is shown, so hooks run unconditionally. */
+function SleepTimerPicker({ state, actions }: SleepTimerOverlayProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const presetsRef = useRef<HTMLDivElement>(null);
+
+  useNavLayer('sleep-timer', panelRef, () => actions.closePicker(), {
+    onArrow: (dir) => {
+      if ((dir === 'up' || dir === 'down' || dir === 'left' || dir === 'right') && presetsRef.current) {
+        // Presets are laid out in a grid — use horizontal for left/right, vertical for up/down
+        const d = dir === 'right' || dir === 'down' ? 'next' : 'prev';
+        return moveFocus(presetsRef.current, d, { wrap: true });
+      }
+      return false;
+    },
+    onEnter: () => {
+      const el = document.activeElement;
+      if (el instanceof HTMLElement) {
+        el.click();
+        return true;
+      }
+      return false;
+    },
+  });
 
   return (
     <div
@@ -18,6 +41,7 @@ export default function SleepTimerOverlay({ state, actions }: SleepTimerOverlayP
     >
       <div
         className="sleep-timer-panel"
+        ref={panelRef}
         onClick={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
         onTouchEnd={(e) => e.stopPropagation()}
@@ -47,7 +71,7 @@ export default function SleepTimerOverlay({ state, actions }: SleepTimerOverlayP
           </div>
         )}
 
-        <div className="sleep-timer-presets">
+        <div className="sleep-timer-presets" ref={presetsRef}>
           {SLEEP_PRESETS.map((minutes) => (
             <button
               key={minutes}
@@ -73,6 +97,11 @@ export default function SleepTimerOverlay({ state, actions }: SleepTimerOverlayP
       </div>
     </div>
   );
+}
+
+export default function SleepTimerOverlay({ state, actions }: SleepTimerOverlayProps) {
+  if (!state.showPicker) return null;
+  return <SleepTimerPicker state={state} actions={actions} />;
 }
 
 /** Small badge shown on the player when timer is active */

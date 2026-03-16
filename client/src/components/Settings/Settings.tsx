@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import GeneralSettings from './GeneralSettings';
 import FilterSettings from './FilterSettings';
 import ChannelSettings from './ChannelSettings';
@@ -9,6 +9,7 @@ import SleepTimerSettings from './SleepTimerSettings';
 import type { SleepTimerState, SleepTimerActions } from '../../hooks/useSleepTimer';
 import { wsClient } from '../../services/websocket';
 import { X, Check, XCircle } from '@phosphor-icons/react';
+import { useNavLayer, moveFocus, getFocusableChildren } from '../../navigation';
 import './Settings.css';
 
 interface SettingsProps {
@@ -18,6 +19,8 @@ interface SettingsProps {
 }
 
 type SettingsTab = 'general' | 'filters' | 'channels' | 'display' | 'iptv' | 'metrics' | 'timer';
+
+const TAB_ORDER: SettingsTab[] = ['general', 'timer', 'filters', 'channels', 'display', 'iptv', 'metrics'];
 
 interface SyncProgress {
   step: string;
@@ -31,6 +34,96 @@ export default function Settings({ onClose, sleepState, sleepActions }: Settings
   const [syncInterstitialVisible, setSyncInterstitialVisible] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Track whether focus is in tab bar vs content for arrow routing
+  const isFocusInTabBar = useCallback(() => {
+    const el = document.activeElement;
+    return el instanceof HTMLElement && tabBarRef.current?.contains(el);
+  }, []);
+
+  const isFocusInContent = useCallback(() => {
+    const el = document.activeElement;
+    return el instanceof HTMLElement && contentRef.current?.contains(el);
+  }, []);
+
+  // ── Navigation Layer ──
+  useNavLayer('settings', panelRef, onClose, {
+    onArrow: (dir) => {
+      if (dir === 'left' || dir === 'right') {
+        // Tab bar: Left/Right switches tabs
+        if (isFocusInTabBar()) {
+          const currentIdx = TAB_ORDER.indexOf(activeTab);
+          let nextIdx: number;
+          if (dir === 'right') {
+            nextIdx = currentIdx < TAB_ORDER.length - 1 ? currentIdx + 1 : 0;
+          } else {
+            nextIdx = currentIdx > 0 ? currentIdx - 1 : TAB_ORDER.length - 1;
+          }
+          setActiveTab(TAB_ORDER[nextIdx]);
+          // Focus the new tab button after render
+          requestAnimationFrame(() => {
+            if (tabBarRef.current) {
+              const tabs = tabBarRef.current.querySelectorAll<HTMLElement>('.settings-tab');
+              tabs[nextIdx]?.focus();
+            }
+          });
+          return true;
+        }
+        // In content area, don't handle left/right (let default behavior)
+        return false;
+      }
+
+      if (dir === 'down') {
+        if (isFocusInTabBar() && contentRef.current) {
+          // Move from tab bar to content
+          const children = getFocusableChildren(contentRef.current);
+          if (children.length > 0) {
+            children[0].focus();
+            return true;
+          }
+        }
+        // Within content: move to next focusable
+        if (isFocusInContent() && contentRef.current) {
+          return moveFocus(contentRef.current, 'next', { wrap: false });
+        }
+        return false;
+      }
+
+      if (dir === 'up') {
+        if (isFocusInContent() && contentRef.current) {
+          const children = getFocusableChildren(contentRef.current);
+          const active = document.activeElement as HTMLElement;
+          const idx = children.indexOf(active);
+          if (idx <= 0) {
+            // At top of content → move back to tab bar
+            if (tabBarRef.current) {
+              const tabIdx = TAB_ORDER.indexOf(activeTab);
+              const tabs = tabBarRef.current.querySelectorAll<HTMLElement>('.settings-tab');
+              tabs[tabIdx]?.focus();
+              return true;
+            }
+          }
+          return moveFocus(contentRef.current, 'prev', { wrap: false });
+        }
+        return false;
+      }
+
+      return false;
+    },
+    onEnter: () => {
+      // Let the browser handle native button/input clicks
+      const el = document.activeElement;
+      if (el instanceof HTMLElement) {
+        el.click();
+        return true;
+      }
+      return false;
+    },
+  });
 
   const handleServerAdded = (server: { is_active: boolean }) => {
     if (server.is_active) {
@@ -87,13 +180,13 @@ export default function Settings({ onClose, sleepState, sleepActions }: Settings
           </div>
         </div>
       )}
-      <div className="settings-panel">
+      <div className="settings-panel" ref={panelRef}>
         <div className="settings-header">
           <h2 className="settings-title">SETTINGS</h2>
           <button className="settings-close-btn" onClick={onClose}><X size={18} weight="bold" /></button>
         </div>
 
-        <div className="settings-tabs">
+        <div className="settings-tabs" ref={tabBarRef}>
           <button
             className={`settings-tab ${activeTab === 'general' ? 'settings-tab-active' : ''}`}
             onClick={() => setActiveTab('general')}
@@ -138,7 +231,7 @@ export default function Settings({ onClose, sleepState, sleepActions }: Settings
           </button>
         </div>
 
-        <div className="settings-content">
+        <div className="settings-content" ref={contentRef}>
           {activeTab === 'general' && <GeneralSettings onServerAdded={handleServerAdded} />}
           {activeTab === 'filters' && <FilterSettings />}
           {activeTab === 'channels' && <ChannelSettings />}

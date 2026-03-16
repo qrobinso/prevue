@@ -107,35 +107,41 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     // Audio/subtitle tracks + Jellyfin session from a single PlaybackInfo call.
     // PlaySessionId and MediaSourceId are forwarded to the stream URL so it can
     // skip a redundant getPlaybackInfo round-trip to Jellyfin.
+    // Tracks and media segments are independent — fetch in parallel to save ~50-100ms.
     let audio_tracks: { index: number; language: string; name: string }[] = [];
     let subtitle_tracks: { index: number; language: string; name: string; codec: string | null; forced: boolean; key: string | null }[] = [];
     let playSessionId = '';
     let mediaSourceId = '';
-    try {
+    let outro_start_ms: number | null = null;
+    {
       const cacheKey = program.media_item_id;
       const cached = tracksCache.get(cacheKey);
-      if (cached && Date.now() < cached.expiresAt) {
-        ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = cached.data);
-      } else {
-        const result = await getTracksAndSession(provider, program.media_item_id);
-        tracksCache.set(cacheKey, { data: result, expiresAt: Date.now() + TRACKS_CACHE_TTL_MS });
-        ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = result);
-        // Evict expired entries on every miss to prevent unbounded growth
-        const now = Date.now();
-        for (const [k, v] of tracksCache) {
-          if (now > v.expiresAt) tracksCache.delete(k);
-        }
-      }
-    } catch (e) {
-      console.warn('[Playback] Could not fetch tracks:', (e as Error).message);
-    }
+      const isCacheHit = cached != null && Date.now() < cached.expiresAt;
 
-    // Fetch media segments for outro/credits detection (non-blocking)
-    let outro_start_ms: number | null = null;
-    try {
-      const segments = await provider.getMediaSegments(program.media_item_id);
-      outro_start_ms = segments.outroStartMs;
-    } catch { /* non-fatal */ }
+      const [tracksResult, segmentsResult] = await Promise.allSettled([
+        isCacheHit ? cached!.data : getTracksAndSession(provider, program.media_item_id),
+        provider.getMediaSegments(program.media_item_id),
+      ]);
+
+      if (tracksResult.status === 'fulfilled') {
+        const result = tracksResult.value;
+        if (!isCacheHit) {
+          tracksCache.set(cacheKey, { data: result, expiresAt: Date.now() + TRACKS_CACHE_TTL_MS });
+          // Evict expired entries on every miss to prevent unbounded growth
+          const now = Date.now();
+          for (const [k, v] of tracksCache) {
+            if (now > v.expiresAt) tracksCache.delete(k);
+          }
+        }
+        ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = result);
+      } else {
+        console.warn('[Playback] Could not fetch tracks:', (tracksResult.reason as Error)?.message);
+      }
+
+      if (segmentsResult.status === 'fulfilled') {
+        outro_start_ms = segmentsResult.value.outroStartMs;
+      }
+    }
 
     // If client did not request a specific track, apply preferred audio language from DB
     if (audioStreamIndex == null || Number.isNaN(audioStreamIndex)) {
@@ -209,6 +215,9 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
       const headers = provider.getProxyHeaders();
       const deviceId = provider.getDeviceId();
       const hevc = req.query.hevc === '1';
+      // Pre-warm params MUST match what stream.ts handleJellyfinStream builds,
+      // otherwise Jellyfin starts a different transcode session and the pre-warm is wasted.
+      const hasExplicitQuality = !!(bitrate && bitrate !== 120000000) || !!maxWidth;
       const warmParams = new URLSearchParams({
         DeviceId: deviceId,
         MediaSourceId: mediaSourceId,
@@ -221,14 +230,25 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
         SegmentContainer: hevc ? 'mp4' : 'ts',
         MinSegments: '2',
         BreakOnNonKeyFrames: 'true',
-        AllowVideoStreamCopy: 'true',
-        AllowAudioStreamCopy: 'true',
-        EnableAutoStreamCopy: 'true',
-        MaxWidth: maxWidth ? String(maxWidth) : '3840',
-        MaxHeight: '2160',
       });
+      // Match stream.ts:714-724 — only allow stream copy when auto quality
+      if (!hasExplicitQuality) {
+        warmParams.set('AllowVideoStreamCopy', 'true');
+        warmParams.set('AllowAudioStreamCopy', 'true');
+        warmParams.set('EnableAutoStreamCopy', 'true');
+        warmParams.set('MaxWidth', '3840');
+        warmParams.set('MaxHeight', '2160');
+      } else if (maxWidth) {
+        warmParams.set('MaxWidth', String(maxWidth));
+      }
       if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
         warmParams.set('AudioStreamIndex', String(audioStreamIndex));
+      }
+      // Match stream.ts:728-732 — include subtitle params so Jellyfin
+      // pre-warms the correct transcode (with or without burn-in).
+      if (subtitle_index != null && subtitle_tracks[subtitle_index]) {
+        warmParams.set('SubtitleStreamIndex', String(subtitle_tracks[subtitle_index].index));
+        warmParams.set('SubtitleMethod', 'Encode');
       }
       const warmUrl = `${baseUrl}/Videos/${program.media_item_id}/master.m3u8?${warmParams}`;
       void fetch(warmUrl, { headers }).catch(() => {});

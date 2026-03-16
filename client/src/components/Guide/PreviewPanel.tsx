@@ -333,6 +333,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         maxBufferHole: 0.5,
         // Use HLS.js-managed subtitle timing for correct sync with Jellyfin HLS
         renderTextTracksNatively: false,
+        // Faster startup: prefetch next fragment while current one loads,
+        // skip bandwidth test (local network), and assume high bandwidth so
+        // HLS.js picks the best quality immediately instead of ramping up.
+        startFragPrefetch: true,
+        testBandwidth: false,
+        abrEwmaDefaultEstimate: 50_000_000,
       });
       hlsRef.current = hls;
       setSharedHls(hls);

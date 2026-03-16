@@ -800,7 +800,7 @@ function GuideGrid({
     <div
       className="guide-grid-container"
       ref={containerRef}
-      style={{ '--guide-channel-col-width': `${channelColWidth}px` } as React.CSSProperties}
+      style={{ '--guide-channel-col-width': `${channelColWidth}px`, visibility: containerWidth > 0 ? 'visible' : 'hidden' } as React.CSSProperties}
     >
       <div className="guide-time-header" style={{ height: timeHeaderHeight }}>
         <div className="guide-time-header-spacer guide-time-header-clock-wrap">

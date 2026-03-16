@@ -4,7 +4,7 @@ import Guide from './components/Guide/Guide';
 import Player from './components/Player/Player';
 import AuthGate from './components/AuthGate';
 import { useWebSocket } from './hooks/useWebSocket';
-import { useKeyboard } from './hooks/useKeyboard';
+import { NavigationProvider } from './navigation';
 import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, getServers, regenerateSchedule, type ChannelWithProgram } from './services/api';
 import { getClientId } from './services/clientIdentity';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
@@ -301,11 +301,6 @@ function AppContent() {
     sleepActions.cancel();
   }, [sleepActions]);
 
-  // Guide-level keyboard (disabled when player overlay is active)
-  useKeyboard('guide', {
-    onEscape: settingsOpen ? handleCloseSettings : undefined,
-  }, !playerActive);
-
   // Guide streaming paused when player overlay is active or iOS not yet interacted
   const guideStreamingPaused = playerActive || (isIOS() && !hasUserInteracted);
 
@@ -377,9 +372,11 @@ function AppContent() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthWrapper>
-        <AppContent />
-      </AuthWrapper>
+      <NavigationProvider>
+        <AuthWrapper>
+          <AppContent />
+        </AuthWrapper>
+      </NavigationProvider>
     </BrowserRouter>
   );
 }

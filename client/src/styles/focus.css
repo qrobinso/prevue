@@ -1,0 +1,68 @@
+/* ── Remote Control / Keyboard Focus Styles ─────────── */
+
+/* Base focus ring for all interactive elements */
+button:focus-visible,
+select:focus-visible,
+[tabindex="0"]:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 0;
+}
+
+/* Guide header buttons — match hover style on focus */
+.guide-search-btn:focus-visible,
+.guide-filter-btn:focus-visible,
+.guide-fullscreen-btn:focus-visible,
+.guide-settings-btn:focus-visible {
+  background: var(--bg-cell-hover);
+  color: var(--text-gold);
+  border-color: var(--accent-cyan);
+}
+
+/* Settings tabs */
+.settings-tab:focus-visible {
+  color: var(--text-gold);
+  background: var(--bg-cell-hover);
+}
+
+/* Settings toggle buttons (on/off) */
+.settings-toggle:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+/* Sleep timer preset buttons */
+.sleep-preset-btn:focus-visible {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
+
+/* Filter option items */
+.guide-filter-option:focus-visible {
+  background: var(--bg-cell-hover);
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+}
+
+/* Channel search results */
+.channel-search-result:focus-visible {
+  background: var(--bg-cell-hover);
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+}
+
+/* Settings close button */
+.settings-close-btn:focus-visible {
+  color: var(--accent-cyan);
+}
+
+/* Program info modal close */
+.program-info-close:focus-visible {
+  color: var(--accent-cyan);
+}

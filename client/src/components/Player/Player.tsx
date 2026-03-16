@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Hls from 'hls.js';
 import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings, metricsStart, metricsStop } from '../../services/api';
 import { getClientId } from '../../services/clientIdentity';
-import { useKeyboard } from '../../hooks/useKeyboard';
+import { useNavZone, useNavigation } from '../../navigation';
 import { useSwipe } from '../../hooks/useSwipe';
 import { CornersIn, FrameCorners, GearSix, ArrowCounterClockwise, X } from '@phosphor-icons/react';
 import { useVolume, useVideoVolume } from '../../hooks/useVolume';
@@ -223,7 +223,14 @@ function collectNerdStats(video: HTMLVideoElement | null, hls: Hls | null): Nerd
 
 export default function Player({ channel, program, onBack, onChannelUp, onChannelDown, onLastChannel, onRandomChannel, enterFullscreenOnMount, sleepState, sleepActions }: PlayerProps) {
   const navigate = useNavigate();
+  const { setActiveZone } = useNavigation();
   const playerContainerRef = useRef<HTMLDivElement>(null);
+
+  // Activate player zone on mount, return to guide on unmount
+  useEffect(() => {
+    setActiveZone('player');
+    return () => setActiveZone('guide-grid');
+  }, [setActiveZone]);
   const videoRef = useRef<HTMLVideoElement>(getVideoElement());
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -493,6 +500,12 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           // rendering. Native rendering has known sync issues with Jellyfin HLS
           // subtitles due to X-TIMESTAMP-MAP PTS offset mismatches.
           renderTextTracksNatively: false,
+          // Faster startup: prefetch next fragment while current one loads,
+          // skip bandwidth test (local network), and assume high bandwidth so
+          // HLS.js picks the best quality immediately instead of ramping up.
+          startFragPrefetch: true,
+          testBandwidth: false,
+          abrEwmaDefaultEstimate: 50_000_000,
         });
 
         hlsRef.current = hls;
@@ -1160,32 +1173,47 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
     setCatchUpTrigger(true);
   }, []);
 
-  useKeyboard('player', {
-    onEscape: handleBackToGuide,
-    onEnter: showOverlayBriefly,
-    onUp: onChannelUp,
-    onDown: onChannelDown,
-    onLastChannel,
-    onRandomChannel,
-    onFullscreen: doToggleFullscreen,
-    onInfo: handleShowInfo,
-    onGuide: handleBackToGuide,
-    onSleepTimer: handleSleepTimerToggle,
-    onCatchUp: handleCatchUp,
-  });
-
-  // 'P' key triggers promo overlay on demand
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === 'p' || e.key === 'P') {
-        e.preventDefault();
-        promoTriggerRef.current?.trigger();
+  // ── Navigation Zone: Player ──
+  useNavZone({
+    id: 'player',
+    onArrow: (dir) => {
+      if (dir === 'up') { onChannelUp?.(); return true; }
+      if (dir === 'down') { onChannelDown?.(); return true; }
+      showOverlayBriefly();
+      return true;
+    },
+    onEnter: () => { showOverlayBriefly(); return true; },
+    onEscape: () => handleBackToGuide(),
+    onKey: (key) => {
+      switch (key) {
+        case 'Backspace': case 'Delete':
+          onLastChannel?.();
+          return true;
+        case 'r': case 'R':
+          onRandomChannel?.();
+          return true;
+        case 'f': case 'F':
+          doToggleFullscreen();
+          return true;
+        case 'i': case 'I':
+          handleShowInfo();
+          return true;
+        case 'g': case 'G':
+          handleBackToGuide();
+          return true;
+        case 't': case 'T':
+          handleSleepTimerToggle();
+          return true;
+        case 'm': case 'M':
+          handleCatchUp();
+          return true;
+        case 'p': case 'P':
+          promoTriggerRef.current?.trigger();
+          return true;
       }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+      return false;
+    },
+  });
 
   // Toggle video fit between letterbox (contain) and fill (cover)
   const toggleVideoFit = useCallback(() => {

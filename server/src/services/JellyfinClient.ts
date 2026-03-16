@@ -566,7 +566,7 @@ export class JellyfinClient extends AbstractMediaProvider {
   /**
    * Get HLS master playlist URL with proper session ID
    */
-  async getHlsStreamUrl(itemId: string, startPositionTicks?: number, _options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<{ url: string; playSessionId: string; isHdrSource: boolean; mediaSourceId: string }> {
+  async getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<{ url: string; playSessionId: string; isHdrSource: boolean; mediaSourceId: string }> {
     const playbackInfo = await this.getPlaybackInfo(itemId);
     const playSessionId = playbackInfo.PlaySessionId || randomUUID();
     const mediaSource = playbackInfo.MediaSources?.[0];
@@ -575,6 +575,7 @@ export class JellyfinClient extends AbstractMediaProvider {
 
     const baseUrl = this.getServerUrl();
     const accessToken = this.getAccessToken();
+    const bitrate = options?.bitrate || 120000000;
 
     const params = new URLSearchParams({
       api_key: accessToken,
@@ -583,11 +584,17 @@ export class JellyfinClient extends AbstractMediaProvider {
       PlaySessionId: playSessionId,
       VideoCodec: 'h264',
       AudioCodec: 'aac',
-      MaxStreamingBitrate: '20000000',
+      MaxStreamingBitrate: String(bitrate),
+      VideoBitrate: String(bitrate),
       TranscodingMaxAudioChannels: '2',
       SegmentContainer: 'ts',
       MinSegments: '2',
       BreakOnNonKeyFrames: 'true',
+      AllowVideoStreamCopy: 'true',
+      AllowAudioStreamCopy: 'true',
+      EnableAutoStreamCopy: 'true',
+      MaxWidth: options?.maxWidth ? String(options.maxWidth) : '3840',
+      MaxHeight: '2160',
     });
 
     if (startPositionTicks) {

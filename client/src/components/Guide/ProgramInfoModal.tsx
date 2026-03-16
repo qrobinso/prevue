@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import type { Channel, ScheduleProgram } from '../../types';
 import { getProgramDetails } from '../../services/api';
 import type { ProgramDetails } from '../../services/api';
 import { X } from '@phosphor-icons/react';
+import { useNavLayer } from '../../navigation';
 import './Guide.css';
 
 function formatRTRating(rating: number): string {
@@ -48,6 +49,7 @@ interface ProgramInfoModalProps {
 
 export default function ProgramInfoModal({ channel, program, onClose }: ProgramInfoModalProps) {
   const [details, setDetails] = useState<ProgramDetails | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (program.media_item_id) {
@@ -57,13 +59,8 @@ export default function ProgramInfoModal({ channel, program, onClose }: ProgramI
     }
   }, [program.media_item_id]);
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [onClose]);
+  // Navigation layer — handles Escape, focus save/restore
+  useNavLayer('program-info', modalRef, onClose);
 
   const start = formatTime(program.start_time);
   const end = formatTime(program.end_time);
@@ -77,7 +74,7 @@ export default function ProgramInfoModal({ channel, program, onClose }: ProgramI
       aria-modal="true"
       aria-labelledby="program-info-title"
     >
-      <div className="program-info-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="program-info-modal" ref={modalRef} onClick={(e) => e.stopPropagation()}>
         <div className="program-info-header">
           <h2 id="program-info-title" className="program-info-title">{program.title}</h2>
           <button

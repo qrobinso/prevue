@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { X } from '@phosphor-icons/react';
 import type { ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
@@ -7,6 +7,7 @@ import {
   countFilterMatches,
   type GuideFilterId,
 } from './guideFilterUtils';
+import { useNavLayer, moveFocus } from '../../navigation';
 import './Guide.css';
 
 interface GuideFilterProps {
@@ -41,6 +42,27 @@ export default function GuideFilter({
 
   const activeSet = useMemo(() => new Set(activeFilters), [activeFilters]);
 
+  const modalRef = useRef<HTMLDivElement>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
+
+  // Navigation layer — Escape closes, arrow keys navigate filter options
+  useNavLayer('guide-filter', modalRef, onClose, {
+    onArrow: (dir) => {
+      if ((dir === 'up' || dir === 'down') && optionsRef.current) {
+        return moveFocus(optionsRef.current, dir === 'down' ? 'next' : 'prev', { wrap: true });
+      }
+      return false;
+    },
+    onEnter: () => {
+      const el = document.activeElement;
+      if (el instanceof HTMLElement) {
+        el.click();
+        return true;
+      }
+      return false;
+    },
+  });
+
   return (
     <div
       className="channel-search-backdrop"
@@ -49,7 +71,7 @@ export default function GuideFilter({
       aria-modal="true"
       aria-label="Filter channels"
     >
-      <div className="guide-filter-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="guide-filter-modal" ref={modalRef} onClick={(e) => e.stopPropagation()}>
         <div className="guide-filter-header">
           <span className="guide-filter-title">Filter Channels</span>
           <button
@@ -62,7 +84,7 @@ export default function GuideFilter({
             <X size={18} weight="bold" />
           </button>
         </div>
-        <div className="guide-filter-options">
+        <div className="guide-filter-options" ref={optionsRef}>
           {activeFilters.length > 0 && (
             <button
               type="button"

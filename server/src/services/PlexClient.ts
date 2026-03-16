@@ -3,7 +3,12 @@ import type { MediaItem, ServerConfig } from '../types/index.js';
 import type { PlaybackInfoResult, StreamInfo } from './MediaProvider.js';
 import { AbstractMediaProvider } from './AbstractMediaProvider.js';
 import * as queries from '../db/queries.js';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
+
+/** 24-char hex session ID — matches the format Plex's own clients use */
+function generatePlexSessionId(): string {
+  return randomBytes(12).toString('hex');
+}
 
 // ─── Plex API response shapes (subset) ─────────────────
 
@@ -556,7 +561,7 @@ export class PlexClient extends AbstractMediaProvider {
     // We fetch the item metadata to get media source info and generate a session ID.
     const data = await this.plexFetch<PlexMediaContainer<PlexMetadata>>(`/library/metadata/${itemId}`);
     const m = data.MediaContainer.Metadata?.[0];
-    const playSessionId = randomUUID();
+    const playSessionId = generatePlexSessionId();
     const mediaSourceId = m?.Media?.[0]?.id?.toString() || itemId;
 
     // Collect streams from all parts (some Plex items split media across parts)
@@ -596,7 +601,7 @@ export class PlexClient extends AbstractMediaProvider {
     // Fetch fresh metadata — needed for partId (subtitle stream persistence) and HDR detection
     const data = await this.plexFetch<PlexMediaContainer<PlexMetadata>>(`/library/metadata/${itemId}`);
     const m = data.MediaContainer.Metadata?.[0];
-    const playSessionId = randomUUID();
+    const playSessionId = generatePlexSessionId();
     const mediaSourceId = m?.Media?.[0]?.id?.toString() || itemId;
 
     // Determine HDR from fresh metadata — use actual stream HDR fields
@@ -618,6 +623,7 @@ export class PlexClient extends AbstractMediaProvider {
     // preferred stream server-side so Plex knows which subtitle to include.
     // IMPORTANT: Always persist — use subtitleStreamID=0 to disable subtitles,
     // otherwise Plex carries over the last selected subtitle from a prior session.
+    // Combined into a single PUT to avoid Plex seeing a half-configured state.
     const partId = m?.Media?.[0]?.Part?.[0]?.id;
     if (partId) {
       const subtitleStreamID = options?.subtitleStreamIndex != null ? options.subtitleStreamIndex : 0;
@@ -625,28 +631,31 @@ export class PlexClient extends AbstractMediaProvider {
         subtitleStreamID: String(subtitleStreamID),
         allParts: '1',
       });
+      if (options?.audioStreamIndex != null) {
+        putParams.set('audioStreamID', String(options.audioStreamIndex));
+      }
       await fetch(`${baseUrl}/library/parts/${partId}?${putParams}`, {
         method: 'PUT',
         headers: this.getPlexHeaders(),
       }).catch((err) => console.warn('[Plex] selectStreams PUT failed:', err));
-      console.log(`[Plex] Persisted subtitle stream ${subtitleStreamID} on part ${partId}`);
-    }
-    if (partId && options?.audioStreamIndex != null) {
-      const putParams = new URLSearchParams({
-        audioStreamID: String(options.audioStreamIndex),
-        allParts: '1',
-      });
-      await fetch(`${baseUrl}/library/parts/${partId}?${putParams}`, {
-        method: 'PUT',
-        headers: this.getPlexHeaders(),
-      }).catch((err) => console.warn('[Plex] selectAudioStream PUT failed:', err));
-      console.log(`[Plex] Persisted audio stream ${options.audioStreamIndex} on part ${partId}`);
+      console.log(`[Plex] Persisted subtitle stream ${subtitleStreamID}${options?.audioStreamIndex != null ? ` audio stream ${options.audioStreamIndex}` : ''} on part ${partId}`);
     }
 
     // Build Plex universal transcode URL
     const metadataKey = `/library/metadata/${itemId}`;
     const clientId = server.plex_client_id || this.deviceId;
-    const needsTranscode = !!(options?.bitrate || options?.maxWidth || options?.subtitleStreamIndex != null);
+    // Only force transcode for explicit quality params or bitmap subtitle formats.
+    // Text subtitles (SRT, ASS, SSA, mov_text) work fine with directStream=1.
+    let needsTranscode = !!(options?.bitrate || options?.maxWidth);
+    if (!needsTranscode && options?.subtitleStreamIndex != null) {
+      const subStream = m?.Media?.[0]?.Part?.[0]?.Stream?.find(
+        s => s.streamType === 3 && s.id === options.subtitleStreamIndex
+      );
+      const bitmapCodecs = ['hdmv_pgs_subtitle', 'pgs', 'dvd_subtitle', 'vobsub', 'dvb_subtitle'];
+      if (subStream && bitmapCodecs.includes(subStream.codec || '')) {
+        needsTranscode = true;
+      }
+    }
     const params = new URLSearchParams({
       path: metadataKey,
       mediaIndex: '0',
@@ -669,6 +678,9 @@ export class PlexClient extends AbstractMediaProvider {
       location: 'lan',
       addDebugOverlay: '0',
       autoAdjustQuality: '0',
+      copyts: '1',
+      hasMDE: '1',
+      mediaBufferSize: '102400',
       session: playSessionId,
       'X-Plex-Session-Identifier': playSessionId,
       'X-Plex-Client-Identifier': clientId,
@@ -689,6 +701,16 @@ export class PlexClient extends AbstractMediaProvider {
     }
     if (options?.audioStreamIndex != null) {
       params.set('audioStreamID', String(options.audioStreamIndex));
+    }
+
+    // Pre-validate via decision endpoint — lets Plex check parameter validity and
+    // pre-register the session before we request the actual stream. This reduces 400
+    // errors from invalid param combinations and gives Plex a head start on setup.
+    const decisionUrl = `${baseUrl}/video/:/transcode/universal/decision?${params}`;
+    const decisionResp = await fetch(decisionUrl, { headers: this.getPlexHeaders() }).catch(() => null);
+    if (decisionResp && !decisionResp.ok) {
+      const errText = await decisionResp.text().catch(() => '');
+      console.warn(`[Plex] Decision endpoint returned ${decisionResp.status}: ${errText.slice(0, 200)}`);
     }
 
     const url = `${baseUrl}/video/:/transcode/universal/start.m3u8?${params}`;

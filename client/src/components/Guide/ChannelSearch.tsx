@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Channel } from '../../types';
 import { X } from '@phosphor-icons/react';
+import { useNavLayer } from '../../navigation';
 import './Guide.css';
 
 interface ChannelSearchProps {
@@ -14,6 +15,10 @@ export default function ChannelSearch({ channels, onSelect, onClose }: ChannelSe
   const [focusedIdx, setFocusedIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Navigation layer — focus save/restore, Escape handled by internal onKeyDown
+  useNavLayer('channel-search', modalRef, onClose, { initialFocus: 'none' });
 
   // Auto-focus input on mount
   useEffect(() => {
@@ -75,7 +80,7 @@ export default function ChannelSearch({ channels, onSelect, onClose }: ChannelSe
       aria-modal="true"
       aria-label="Search channels"
     >
-      <div className="channel-search-modal" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+      <div className="channel-search-modal" ref={modalRef} onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
         <div className="channel-search-header">
           <input
             ref={inputRef}

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useSchedule } from '../../hooks/useSchedule';
-import { useKeyboard } from '../../hooks/useKeyboard';
+import { useNavZone, useNavigation, moveFocus, arrowToDirection, focusFirst } from '../../navigation';
 import GuideGrid from './GuideGrid';
 import PreviewPanel from './PreviewPanel';
 import ProgramInfoModal from './ProgramInfoModal';
@@ -531,18 +531,120 @@ export default function Guide({
     }
   }, [focusedChannel, focusedProgram]);
 
-  useKeyboard('guide', {
-    onUp: handleUp,
-    onDown: handleDown,
-    onLeft: handleLeft,
-    onRight: handleRight,
-    onEnter: handleEnter,
-    onEscape: onOpenSettings,
-    onLastChannel,
-    onRandomChannel: handleRandomChannel,
-    onFullscreen: toggleFullscreen,
-    onInfo: handleInfo,
-  }, !keyboardDisabled);
+  // ── Navigation Zone: Guide Header (4 buttons) ──
+  const headerRef = useRef<HTMLDivElement>(null);
+  const { activeZone, setActiveZone } = useNavigation();
+
+  useNavZone({
+    id: 'guide-header',
+    onArrow: (dir) => {
+      if (keyboardDisabled) return true;
+      if (dir === 'left' || dir === 'right') {
+        const d = arrowToDirection(dir, 'horizontal');
+        if (d && headerRef.current) {
+          return moveFocus(headerRef.current, d, { orientation: 'horizontal', wrap: true });
+        }
+      }
+      // Down from header → go back to grid
+      if (dir === 'down') return false; // let NavigationContext handle zone transition
+      return false;
+    },
+    onEnter: () => {
+      if (keyboardDisabled) return false;
+      const el = document.activeElement;
+      if (el instanceof HTMLElement && headerRef.current?.contains(el)) {
+        el.click();
+        return true;
+      }
+      return false;
+    },
+    onEscape: () => {
+      if (!keyboardDisabled) onOpenSettings();
+    },
+    getAdjacentZone: (dir) => {
+      if (dir === 'down') return 'guide-grid';
+      return null;
+    },
+  });
+
+  // ── Navigation Zone: Guide Grid ──
+  useNavZone({
+    id: 'guide-grid',
+    onArrow: (dir) => {
+      if (keyboardDisabled) return true;
+      switch (dir) {
+        case 'up':
+          // At top of grid → transition to header
+          if (focusedChannelIdx === 0) return false;
+          handleUp();
+          return true;
+        case 'down':
+          handleDown();
+          return true;
+        case 'left':
+          handleLeft();
+          return true;
+        case 'right':
+          handleRight();
+          return true;
+      }
+      return false;
+    },
+    onEnter: () => {
+      if (keyboardDisabled) return false;
+      handleEnter();
+      return true;
+    },
+    onEscape: () => {
+      if (!keyboardDisabled) onOpenSettings();
+    },
+    onKey: (key) => {
+      if (keyboardDisabled) return false;
+      switch (key) {
+        case 'r': case 'R':
+          handleRandomChannel();
+          return true;
+        case 'f': case 'F':
+          toggleFullscreen();
+          return true;
+        case 'i': case 'I':
+          handleInfo();
+          return true;
+        case 'Backspace': case 'Delete':
+          onLastChannel?.();
+          return true;
+      }
+      return false;
+    },
+    getAdjacentZone: (dir) => {
+      if (dir === 'up') return 'guide-header';
+      return null;
+    },
+  });
+
+  // When transitioning to guide-header, focus the first header button
+  useEffect(() => {
+    if (activeZone === 'guide-header' && headerRef.current) {
+      focusFirst(headerRef.current);
+    }
+  }, [activeZone]);
+
+  // When transitioning back to guide-grid, blur any focused header button
+  useEffect(() => {
+    if (activeZone === 'guide-grid') {
+      const el = document.activeElement;
+      if (el instanceof HTMLElement && headerRef.current?.contains(el)) {
+        el.blur();
+      }
+    }
+  }, [activeZone]);
+
+  // When guide becomes keyboard-disabled (player opens), reset zone to grid
+  useEffect(() => {
+    if (keyboardDisabled && activeZone === 'guide-header') {
+      setActiveZone('guide-grid');
+    }
+  }, [keyboardDisabled, activeZone, setActiveZone]);
 
   if (loading) {
     return (
@@ -598,37 +700,40 @@ export default function Guide({
       className={`guide ${isFullscreen ? 'guide-fullscreen' : ''} ${isIOSPWA() && isFullscreen ? 'guide-fullscreen-ios-pwa' : ''} ${previewStyle === 'classic-left' ? 'guide-classic-left' : ''}`}
       ref={guideRef}
     >
-      <button
-        className={`guide-search-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
-        onClick={() => setSearchOpen(true)}
-        title="Search channels"
-        aria-label="Search channels"
-      >
-        <MagnifyingGlass size={18} weight="bold" />
-      </button>
-      <button
-        className={`guide-filter-btn ${activeFilters.length > 0 ? 'guide-filter-btn-active' : ''} ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
-        onClick={() => setFilterOpen(true)}
-        title={activeFilters.length > 0 ? `${activeFilters.length} filter${activeFilters.length > 1 ? 's' : ''} active` : 'Filter channels'}
-        aria-label="Filter channels"
-      >
-        <Funnel size={18} weight={activeFilters.length > 0 ? 'fill' : 'bold'} />
-      </button>
-      <button
-        className={`guide-fullscreen-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
-        onClick={toggleFullscreen}
-        title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-        aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-      >
-        {isFullscreen ? <CornersIn size={18} weight="bold" /> : <FrameCorners size={18} weight="bold" />}
-      </button>
-      <button
-        className={`guide-settings-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
-        onClick={onOpenSettings}
-        title="Settings"
-      >
-        <GearSix size={18} weight="bold" />
-      </button>
+      {/* Header buttons — navigable as a zone via remote control */}
+      <div ref={headerRef} style={{ display: 'contents' }}>
+        <button
+          className={`guide-search-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+          onClick={() => setSearchOpen(true)}
+          title="Search channels"
+          aria-label="Search channels"
+        >
+          <MagnifyingGlass size={18} weight="bold" />
+        </button>
+        <button
+          className={`guide-filter-btn ${activeFilters.length > 0 ? 'guide-filter-btn-active' : ''} ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+          onClick={() => setFilterOpen(true)}
+          title={activeFilters.length > 0 ? `${activeFilters.length} filter${activeFilters.length > 1 ? 's' : ''} active` : 'Filter channels'}
+          aria-label="Filter channels"
+        >
+          <Funnel size={18} weight={activeFilters.length > 0 ? 'fill' : 'bold'} />
+        </button>
+        <button
+          className={`guide-fullscreen-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? <CornersIn size={18} weight="bold" /> : <FrameCorners size={18} weight="bold" />}
+        </button>
+        <button
+          className={`guide-settings-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+          onClick={onOpenSettings}
+          title="Settings"
+        >
+          <GearSix size={18} weight="bold" />
+        </button>
+      </div>
       <PreviewPanel
         channel={focusedChannel}
         program={currentAiringProgram}

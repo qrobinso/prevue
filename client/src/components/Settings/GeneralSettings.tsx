@@ -1,11 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import ServerSettings from './ServerSettings';
 import { factoryReset, restartServer, getSettings, updateSettings, getServers, getAIConfig, updateAIConfig, getIconicScenesStatus, refreshIconicScenes } from '../../services/api';
 import type { ServerInfo, AIConfig } from '../../services/api';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { CheckCircle, CaretDown, ArrowClockwise, Television } from '@phosphor-icons/react';
 import { isAutoTuneEnabled, setAutoTuneEnabled } from '../../services/autoTune';
+import { useNavLayer } from '../../navigation';
 import './Settings.css';
+
+/** Thin wrapper that pushes a nav layer for a sub-modal inside Settings */
+function SubModal({ id, onClose, children }: { id: string; onClose: () => void; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useNavLayer(id, ref, onClose);
+  return <div ref={ref} style={{ display: 'contents' }}>{children}</div>;
+}
 
 const APP_VERSION = '1.0.0';
 const GITHUB_URL = 'https://github.com/qrobinso/prevue';
@@ -85,18 +93,7 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
   const [autoTuneOn, setAutoTuneOn] = useState(isAutoTuneEnabled);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
-  // Close about / shortcuts modal on Escape
-  useEffect(() => {
-    if (!showAbout && !showShortcuts) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (showAbout) closeAbout();
-        if (showShortcuts) setShowShortcuts(false);
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [showAbout, showShortcuts, closeAbout]);
+  // Sub-modal Escape handling is now provided by useNavLayer via the SubModal wrapper
 
   const handleRestart = async () => {
     if (!confirmRestart) {
@@ -598,6 +595,7 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
       </div>
 
       {showShortcuts && (
+        <SubModal id="shortcuts-modal" onClose={() => setShowShortcuts(false)}>
         <div
           className="about-backdrop"
           onClick={(e) => { if (e.target === e.currentTarget) setShowShortcuts(false); }}
@@ -662,9 +660,11 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
             </div>
           </div>
         </div>
+        </SubModal>
       )}
 
       {showAbout && (
+        <SubModal id="about-modal" onClose={closeAbout}>
         <div
           className="about-backdrop"
           onClick={(e) => { if (e.target === e.currentTarget) closeAbout(); }}
@@ -740,6 +740,7 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
             </div>
           </div>
         </div>
+        </SubModal>
       )}
     </div>
   );
