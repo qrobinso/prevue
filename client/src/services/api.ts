@@ -334,6 +334,26 @@ export async function getCatchUpSummary(params: {
   });
 }
 
+export interface HiddenGem {
+  media_item_id: string;
+  title: string;
+  content_type: string | null;
+  reason: string;
+  score: number;
+}
+
+export async function getHiddenGemsStatus(): Promise<{ lastRefreshed: string | null; count: number }> {
+  return request('/schedule/hidden-gems/status');
+}
+
+export async function refreshHiddenGems(): Promise<{ success: boolean; count: number; lastRefreshed: string | null }> {
+  return request('/schedule/hidden-gems/refresh', { method: 'POST' }, LONG_REQUEST_TIMEOUT_MS);
+}
+
+export async function getHiddenGems(): Promise<{ gems: HiddenGem[] }> {
+  return request('/schedule/hidden-gems');
+}
+
 export async function regenerateSchedule(): Promise<{ success: boolean }> {
   return request('/schedule/regenerate', { method: 'POST' }, LONG_REQUEST_TIMEOUT_MS);
 }
@@ -678,7 +698,7 @@ export async function getIPTVStatus(): Promise<IPTVStatus> {
 export interface TickerItem {
   id: string;
   text: string;
-  category: 'now' | 'upcoming' | 'primetime' | 'new' | 'fact';
+  category: 'now' | 'upcoming' | 'primetime' | 'new' | 'fact' | 'gem';
   channel_number?: number;
 }
 

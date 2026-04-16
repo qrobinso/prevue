@@ -92,10 +92,16 @@ export class AIService {
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
 
-    const content = data.choices?.[0]?.message?.content;
+    let content = data.choices?.[0]?.message?.content;
     if (!content) {
       console.error(`[AI:${feature}] Empty response in ${elapsed}ms`);
       throw new Error('No response from AI');
+    }
+
+    // Strip markdown code fences that some models add despite json response_format
+    content = content.trim();
+    if (content.startsWith('```')) {
+      content = content.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
     }
 
     const tokens = data.usage;
@@ -361,6 +367,87 @@ Viewer tuned in at: ${elapsedMinutes} minutes into the film`;
       throw new Error('Invalid catch-up summary response');
     }
     return parsed.summary;
+  }
+
+  /**
+   * Generate hidden gem recommendations from underwatched library items.
+   * Takes user watch profile + candidate items, returns AI-picked gems with reasons.
+   */
+  async generateHiddenGems(
+    userProfile: {
+      topGenres: string[];
+      topSeries: string[];
+      recentFavorites: string[];
+      peakHours: number[];
+    },
+    candidates: {
+      key: string;
+      title: string;
+      type: string;
+      year: number | null;
+      genres: string[];
+      rating: number | null;
+      directors: string[];
+    }[],
+    options?: AIRequestOptions
+  ): Promise<{ key: string; reason: string; score: number }[]> {
+    const apiKey = this.resolveApiKey(options);
+    if (!apiKey) throw new Error('AI not configured');
+    const model = this.resolveModel(options);
+
+    if (candidates.length === 0) return [];
+
+    const systemPrompt = `You are a personal movie & TV recommendation engine for a home media library.
+The user's library contains items they own but haven't watched yet (or barely watched).
+Pick the ~20 best "hidden gems" — items the user would love based on their viewing patterns but probably hasn't noticed.
+
+Prioritize:
+1. Strong genre/taste alignment with the user's watch history
+2. Higher community ratings (quality signal)
+3. Items that connect to shows/directors/actors the user already watches
+4. Variety — don't pick 20 items from the same genre
+
+For each pick, return:
+- "key": the item's identifier from the candidate list
+- "reason": 1-2 sentences explaining WHY this is a gem for this user (reference their taste)
+- "score": 1-10 confidence the user would enjoy this (10 = perfect match)
+
+Return ONLY JSON: {"gems": [{"key": "...", "reason": "...", "score": 8}, ...]}
+Pick at most 20 items. Fewer is fine if the library is small.`;
+
+    // Build compact candidate listing
+    const candidateLines = candidates.map(c => {
+      const year = c.year ? ` (${c.year})` : '';
+      const genres = c.genres.length > 0 ? ` ${c.genres.slice(0, 3).join(',')}` : '';
+      const rating = c.rating ? ` ${c.rating.toFixed(1)}★` : '';
+      const directors = c.directors.length > 0 ? ` dir:${c.directors[0]}` : '';
+      return `${c.key} ${c.title}${year}${genres}${rating}${directors}`;
+    });
+
+    const userMessage = `USER PROFILE:
+Top genres watched: ${userProfile.topGenres.join(', ') || 'None yet'}
+Favorite series: ${userProfile.topSeries.join(', ') || 'None yet'}
+Recent favorites: ${userProfile.recentFavorites.join(', ') || 'None yet'}
+Most active viewing hours: ${userProfile.peakHours.length > 0 ? userProfile.peakHours.join(', ') : 'Varied'}
+
+CANDIDATE ITEMS (unwatched/underwatched, rated 6+):
+${candidateLines.join('\n')}`;
+
+    const content = await this.callLLM('hidden-gems', [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage },
+    ], { model, apiKey, max_tokens: 4096, temperature: 0.5 });
+
+    const parsed = JSON.parse(content) as { gems?: { key: string; reason: string; score: number }[] };
+    if (!parsed.gems || !Array.isArray(parsed.gems)) return [];
+
+    // Validate each gem
+    return parsed.gems.filter(g =>
+      typeof g.key === 'string' &&
+      typeof g.reason === 'string' &&
+      typeof g.score === 'number' &&
+      g.score >= 1 && g.score <= 10
+    );
   }
 
   /**

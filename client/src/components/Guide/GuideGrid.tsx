@@ -14,7 +14,7 @@ import {
   getClockFormat,
   type ClockFormat,
 } from '../Settings/DisplaySettings';
-import { getIconicScenesEnabled } from '../Settings/GeneralSettings';
+import { getIconicScenesEnabled, getHiddenGemsEnabled } from '../Settings/GeneralSettings';
 import { isIconicSceneActive } from './guideFilterUtils';
 import {
   type GuideDivider,
@@ -196,6 +196,7 @@ interface GuideProgramCellProps {
   showHdr: boolean;
   showTomato: boolean;
   showIconicScenes: boolean;
+  showHiddenGems: boolean;
   nowMs: number;
   programTitleFontSize: number;
   guideColors: { enabled: boolean; movie: string; episode: string };
@@ -222,6 +223,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
   showHdr,
   showTomato,
   showIconicScenes,
+  showHiddenGems,
   nowMs,
   programTitleFontSize,
   guideColors,
@@ -229,6 +231,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
   onProgramClick,
 }: GuideProgramCellProps) {
   const isIconicNow = showIconicScenes && isAiring && isIconicSceneActive(prog, nowMs);
+  const isGem = showHiddenGems && !!prog.is_hidden_gem;
   const progStart = prog.start_ms!;
   const progEnd = prog.end_ms!;
 
@@ -278,7 +281,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
         <div className="guide-program-text">
           <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
             {prog.title}
-            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution || showHdr || showTomato || isIconicNow) && (
+            {prog.type !== 'interstitial' && (showRatings || showYear || showResolution || showHdr || showTomato || isIconicNow || isGem) && (
               <>
                 {showRatings && prog.rating && (
                   <span className="guide-rating-badge">{prog.rating}</span>
@@ -299,6 +302,9 @@ const GuideProgramCell = memo(function GuideProgramCell({
                 )}
                 {isIconicNow && (
                   <span className="guide-iconic-dot" />
+                )}
+                {isGem && (
+                  <span className="guide-gem-badge">GEM</span>
                 )}
               </>
             )}
@@ -336,6 +342,7 @@ interface GuideRowProps {
   showHdr: boolean;
   showTomato: boolean;
   showIconicScenes: boolean;
+  showHiddenGems: boolean;
   nowMs: number;
   programTitleFontSize: number;
   guideColors: { enabled: boolean; movie: string; episode: string };
@@ -370,6 +377,7 @@ const GuideRow = memo(function GuideRow({
   showHdr,
   showTomato,
   showIconicScenes,
+  showHiddenGems,
   nowMs,
   programTitleFontSize,
   guideColors,
@@ -416,6 +424,7 @@ const GuideRow = memo(function GuideRow({
             showHdr={showHdr}
             showTomato={showTomato}
             showIconicScenes={showIconicScenes}
+            showHiddenGems={showHiddenGems}
             nowMs={nowMs}
             programTitleFontSize={programTitleFontSize}
             guideColors={guideColors}
@@ -466,6 +475,7 @@ function GuideGrid({
   const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
   const [showTomato, setShowTomato] = useState(getGuideTomato);
   const [showIconicScenes, setShowIconicScenes] = useState(getIconicScenesEnabled);
+  const [showHiddenGems, setShowHiddenGems] = useState(getHiddenGemsEnabled);
   const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
 
   // Channel colors & dividers from localStorage
@@ -492,6 +502,7 @@ function GuideGrid({
     const refreshChannelColors = () => setChannelColorMap(getChannelColors());
     const refreshDividers = () => setGuideDividers(getGuideDividers());
     const refreshIconicScenes = () => setShowIconicScenes(getIconicScenesEnabled());
+    const refreshHiddenGems = () => setShowHiddenGems(getHiddenGemsEnabled());
 
     window.addEventListener('guidecolorschange', refreshGuideColors);
     window.addEventListener('guidebadgeschange', refreshBadges);
@@ -500,6 +511,7 @@ function GuideGrid({
     window.addEventListener('channelcolorschange', refreshChannelColors);
     window.addEventListener('guidedividerschange', refreshDividers);
     window.addEventListener('iconicsceneschange', refreshIconicScenes);
+    window.addEventListener('hiddengemschange', refreshHiddenGems);
 
     return () => {
       window.removeEventListener('guidecolorschange', refreshGuideColors);
@@ -509,6 +521,7 @@ function GuideGrid({
       window.removeEventListener('channelcolorschange', refreshChannelColors);
       window.removeEventListener('guidedividerschange', refreshDividers);
       window.removeEventListener('iconicsceneschange', refreshIconicScenes);
+      window.removeEventListener('hiddengemschange', refreshHiddenGems);
     };
   }, []);
 
@@ -862,6 +875,7 @@ function GuideGrid({
                   showHdr={showHdr}
                   showTomato={showTomato}
                   showIconicScenes={showIconicScenes}
+                  showHiddenGems={showHiddenGems}
                   nowMs={nowMs}
                   programTitleFontSize={programTitleFontSize}
                   guideColors={guideColors}

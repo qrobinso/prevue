@@ -21,6 +21,7 @@ import { ChannelManager } from './services/ChannelManager.js';
 import { MetricsService } from './services/MetricsService.js';
 import { AIService } from './services/AIService.js';
 import { IconicSceneService } from './services/IconicSceneService.js';
+import { HiddenGemsService } from './services/HiddenGemsService.js';
 import { authMiddleware, isAuthEnabled } from './middleware/auth.js';
 import { decrypt } from './utils/crypto.js';
 import * as queries from './db/queries.js';
@@ -97,6 +98,7 @@ const channelManager = new ChannelManager(db, mediaProvider, scheduleEngine);
 const metricsService = new MetricsService(db);
 const aiService = new AIService();
 const iconicSceneService = new IconicSceneService(db, aiService);
+const hiddenGemsService = new HiddenGemsService(db, aiService);
 
 // Initialize WebSocket
 const wss = initWebSocket(server);
@@ -116,6 +118,7 @@ app.locals.swapProvider = () => {
 };
 app.locals.metricsService = metricsService;
 app.locals.iconicSceneService = iconicSceneService;
+app.locals.hiddenGemsService = hiddenGemsService;
 app.locals.wss = wss;
 // Expose iconic scene generation trigger so routes can call it after schedule changes
 app.locals.triggerIconicSceneGeneration = () => triggerIconicSceneGeneration().catch(() => {});

@@ -46,6 +46,8 @@ export interface ScheduleProgram {
   end_ms?: number;
   /** Iconic scenes with approximate timestamps (from AI, movies only) */
   iconic_scenes?: { name: string; timestamp_minutes: number; end_minutes: number; why: string }[] | null;
+  /** True when this program is an AI-recommended hidden gem */
+  is_hidden_gem?: boolean;
   /** Community/critic rating (0-10 scale, e.g. Rotten Tomatoes) */
   community_rating?: number | null;
   /** Audience rating (0-10 scale) */
