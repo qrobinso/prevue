@@ -1,6 +1,6 @@
 import type { ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
-import { getIconicScenesEnabled } from '../Settings/GeneralSettings';
+import { getIconicScenesEnabled, getHiddenGemsEnabled } from '../Settings/GeneralSettings';
 
 export type GuideFilterId =
   | 'movies'
@@ -15,7 +15,8 @@ export type GuideFilterId =
   | 'sci-fi'
   | 'almost-done'
   | 'near-ending'
-  | 'iconic-scene';
+  | 'iconic-scene'
+  | 'hidden-gem';
 
 export interface GuideFilterPreset {
   id: GuideFilterId;
@@ -51,6 +52,9 @@ export function getAvailableFilters(): GuideFilterPreset[] {
   const filters = [...BASE_FILTER_PRESETS];
   if (getIconicScenesEnabled()) {
     filters.push({ id: 'iconic-scene', label: 'Iconic Scene Now' });
+  }
+  if (getHiddenGemsEnabled()) {
+    filters.push({ id: 'hidden-gem', label: 'Hidden Gems' });
   }
   return filters;
 }
@@ -163,6 +167,8 @@ function evaluateFilter(
       return matchesGenre(currentProgram, 'sci-fi', 'science fiction', 'fantasy');
     case 'iconic-scene':
       return isIconicSceneActive(currentProgram, now);
+    case 'hidden-gem':
+      return !!currentProgram.is_hidden_gem;
     default:
       return true;
   }

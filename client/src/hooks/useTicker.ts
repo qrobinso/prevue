@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getTickerItems, getBatchProgramFacts } from '../services/api';
+import { getTickerItems, getBatchProgramFacts, getHiddenGems } from '../services/api';
 import type { TickerItem, BatchFactsProgram } from '../services/api';
 import type { ScheduleProgram } from '../types';
 import { getGuideYear, getGuideRatings, getGuideResolution, getGuideHdr } from '../components/Settings/DisplaySettings';
-import { getProgramFactsEnabled } from '../components/Settings/GeneralSettings';
+import { getProgramFactsEnabled, getHiddenGemsEnabled } from '../components/Settings/GeneralSettings';
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const FACTS_DELAY_MS = 10 * 1000; // wait 10s after schedule loads before requesting facts
@@ -14,11 +14,14 @@ export function useTicker(
 ): { items: TickerItem[]; loading: boolean } {
   const [baseItems, setBaseItems] = useState<TickerItem[]>([]);
   const [activeFact, setActiveFact] = useState<TickerItem | null>(null);
+  const [activeGem, setActiveGem] = useState<TickerItem | null>(null);
   const [loading, setLoading] = useState(false);
   const prevJson = useRef('');
   const factsCacheKey = useRef<string | null>(null);
   const factsPool = useRef<string[]>([]);
   const factsIndex = useRef(0);
+  const gemsPool = useRef<string[]>([]);
+  const gemsIndex = useRef(0);
 
   // Pick the next fact from the pool (round-robin so each fact gets shown)
   const rotateFact = useCallback(() => {
@@ -36,7 +39,56 @@ export function useTicker(
     });
   }, []);
 
-  // Fetch base ticker items (primetime, new, stats) + rotate fact each cycle
+  // Pick the next gem from the pool (round-robin)
+  const rotateGem = useCallback(() => {
+    const pool = gemsPool.current;
+    if (pool.length === 0) {
+      setActiveGem(null);
+      return;
+    }
+    const idx = gemsIndex.current % pool.length;
+    gemsIndex.current = idx + 1;
+    setActiveGem({
+      id: `gem-${Date.now()}`,
+      text: `HIDDEN GEM: ${pool[idx]}`,
+      category: 'gem' as const,
+    });
+  }, []);
+
+  // Fetch hidden gems for ticker display
+  useEffect(() => {
+    if (!enabled || !getHiddenGemsEnabled()) {
+      setActiveGem(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchGems = async () => {
+      try {
+        const data = await getHiddenGems();
+        if (cancelled || !data.gems || data.gems.length === 0) return;
+
+        // Build pool: "Title — reason"
+        const pool = data.gems.map(g => `${g.title} \u2014 ${g.reason}`);
+        // Shuffle
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+        gemsPool.current = pool;
+        gemsIndex.current = 0;
+        rotateGem();
+      } catch {
+        // AI call failed — just skip gems
+      }
+    };
+
+    const timer = setTimeout(fetchGems, FACTS_DELAY_MS);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [enabled, rotateGem]);
+
+  // Fetch base ticker items (primetime, new, stats) + rotate fact/gem each cycle
   useEffect(() => {
     if (!enabled) {
       setBaseItems([]);
@@ -68,8 +120,11 @@ export function useTicker(
       } finally {
         if (!cancelled) setLoading(false);
       }
-      // Rotate to a new fact each refresh cycle
-      if (!cancelled) rotateFact();
+      // Rotate to a new fact and gem each refresh cycle
+      if (!cancelled) {
+        rotateFact();
+        rotateGem();
+      }
     };
 
     fetchTicker();
@@ -79,7 +134,7 @@ export function useTicker(
       cancelled = true;
       clearInterval(interval);
     };
-  }, [enabled, rotateFact]);
+  }, [enabled, rotateFact, rotateGem]);
 
   // Batch-fetch program facts for all currently airing programs
   useEffect(() => {
@@ -162,8 +217,12 @@ export function useTicker(
     };
   }, [enabled, scheduleByChannel, rotateFact]);
 
-  // Merge: single fact placed before base items
-  const items = activeFact ? [activeFact, ...baseItems] : baseItems;
+  // Merge: gem and fact placed before base items
+  const items = [
+    ...(activeGem ? [activeGem] : []),
+    ...(activeFact ? [activeFact] : []),
+    ...baseItems,
+  ];
 
   return { items, loading };
 }

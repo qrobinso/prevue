@@ -115,6 +115,14 @@ export interface IconicScene {
   why: string;               // 1-2 sentences on why it's iconic
 }
 
+export interface HiddenGem {
+  media_item_id: string;
+  title: string;
+  content_type: string | null;
+  reason: string;
+  score: number;
+}
+
 export interface ScheduleProgram {
   media_item_id: string;
   title: string;
@@ -135,6 +143,7 @@ export interface ScheduleProgram {
   genres: string[] | null;
   description: string | null;
   iconic_scenes?: IconicScene[] | null;
+  is_hidden_gem?: boolean;
   community_rating?: number | null;
   audience_rating?: number | null;
   rating_image?: string | null;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ServerSettings from './ServerSettings';
-import { factoryReset, restartServer, getSettings, updateSettings, getServers, getAIConfig, updateAIConfig, getIconicScenesStatus, refreshIconicScenes } from '../../services/api';
+import { factoryReset, restartServer, getSettings, updateSettings, getServers, getAIConfig, updateAIConfig, getIconicScenesStatus, refreshIconicScenes, getHiddenGemsStatus, refreshHiddenGems } from '../../services/api';
 import type { ServerInfo, AIConfig } from '../../services/api';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { CheckCircle, CaretDown, ArrowClockwise, Television } from '@phosphor-icons/react';
@@ -48,6 +48,21 @@ export function setIconicScenesEnabled(enabled: boolean): void {
   window.dispatchEvent(new CustomEvent('iconicsceneschange', { detail: { enabled } }));
 }
 
+const HIDDEN_GEMS_KEY = 'prevue_hidden_gems_enabled';
+
+export function getHiddenGemsEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(HIDDEN_GEMS_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return false; // default: off (opt-in AI feature)
+}
+
+export function setHiddenGemsEnabled(enabled: boolean): void {
+  localStorage.setItem(HIDDEN_GEMS_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent('hiddengemschange', { detail: { enabled } }));
+}
+
 export function getCatchUpEnabled(): boolean {
   try {
     const stored = localStorage.getItem(CATCH_UP_KEY);
@@ -90,6 +105,10 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
   const [iconicRefreshing, setIconicRefreshing] = useState(false);
   const [programFactsEnabled, setProgramFactsEnabledState] = useState(getProgramFactsEnabled);
   const [catchUpEnabled, setCatchUpEnabledState] = useState(getCatchUpEnabled);
+  const [hiddenGemsEnabled, setHiddenGemsEnabledState] = useState(getHiddenGemsEnabled);
+  const [gemsLastRefreshed, setGemsLastRefreshed] = useState<string | null>(null);
+  const [gemsRefreshing, setGemsRefreshing] = useState(false);
+  const [gemsCount, setGemsCount] = useState(0);
   const [autoTuneOn, setAutoTuneOn] = useState(isAutoTuneEnabled);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
@@ -150,6 +169,9 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
       .catch(() => {});
     getIconicScenesStatus()
       .then(({ lastRefreshed }) => setIconicLastRefreshed(lastRefreshed))
+      .catch(() => {});
+    getHiddenGemsStatus()
+      .then(({ lastRefreshed, count }) => { setGemsLastRefreshed(lastRefreshed); setGemsCount(count); })
       .catch(() => {});
   }, []);
 
@@ -223,6 +245,25 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
     const newValue = !catchUpEnabled;
     setCatchUpEnabledState(newValue);
     setCatchUpEnabled(newValue);
+  };
+
+  const handleHiddenGemsToggle = () => {
+    const newValue = !hiddenGemsEnabled;
+    setHiddenGemsEnabledState(newValue);
+    setHiddenGemsEnabled(newValue);
+  };
+
+  const handleGemsRefresh = async () => {
+    setGemsRefreshing(true);
+    try {
+      const result = await refreshHiddenGems();
+      setGemsLastRefreshed(result.lastRefreshed);
+      setGemsCount(result.count);
+    } catch {
+      // silently fail
+    } finally {
+      setGemsRefreshing(false);
+    }
   };
 
   const handleFactoryReset = async () => {
@@ -463,6 +504,44 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
           <span className="settings-toggle-label">
             {catchUpEnabled ? 'ON' : 'OFF'}
           </span>
+        </div>
+      </div>
+
+      <div className={`settings-subsection ${!aiConfig?.hasKey ? 'settings-disabled' : ''}`}>
+        <h4>HIDDEN GEMS</h4>
+        <p className="settings-field-hint">
+          AI analyzes your watch history and library to surface underwatched items
+          you&apos;d love. Shows a gold badge in the guide and recommendations in the ticker.
+          {!aiConfig?.hasKey && ' Configure an API key above to enable.'}
+        </p>
+        <div className="settings-toggle-row">
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={hiddenGemsEnabled}
+              onChange={handleHiddenGemsToggle}
+              disabled={!aiConfig?.hasKey}
+            />
+            <span className="settings-toggle-slider" />
+          </label>
+          <span className="settings-toggle-label">
+            {hiddenGemsEnabled ? 'ON' : 'OFF'}
+          </span>
+        </div>
+        <div className="settings-iconic-refresh">
+          <button
+            className="settings-btn settings-btn-sm"
+            onClick={handleGemsRefresh}
+            disabled={!aiConfig?.hasKey || gemsRefreshing}
+          >
+            <ArrowClockwise size={14} className={gemsRefreshing ? 'spin' : ''} />
+            {gemsRefreshing ? 'Analyzing...' : 'Refresh Gems'}
+          </button>
+          {gemsLastRefreshed && (
+            <span className="settings-field-hint settings-iconic-timestamp">
+              {gemsCount} gems found &middot; Last refreshed: {new Date(gemsLastRefreshed + 'Z').toLocaleString()}
+            </span>
+          )}
         </div>
       </div>
 

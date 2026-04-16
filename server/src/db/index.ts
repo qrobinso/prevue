@@ -141,6 +141,16 @@ function runMigrations(db: Database.Database): void {
       PRIMARY KEY (media_item_id, time_bucket)
     );
 
+    -- AI: hidden gems (AI-recommended underwatched items)
+    CREATE TABLE IF NOT EXISTS hidden_gems (
+      media_item_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      content_type TEXT,
+      reason TEXT NOT NULL,
+      score INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_schedule_channel
       ON schedule_blocks(channel_id, block_start);

@@ -4,6 +4,7 @@ import * as queries from '../db/queries.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { IconicSceneService } from '../services/IconicSceneService.js';
+import type { HiddenGemsService } from '../services/HiddenGemsService.js';
 import { AIService } from '../services/AIService.js';
 import type { ScheduleBlockParsed } from '../types/index.js';
 import { broadcast } from '../websocket/index.js';
@@ -37,6 +38,19 @@ function enrichBlocksWithIconicScenes(blocks: ScheduleBlockParsed[], iconicScene
         if (scenes && scenes.length > 0) {
           prog.iconic_scenes = scenes;
         }
+      }
+    }
+  }
+}
+
+/** Enrich schedule blocks with hidden gem flags from the cache. */
+function enrichBlocksWithHiddenGems(blocks: ScheduleBlockParsed[], hiddenGemsService: HiddenGemsService): void {
+  const gemIds = hiddenGemsService.getGemIds();
+  if (gemIds.size === 0) return;
+  for (const block of blocks) {
+    for (const prog of block.programs) {
+      if (prog.type === 'program' && gemIds.has(prog.media_item_id)) {
+        prog.is_hidden_gem = true;
       }
     }
   }
@@ -97,7 +111,7 @@ scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
 // GET /api/schedule - Get full schedule for all channels
 scheduleRoutes.get('/', (req: Request, res: Response) => {
   try {
-    const { db, iconicSceneService } = req.app.locals;
+    const { db, iconicSceneService, hiddenGemsService } = req.app.locals;
     const now = new Date().toISOString();
     const channels = queries.getAllChannels(db);
 
@@ -105,6 +119,7 @@ scheduleRoutes.get('/', (req: Request, res: Response) => {
     for (const ch of channels) {
       const blocks = queries.getCurrentAndNextBlocks(db, ch.id, now);
       if (iconicSceneService) enrichBlocksWithIconicScenes(blocks, iconicSceneService as IconicSceneService);
+      if (hiddenGemsService) enrichBlocksWithHiddenGems(blocks, hiddenGemsService as HiddenGemsService);
       schedule[ch.id] = {
         channel: ch,
         blocks,
@@ -120,13 +135,14 @@ scheduleRoutes.get('/', (req: Request, res: Response) => {
 // GET /api/schedule/:channelId - Get schedule for a specific channel
 scheduleRoutes.get('/:channelId', (req: Request, res: Response) => {
   try {
-    const { db, iconicSceneService } = req.app.locals;
+    const { db, iconicSceneService, hiddenGemsService } = req.app.locals;
     const channelId = parseInt(req.params.channelId as string, 10);
     if (Number.isNaN(channelId) || channelId < 1) { res.status(400).json({ error: 'Invalid channel id' }); return; }
     const now = new Date().toISOString();
 
     const blocks = queries.getCurrentAndNextBlocks(db, channelId, now);
     if (iconicSceneService) enrichBlocksWithIconicScenes(blocks, iconicSceneService as IconicSceneService);
+    if (hiddenGemsService) enrichBlocksWithHiddenGems(blocks, hiddenGemsService as HiddenGemsService);
     res.json(blocks);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -214,6 +230,57 @@ scheduleRoutes.post('/iconic-scenes/refresh', async (req: Request, res: Response
     await (iconicSceneService as IconicSceneService).generateForMovies(movies, { apiKey, model });
     const lastRefreshed = queries.getIconicScenesLastRefreshed(db);
     res.json({ success: true, count: movies.length, lastRefreshed });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/schedule/hidden-gems/status - Get last refreshed timestamp and count
+scheduleRoutes.get('/hidden-gems/status', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const lastRefreshed = queries.getHiddenGemsLastRefreshed(db);
+    const gems = queries.getAllHiddenGems(db);
+    res.json({ lastRefreshed, count: gems.length });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/schedule/hidden-gems - Get all cached hidden gems
+scheduleRoutes.get('/hidden-gems', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const gems = queries.getAllHiddenGems(db);
+    res.json({ gems });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/schedule/hidden-gems/refresh - Clear cache and regenerate hidden gems
+scheduleRoutes.post('/hidden-gems/refresh', async (req: Request, res: Response) => {
+  try {
+    const { db, hiddenGemsService, mediaProvider } = req.app.locals;
+    if (!hiddenGemsService) {
+      res.status(400).json({ error: 'Hidden gems service not available. Configure an AI API key first.' });
+      return;
+    }
+
+    // Resolve AI options from encrypted settings
+    const encrypted = queries.getSetting(db, 'openrouter_api_key') as string | undefined;
+    let apiKey: string | undefined;
+    if (encrypted) {
+      try { apiKey = decrypt(encrypted); } catch { /* ignore */ }
+    }
+    const model = (queries.getSetting(db, 'openrouter_model') as string) || undefined;
+
+    const count = await (hiddenGemsService as HiddenGemsService).generateGems(
+      mediaProvider as MediaProvider,
+      { apiKey, model },
+    );
+    const lastRefreshed = queries.getHiddenGemsLastRefreshed(db);
+    res.json({ success: true, count, lastRefreshed });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

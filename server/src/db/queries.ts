@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { ServerConfig, Channel, ChannelParsed, ChannelFilter, ScheduleBlock, ScheduleBlockParsed, IconicScene } from '../types/index.js';
+import type { ServerConfig, Channel, ChannelParsed, ChannelFilter, ScheduleBlock, ScheduleBlockParsed, IconicScene, HiddenGem } from '../types/index.js';
 
 // ─── Servers ──────────────────────────────────────────────
 
@@ -653,6 +653,7 @@ export function factoryReset(db: Database.Database): void {
     db.prepare('DELETE FROM client_registry').run();
     db.prepare('DELETE FROM iconic_scenes').run();
     db.prepare('DELETE FROM program_facts').run();
+    db.prepare('DELETE FROM hidden_gems').run();
 
     // Re-insert default settings
     const insertSetting = db.prepare(
@@ -772,4 +773,39 @@ export function setCatchUpSummary(db: Database.Database, mediaItemId: string, ti
   db.prepare(
     'INSERT OR REPLACE INTO catch_up_summaries (media_item_id, time_bucket, summary, created_at) VALUES (?, ?, ?, datetime(\'now\'))'
   ).run(mediaItemId, timeBucket, summary);
+}
+
+// ─── Hidden Gems ────────────────────────────────────────
+
+export function getAllHiddenGems(db: Database.Database): HiddenGem[] {
+  return db.prepare(
+    'SELECT media_item_id, title, content_type, reason, score FROM hidden_gems ORDER BY score DESC'
+  ).all() as HiddenGem[];
+}
+
+export function getHiddenGemIds(db: Database.Database): Set<string> {
+  const rows = db.prepare('SELECT media_item_id FROM hidden_gems').all() as { media_item_id: string }[];
+  return new Set(rows.map(r => r.media_item_id));
+}
+
+export function upsertHiddenGem(
+  db: Database.Database,
+  mediaItemId: string,
+  title: string,
+  contentType: string | null,
+  reason: string,
+  score: number,
+): void {
+  db.prepare(
+    'INSERT OR REPLACE INTO hidden_gems (media_item_id, title, content_type, reason, score, created_at) VALUES (?, ?, ?, ?, ?, datetime(\'now\'))'
+  ).run(mediaItemId, title, contentType, reason, score);
+}
+
+export function clearAllHiddenGems(db: Database.Database): void {
+  db.prepare('DELETE FROM hidden_gems').run();
+}
+
+export function getHiddenGemsLastRefreshed(db: Database.Database): string | null {
+  const row = db.prepare('SELECT MAX(created_at) as last_refreshed FROM hidden_gems').get() as { last_refreshed: string | null } | undefined;
+  return row?.last_refreshed ?? null;
 }
