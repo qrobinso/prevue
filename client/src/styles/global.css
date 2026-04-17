@@ -217,14 +217,14 @@
 }
 
 [data-theme="dark"] {
-  --bg-primary: #0e0e0e;
-  --bg-secondary: #181818;
-  --bg-grid: #141414;
-  --bg-cell: #1e1e1e;
-  --bg-cell-hover: #2a2a2a;
-  --bg-cell-focus: #363636;
-  --bg-preview: #0a0a0a;
-  --bg-overlay: rgba(0, 0, 0, 0.9);
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-grid: #050505;
+  --bg-cell: #101010;
+  --bg-cell-hover: #1c1c1c;
+  --bg-cell-focus: #2a2a2a;
+  --bg-preview: #000000;
+  --bg-overlay: rgba(0, 0, 0, 0.95);
 
   --text-primary: #e0e0e0;
   --text-secondary: #a0a0a0;
@@ -237,8 +237,8 @@
   --accent-green: #66cc77;
   --accent-red: #cc4444;
 
-  --border-grid: #2a2a2a;
-  --border-cell: #383838;
+  --border-grid: #1f1f1f;
+  --border-cell: #2e2e2e;
 }
 
 [data-theme="vapor"] {

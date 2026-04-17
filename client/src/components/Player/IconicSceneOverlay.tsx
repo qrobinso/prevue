@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ScheduleProgram } from '../../types';
 import { getIconicScenesEnabled } from '../Settings/GeneralSettings';
-import { useBottomNotifications, type NotificationData } from './BottomNotificationManager';
+import { useNotifications, type OverlayData } from '../../notifications';
 
 interface IconicSceneOverlayProps {
   program: ScheduleProgram;
@@ -43,7 +43,7 @@ function findActiveScene(program: ScheduleProgram): IconicSceneData | null {
 }
 
 /** Build phase-aware notification data for an active iconic scene. */
-function buildNotificationData(scene: IconicSceneData, program: ScheduleProgram): NotificationData {
+function buildNotificationData(scene: IconicSceneData, program: ScheduleProgram): OverlayData {
   const startMs = program.start_ms ?? new Date(program.start_time).getTime();
   const elapsedMin = (Date.now() - startMs) / 60000;
   const isApproaching = elapsedMin < scene.timestamp_minutes;
@@ -55,7 +55,7 @@ function buildNotificationData(scene: IconicSceneData, program: ScheduleProgram)
       labelColor: '#e040fb',
       title: scene.name,
       subtitle: `Starting in ~${formatCountdown(secondsUntil)} \u2014 ${scene.why}`,
-      className: 'bottom-notification--iconic',
+      className: 'notifications-overlay--iconic',
     };
   }
 
@@ -64,14 +64,15 @@ function buildNotificationData(scene: IconicSceneData, program: ScheduleProgram)
     labelColor: '#e040fb',
     title: scene.name,
     subtitle: scene.why,
-    className: 'bottom-notification--iconic',
+    className: 'notifications-overlay--iconic',
   };
 }
 
 export default function IconicSceneOverlay({ program, hidden }: IconicSceneOverlayProps) {
   const [scene, setScene] = useState<IconicSceneData | null>(null);
   const lastSceneName = useRef<string | null>(null);
-  const { show, hide } = useBottomNotifications();
+  const { overlay } = useNotifications();
+  const { show, hide } = overlay;
 
   // Poll for active iconic scenes
   useEffect(() => {
@@ -118,5 +119,5 @@ export default function IconicSceneOverlay({ program, hidden }: IconicSceneOverl
     return () => hide(NOTIFICATION_ID);
   }, [hide]);
 
-  return null; // Rendering handled by BottomNotificationProvider
+  return null; // Rendering handled by NotificationScope
 }

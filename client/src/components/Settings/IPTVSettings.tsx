@@ -125,7 +125,7 @@ export default function IPTVSettings() {
   if (loading) {
     return (
       <div className="settings-section">
-        <h3>IPTV</h3>
+        <div className="settings-group-heading">IPTV</div>
         <p className="settings-field-hint">Loading...</p>
       </div>
     );
@@ -133,7 +133,7 @@ export default function IPTVSettings() {
 
   return (
     <div className="settings-section">
-      <h3>IPTV</h3>
+      <div className="settings-group-heading">IPTV</div>
 
       <div className="settings-subsection">
         <h4>IPTV SERVER</h4>

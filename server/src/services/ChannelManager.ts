@@ -395,6 +395,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
@@ -414,6 +415,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
@@ -439,6 +441,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
@@ -464,6 +467,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
@@ -489,6 +493,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
@@ -514,6 +519,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
@@ -539,6 +545,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
@@ -564,6 +571,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
         const totalDuration = filteredItems.reduce((sum, item) => sum + this.provider.getItemDurationMs(item), 0);
@@ -608,6 +616,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
@@ -651,6 +660,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
@@ -744,6 +754,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -787,6 +798,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -827,6 +839,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -874,6 +887,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -922,6 +936,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -968,6 +983,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1012,6 +1028,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1322,6 +1339,7 @@ export class ChannelManager {
         for (const g of itemGenres) {
           if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
         }
+        if (settings.unwatchedOnly && item.UserData?.Played) return false;
         if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
         return true;
       });
@@ -1362,6 +1380,7 @@ export class ChannelManager {
         for (const g of itemGenres) {
           if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
         }
+        if (settings.unwatchedOnly && item.UserData?.Played) return false;
         if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
         return true;
       });
@@ -1710,6 +1729,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
@@ -1738,6 +1758,7 @@ export class ChannelManager {
           for (const g of itemGenres) {
             if (!this.isGenreAllowed(g, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           if ((itemChannelCount.get(item.Id) || 0) >= MAX_GENRE_CHANNELS_PER_ITEM) return false;
           return true;
         });
@@ -1796,6 +1817,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1819,6 +1841,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1842,6 +1865,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1866,6 +1890,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1889,6 +1914,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, settings.genreFilter)) return false;
           }
+          if (settings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1911,6 +1937,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, studioSettings.genreFilter)) return false;
           }
+          if (studioSettings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 
@@ -1934,6 +1961,7 @@ export class ChannelManager {
           for (const genre of itemGenres) {
             if (!this.isGenreAllowed(genre, networkSettings.genreFilter)) return false;
           }
+          if (networkSettings.unwatchedOnly && item.UserData?.Played) return false;
           return true;
         });
 

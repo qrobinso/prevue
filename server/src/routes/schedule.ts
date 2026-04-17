@@ -337,6 +337,50 @@ scheduleRoutes.post('/catch-up', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/schedule/ai-filter - Narrow channels to those matching a natural-language query
+scheduleRoutes.post('/ai-filter', async (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const { query, channels, focusedChannelId } = req.body as {
+      query?: unknown;
+      channels?: unknown;
+      focusedChannelId?: unknown;
+    };
+
+    if (typeof query !== 'string' || query.trim().length === 0) {
+      res.status(400).json({ error: 'Missing or empty query' });
+      return;
+    }
+    if (!Array.isArray(channels) || channels.length === 0) {
+      res.status(400).json({ error: 'Missing channels' });
+      return;
+    }
+
+    const encrypted = queries.getSetting(db, 'openrouter_api_key') as string | undefined;
+    let apiKey: string | undefined;
+    if (encrypted) {
+      try { apiKey = decrypt(encrypted); } catch { /* ignore */ }
+    }
+    const model = (queries.getSetting(db, 'openrouter_model') as string) || undefined;
+
+    if (!aiService.isAvailableWith(apiKey)) {
+      res.status(503).json({ error: 'AI service not configured' });
+      return;
+    }
+
+    const focusedId = typeof focusedChannelId === 'number' ? focusedChannelId : null;
+    const result = await aiService.generateChannelFilter(
+      query.trim(),
+      channels as Parameters<typeof aiService.generateChannelFilter>[1],
+      focusedId,
+      { apiKey, model },
+    );
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // POST /api/schedule/regenerate - Force regeneration
 scheduleRoutes.post('/regenerate', async (req: Request, res: Response) => {
   try {

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import type { ScheduleProgram } from '../../types';
 import { getCatchUpEnabled } from '../Settings/GeneralSettings';
 import { getCatchUpSummary } from '../../services/api';
-import { useBottomNotifications } from './BottomNotificationManager';
+import { useNotifications } from '../../notifications';
 
 interface CatchUpOverlayProps {
   program: ScheduleProgram;
@@ -38,14 +38,15 @@ interface CachedResult {
 }
 
 export default function CatchUpOverlay({ program, channelId, manualTrigger, onManualTriggerConsumed, hidden }: CatchUpOverlayProps) {
-  const { show, hide } = useBottomNotifications();
+  const { overlay } = useNotifications();
+  const { show, hide } = overlay;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRef = useRef(false);
   const fetchingRef = useRef(false);
   const autoTriggeredRef = useRef<Set<string>>(new Set()); // tracks auto-trigger per program
   const cachedRef = useRef<CachedResult | null>(null);
 
-  // Called by BottomNotificationManager when user explicitly dismisses (X, swipe, auto-dismiss)
+  // Called by NotificationScope when user explicitly dismisses (X, swipe, auto-dismiss)
   const handleUserDismiss = useCallback(() => {
     activeRef.current = false;
   }, []);
@@ -60,7 +61,7 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
       autoDismissMs: AUTO_DISMISS_MS,
       pauseOnHover: true,
       onDismiss: handleUserDismiss,
-      className: 'bottom-notification--catch-up',
+      className: 'notifications-overlay--catch-up',
     });
   }, [show, handleUserDismiss]);
 
@@ -74,7 +75,7 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
       autoDismissMs: 0,
       pauseOnHover: true,
       onDismiss: handleUserDismiss,
-      className: 'bottom-notification--catch-up',
+      className: 'notifications-overlay--catch-up',
     });
   }, [show, handleUserDismiss]);
 
@@ -128,7 +129,7 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
         subtitle: 'Turn on "What Did I Miss" in Settings \u2192 AI to use this feature.',
         autoDismissMs: 5000,
         onDismiss: handleUserDismiss,
-        className: 'bottom-notification--catch-up',
+        className: 'notifications-overlay--catch-up',
       });
       return;
     }

@@ -1,0 +1,404 @@
+/* ═══════════════════════════════════════════════════════════════
+   Notifications — unified toast, confirm, and overlay styling
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Shared tokens ─────────────────────────────────────────── */
+.notifications-overlay,
+.notifications-toast-stack,
+.notifications-confirm-backdrop {
+  font-family: var(--font-system);
+}
+
+/* ╔══════════════════════════════════════════════════════════╗
+   ║ OVERLAY — bottom, priority-queued, view-scoped           ║
+   ║ Anchors to nearest positioned ancestor (Player/Preview)  ║
+   ╚══════════════════════════════════════════════════════════╝ */
+.notifications-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 24px;
+  pointer-events: none;
+  transform: translateY(100%);
+  opacity: 0;
+  transition: transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.4s ease;
+}
+
+.notifications-overlay--entered {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.notifications-overlay--clickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.notifications-overlay--clickable .notifications-overlay-card:hover {
+  background: transparent;
+  border-color: var(--accent-cyan);
+}
+
+.notifications-overlay-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  background: transparent;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 8px;
+  padding: 20px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.notifications-overlay-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 0;
+  pointer-events: auto;
+  transition: color 0.2s;
+}
+
+.notifications-overlay-close:hover {
+  color: #fff;
+}
+
+.notifications-overlay-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notifications-overlay-label {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.notifications-overlay-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notifications-overlay-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notifications-overlay-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.notifications-overlay-backdrop {
+  width: 180px;
+  height: 100px;
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 600px) {
+  .notifications-overlay { padding: 12px; }
+  .notifications-overlay-card { padding: 14px 16px; gap: 12px; }
+  .notifications-overlay-title { font-size: 14px; }
+  .notifications-overlay-backdrop { width: 120px; height: 68px; }
+}
+
+@media (max-width: 380px) {
+  .notifications-overlay-backdrop { display: none; }
+}
+
+/* ── Overlay modifiers ─────────────────────────────────────── */
+.notifications-overlay--iconic .notifications-overlay-card {
+  max-width: 560px;
+  border-color: rgba(224, 64, 251, 0.25);
+  background: rgba(10, 5, 18, 0.85);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.notifications-overlay--iconic .notifications-overlay-label { color: #e040fb; }
+.notifications-overlay--iconic .notifications-overlay-title { font-size: 16px; white-space: normal; }
+.notifications-overlay--iconic .notifications-overlay-subtitle { white-space: normal; }
+@media (max-width: 600px) {
+  .notifications-overlay--iconic .notifications-overlay-title { font-size: 14px; }
+}
+
+.notifications-overlay--catch-up .notifications-overlay-card {
+  max-width: 560px;
+  border-color: rgba(79, 195, 247, 0.25);
+  background: rgba(5, 12, 20, 0.85);
+}
+.notifications-overlay--catch-up .notifications-overlay-label { color: #4fc3f7; }
+.notifications-overlay--catch-up .notifications-overlay-title { font-size: 16px; white-space: normal; }
+.notifications-overlay--catch-up .notifications-overlay-subtitle { white-space: normal; color: #fff; }
+@media (max-width: 600px) {
+  .notifications-overlay--catch-up .notifications-overlay-title { font-size: 14px; }
+}
+
+/* Catch-up loading spinner (used inline by CatchUpOverlay as notification meta) */
+.catch-up-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.catch-up-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(79, 195, 247, 0.25);
+  border-top-color: #4fc3f7;
+  border-radius: 50%;
+  animation: catch-up-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes catch-up-spin {
+  to { transform: rotate(360deg); }
+}
+.catch-up-loading-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.notifications-overlay--starting-soon .notifications-overlay-label { color: var(--accent-cyan); }
+.notifications-overlay--starting-soon .notifications-overlay-channel {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--text-gold);
+  letter-spacing: 0.5px;
+}
+.notifications-overlay--starting-soon .notifications-overlay-chip {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+.notifications-overlay--starting-soon .notifications-overlay-tune {
+  font-family: var(--font-retro);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+}
+
+.notifications-overlay--promo .notifications-overlay-label {
+  color: var(--text-gold);
+}
+
+/* ╔══════════════════════════════════════════════════════════╗
+   ║ TOAST — global, transient, top-right stack               ║
+   ╚══════════════════════════════════════════════════════════╝ */
+.notifications-toast-stack {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10000;
+  pointer-events: none;
+  max-width: calc(100vw - 40px);
+}
+
+.notifications-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 280px;
+  max-width: 420px;
+  padding: 12px 14px;
+  background: rgba(10, 14, 42, 0.95);
+  border: 1px solid var(--border-grid);
+  border-left-width: 3px;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  animation: notifications-toast-in 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.notifications-toast-message {
+  flex: 1;
+  word-wrap: break-word;
+}
+
+.notifications-toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  line-height: 0;
+  transition: color 0.15s;
+}
+
+.notifications-toast-close:hover {
+  color: var(--text-primary);
+}
+
+.notifications-toast--success {
+  border-left-color: var(--accent-green);
+}
+.notifications-toast--error {
+  border-left-color: var(--accent-red);
+}
+.notifications-toast--warn {
+  border-left-color: var(--accent-gold);
+}
+.notifications-toast--info {
+  border-left-color: var(--accent-cyan);
+}
+
+@keyframes notifications-toast-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@media (max-width: 600px) {
+  .notifications-toast-stack {
+    top: auto;
+    bottom: 20px;
+    right: 20px;
+    left: 20px;
+  }
+  .notifications-toast {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+  }
+}
+
+/* ╔══════════════════════════════════════════════════════════╗
+   ║ CONFIRM — blocking modal dialog                          ║
+   ╚══════════════════════════════════════════════════════════╝ */
+.notifications-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10100;
+  padding: 24px;
+  animation: notifications-confirm-backdrop-in 0.15s ease;
+}
+
+.notifications-confirm-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-grid);
+  border-radius: 8px;
+  padding: 20px 24px;
+  max-width: 420px;
+  width: 100%;
+  color: var(--text-primary);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  animation: notifications-confirm-dialog-in 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.notifications-confirm-title {
+  margin: 0 0 10px 0;
+  font-family: var(--font-retro);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+}
+
+.notifications-confirm-message {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.notifications-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.notifications-confirm-btn {
+  font-family: var(--font-retro);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 10px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  border: 1px solid transparent;
+}
+
+.notifications-confirm-cancel {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border-grid);
+}
+
+.notifications-confirm-cancel:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.notifications-confirm-ok {
+  background: var(--accent-cyan);
+  color: var(--bg-primary);
+  border-color: var(--accent-cyan);
+}
+
+.notifications-confirm-ok:hover {
+  filter: brightness(1.15);
+}
+
+.notifications-confirm-ok--destructive {
+  background: var(--accent-red);
+  color: #fff;
+  border-color: var(--accent-red);
+}
+
+.notifications-confirm-ok:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+@keyframes notifications-confirm-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes notifications-confirm-dialog-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}

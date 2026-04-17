@@ -27,7 +27,7 @@ import InterstitialScreen from '../Player/InterstitialScreen';
 import PromoOverlay from '../Player/PromoOverlay';
 import IconicSceneOverlay from '../Player/IconicSceneOverlay';
 import CatchUpOverlay from '../Player/CatchUpOverlay';
-import { BottomNotificationProvider } from '../Player/BottomNotificationManager';
+import { NotificationScope } from '../../notifications';
 import { getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
 import { ClosedCaptioningIcon, ArrowsInSimpleIcon, ArrowsOutSimpleIcon, SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react';
 import './Guide.css';
@@ -1015,7 +1015,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       onTouchStart={swipe.onTouchStart}
       onTouchEnd={swipe.onTouchEnd}
     >
-      <BottomNotificationProvider>
+      <NotificationScope>
       {/* Video fills entire panel — shared video element is reparented here */}
       <div className="preview-video-container">
         {showVideo && (
@@ -1099,7 +1099,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           onManualTriggerConsumed={() => setCatchUpTrigger(false)}
         />
       )}
-      </BottomNotificationProvider>
+      </NotificationScope>
       {/* Info overlay on top of video — fades out after 5s; tap to show, tap again within 5s to tune */}
       <div
         className={`preview-overlay ${overlayVisible ? 'preview-overlay-visible' : 'preview-overlay-hidden'}`}

@@ -24,7 +24,7 @@ import InterstitialScreen from './InterstitialScreen';
 import IconicSceneOverlay from './IconicSceneOverlay';
 import CatchUpOverlay from './CatchUpOverlay';
 import ProgramInfoModal from '../Guide/ProgramInfoModal';
-import { BottomNotificationProvider } from './BottomNotificationManager';
+import { NotificationScope } from '../../notifications';
 import { useSchedule } from '../../hooks/useSchedule';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
@@ -1508,7 +1508,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   }, [handleClick]);
 
   return (
-    <BottomNotificationProvider>
+    <NotificationScope>
     <div
       ref={playerContainerRef}
       className="player"
@@ -1997,6 +1997,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         onClose={() => setShowProgramInfo(false)}
       />
     )}
-    </BottomNotificationProvider>
+    </NotificationScope>
   );
 }

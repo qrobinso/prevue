@@ -5,6 +5,7 @@ import Player from './components/Player/Player';
 import AuthGate from './components/AuthGate';
 import { useWebSocket } from './hooks/useWebSocket';
 import { NavigationProvider } from './navigation';
+import { NotificationProvider } from './notifications';
 import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, getServers, regenerateSchedule, type ChannelWithProgram } from './services/api';
 import { getClientId } from './services/clientIdentity';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
@@ -373,9 +374,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <NavigationProvider>
-        <AuthWrapper>
-          <AppContent />
-        </AuthWrapper>
+        <NotificationProvider>
+          <AuthWrapper>
+            <AppContent />
+          </AuthWrapper>
+        </NotificationProvider>
       </NavigationProvider>
     </BrowserRouter>
   );

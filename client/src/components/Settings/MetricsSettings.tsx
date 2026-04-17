@@ -6,6 +6,7 @@ import {
   clearMetricsData,
   type MetricsDashboard,
 } from '../../services/api';
+import { useNotifications } from '../../notifications';
 import './Settings.css';
 
 type TimeRange = '24h' | '7d' | '30d' | 'all';
@@ -53,12 +54,12 @@ function parseUserAgent(ua: string | null): string {
 }
 
 export default function MetricsSettings() {
+  const { confirm, toast } = useNotifications();
   const [metricsEnabled, setMetricsEnabled] = useState(true);
   const [range, setRange] = useState<TimeRange>('7d');
   const [dashboard, setDashboard] = useState<MetricsDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
 
   // Load metrics enabled setting
@@ -107,17 +108,21 @@ export default function MetricsSettings() {
   };
 
   const handleClearData = async () => {
-    if (!confirmClear) {
-      setConfirmClear(true);
-      return;
-    }
+    const ok = await confirm({
+      title: 'Clear Metrics Data',
+      message: 'Clear all recorded watch history and metrics data? This cannot be undone.',
+      confirmLabel: 'Clear Data',
+      destructive: true,
+    });
+    if (!ok) return;
+
     setClearing(true);
     try {
       await clearMetricsData();
-      setConfirmClear(false);
       loadDashboard(range);
+      toast({ variant: 'success', message: 'Metrics data cleared.' });
     } catch (err) {
-      setError((err as Error).message);
+      toast({ variant: 'error', message: (err as Error).message });
     } finally {
       setClearing(false);
     }
@@ -131,7 +136,7 @@ export default function MetricsSettings() {
 
   return (
     <div className="settings-section">
-      <h3>METRICS</h3>
+      <div className="settings-group-heading">METRICS</div>
 
       <div className="settings-subsection">
         <h4>TRACKING</h4>
@@ -365,21 +370,12 @@ export default function MetricsSettings() {
           Clear all recorded watch history and metrics data. This cannot be undone.
         </p>
         <button
-          className={`settings-btn-sm settings-btn-danger ${confirmClear ? 'settings-btn-danger-confirm' : ''}`}
+          className="settings-btn-sm settings-btn-danger"
           onClick={handleClearData}
           disabled={clearing}
         >
-          {clearing ? 'CLEARING...' : confirmClear ? 'CLICK AGAIN TO CONFIRM' : 'CLEAR ALL METRICS DATA'}
+          {clearing ? 'CLEARING...' : 'CLEAR ALL METRICS DATA'}
         </button>
-        {confirmClear && !clearing && (
-          <button
-            className="settings-btn-sm"
-            onClick={() => setConfirmClear(false)}
-            style={{ marginLeft: 8 }}
-          >
-            CANCEL
-          </button>
-        )}
       </div>
     </div>
   );
