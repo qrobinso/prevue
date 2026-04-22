@@ -6,6 +6,7 @@ import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { CheckCircle, CaretDown, ArrowClockwise, Television } from '@phosphor-icons/react';
 import { isAutoTuneEnabled, setAutoTuneEnabled } from '../../services/autoTune';
 import { useNavLayer } from '../../navigation';
+import { useNotifications } from '../../notifications';
 import './Settings.css';
 
 /** Thin wrapper that pushes a nav layer for a sub-modal inside Settings */
@@ -76,16 +77,18 @@ export function setCatchUpEnabled(enabled: boolean): void {
   window.dispatchEvent(new CustomEvent('catchupchange', { detail: { enabled } }));
 }
 
+export type GeneralPanel = 'sources' | 'playback' | 'ai' | 'about' | 'system';
+
 interface GeneralSettingsProps {
   onServerAdded?: (server: ServerInfo) => void;
+  panel?: GeneralPanel;
 }
 
-export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps) {
-  const [confirmReset, setConfirmReset] = useState(false);
+export default function GeneralSettings({ onServerAdded, panel }: GeneralSettingsProps) {
+  const show = (p: GeneralPanel) => !panel || panel === p;
+  const { confirm, toast } = useNotifications();
   const [resetting, setResetting] = useState(false);
-  const [confirmRestart, setConfirmRestart] = useState(false);
   const [restarting, setRestarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPWAInstructions, setShowPWAInstructions] = useState(false);
@@ -115,13 +118,15 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
   // Sub-modal Escape handling is now provided by useNavLayer via the SubModal wrapper
 
   const handleRestart = async () => {
-    if (!confirmRestart) {
-      setConfirmRestart(true);
-      return;
-    }
+    const ok = await confirm({
+      title: 'Restart Server',
+      message: 'Restart the Prevue server process? Requires a process manager (Docker, systemd) to bring it back up.',
+      confirmLabel: 'Restart',
+      destructive: true,
+    });
+    if (!ok) return;
 
     setRestarting(true);
-    setError(null);
     try {
       await restartServer();
     } catch {
@@ -267,13 +272,15 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
   };
 
   const handleFactoryReset = async () => {
-    if (!confirmReset) {
-      setConfirmReset(true);
-      return;
-    }
+    const ok = await confirm({
+      title: 'Factory Reset',
+      message: 'Delete all servers, channels, schedules, and settings? This cannot be undone.',
+      confirmLabel: 'Reset Everything',
+      destructive: true,
+    });
+    if (!ok) return;
 
     setResetting(true);
-    setError(null);
     try {
       await factoryReset();
       // Clear all local storage (preferences, cached state, etc.)
@@ -281,18 +288,17 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
       // Reload the page to start fresh
       window.location.reload();
     } catch (err) {
-      setError((err as Error).message);
+      toast({ variant: 'error', message: (err as Error).message });
       setResetting(false);
-      setConfirmReset(false);
     }
   };
 
   return (
     <div className="settings-section">
-      <ServerSettings onServerAdded={onServerAdded} />
+      {show('sources') && <ServerSettings onServerAdded={onServerAdded} />}
 
-      {/* ── Playback ────────────────────────────────────── */}
-      <div className="settings-group-heading">PLAYBACK</div>
+      {show('playback') && (<>
+      {!panel && <div className="settings-group-heading">PLAYBACK</div>}
 
       <div className="settings-subsection">
         <h4>JUST WATCH</h4>
@@ -339,8 +345,10 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         </p>
       </div>
 
-      {/* ── AI ───────────────────────────────────────────── */}
-      <div className="settings-group-heading">AI <span className="settings-badge settings-badge-beta">BETA</span></div>
+      </>)}
+
+      {show('ai') && (<>
+      {!panel && <div className="settings-group-heading">AI <span className="settings-badge settings-badge-beta">BETA</span></div>}
 
       <div className="settings-subsection">
         <div className="settings-ai-config">
@@ -545,8 +553,10 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         </div>
       </div>
 
-      {/* ── App ──────────────────────────────────────────── */}
-      <div className="settings-group-heading">APP</div>
+      </>)}
+
+      {show('about') && (<>
+      {!panel && <div className="settings-group-heading">APP</div>}
 
       <div className="settings-subsection">
         <h4>INSTALL APP</h4>
@@ -622,31 +632,23 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         </button>
       </div>
 
-      {/* ── System ───────────────────────────────────────── */}
-      <div className="settings-group-heading">SYSTEM</div>
+      </>)}
+
+      {show('system') && (<>
+      {!panel && <div className="settings-group-heading">SYSTEM</div>}
 
       <div className="settings-subsection settings-danger-zone">
         <h4>RESTART SERVER</h4>
         <p className="settings-field-hint">
           Restart the Prevue server process. Requires a process manager (Docker, systemd) to bring it back up.
         </p>
-        {error && !confirmReset && <div className="settings-error">{error}</div>}
         <button
-          className={`settings-btn-sm settings-btn-danger ${confirmRestart ? 'settings-btn-danger-confirm' : ''}`}
+          className="settings-btn-sm settings-btn-danger"
           onClick={handleRestart}
           disabled={restarting}
         >
-          {restarting ? 'RESTARTING...' : confirmRestart ? 'CLICK AGAIN TO CONFIRM' : 'RESTART SERVER'}
+          {restarting ? 'RESTARTING...' : 'RESTART SERVER'}
         </button>
-        {confirmRestart && !restarting && (
-          <button
-            className="settings-btn-sm"
-            onClick={() => setConfirmRestart(false)}
-            style={{ marginLeft: 8 }}
-          >
-            CANCEL
-          </button>
-        )}
       </div>
 
       <div className="settings-subsection settings-danger-zone">
@@ -654,26 +656,17 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         <p className="settings-field-hint">
           Delete all servers, channels, schedules, and settings. This cannot be undone.
         </p>
-        {error && confirmReset && <div className="settings-error">{error}</div>}
         <button
-          className={`settings-btn-sm settings-btn-danger ${confirmReset ? 'settings-btn-danger-confirm' : ''}`}
+          className="settings-btn-sm settings-btn-danger"
           onClick={handleFactoryReset}
           disabled={resetting}
         >
-          {resetting ? 'RESETTING...' : confirmReset ? 'CLICK AGAIN TO CONFIRM' : 'FACTORY RESET'}
+          {resetting ? 'RESETTING...' : 'FACTORY RESET'}
         </button>
-        {confirmReset && !resetting && (
-          <button
-            className="settings-btn-sm"
-            onClick={() => setConfirmReset(false)}
-            style={{ marginLeft: 8 }}
-          >
-            CANCEL
-          </button>
-        )}
       </div>
+      </>)}
 
-      {showShortcuts && (
+      {show('about') && showShortcuts && (
         <SubModal id="shortcuts-modal" onClose={() => setShowShortcuts(false)}>
         <div
           className="about-backdrop"
@@ -742,7 +735,7 @@ export default function GeneralSettings({ onServerAdded }: GeneralSettingsProps)
         </SubModal>
       )}
 
-      {showAbout && (
+      {show('about') && showAbout && (
         <SubModal id="about-modal" onClose={closeAbout}>
         <div
           className="about-backdrop"

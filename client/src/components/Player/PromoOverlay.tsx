@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Channel, ScheduleProgram } from '../../types';
 import { sanitizeImageUrl } from '../../utils/sanitize';
 import { ArrowRight } from '@phosphor-icons/react';
-import { useBottomNotifications } from './BottomNotificationManager';
+import { useNotifications } from '../../notifications';
 import './Player.css';
 
 export interface PromoOverlayHandle {
@@ -145,7 +145,8 @@ export default function PromoOverlay({
   const programStartedAtRef = useRef<number>(Date.now());
   const promoVisibleRef = useRef(false);
 
-  const { show: showNotification, hide: hideNotification } = useBottomNotifications();
+  const { overlay } = useNotifications();
+  const { show: showNotification, hide: hideNotification } = overlay;
 
   const clearSequenceTimer = useCallback(() => {
     if (sequenceTimerRef.current) {
@@ -175,12 +176,12 @@ export default function PromoOverlay({
       subtitle: prog.subtitle || undefined,
       meta: (
         <>
-          {prog.year && <span className="bottom-notification-chip">{prog.year}</span>}
-          {prog.rating && <span className="bottom-notification-chip">{prog.rating}</span>}
+          {prog.year && <span className="notifications-overlay-chip">{prog.year}</span>}
+          {prog.rating && <span className="notifications-overlay-chip">{prog.rating}</span>}
         </>
       ),
       backdropUrl: hdBackdrop,
-      className: 'bottom-notification--promo',
+      className: 'notifications-overlay--promo',
       autoDismissMs: 0, // managed by our own sequence timer
     });
   }, [showNotification]);
@@ -294,14 +295,14 @@ export default function PromoOverlay({
         subtitle: match.program.subtitle || undefined,
         meta: (
           <>
-            {channelName && <span className="bottom-notification-channel">{channelName}</span>}
-            {match.program.year && <span className="bottom-notification-chip">{match.program.year}</span>}
-            {match.program.rating && <span className="bottom-notification-chip">{match.program.rating}</span>}
-            {ssClickable && <span className="bottom-notification-tune">Tune In <ArrowRight size={14} weight="bold" /></span>}
+            {channelName && <span className="notifications-overlay-channel">{channelName}</span>}
+            {match.program.year && <span className="notifications-overlay-chip">{match.program.year}</span>}
+            {match.program.rating && <span className="notifications-overlay-chip">{match.program.rating}</span>}
+            {ssClickable && <span className="notifications-overlay-tune">Tune In <ArrowRight size={14} weight="bold" /></span>}
           </>
         ),
         backdropUrl: ssHdBackdrop,
-        className: 'bottom-notification--starting-soon',
+        className: 'notifications-overlay--starting-soon',
         autoDismissMs: STARTING_SOON_DURATION_MS,
         pauseOnHover: true,
         onClick: ssClickable ? () => {
@@ -334,5 +335,5 @@ export default function PromoOverlay({
     };
   }, [hideNotification]);
 
-  return null; // All rendering handled by BottomNotificationProvider
+  return null; // All rendering handled by NotificationScope
 }

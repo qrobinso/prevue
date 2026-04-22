@@ -334,6 +334,37 @@ export async function getCatchUpSummary(params: {
   });
 }
 
+export interface AIFilterChannelInput {
+  id: number;
+  number: number;
+  name: string;
+  current?: {
+    title: string;
+    year: number | null;
+    genres: string[];
+    rating: string | null;
+    durationMin: number | null;
+    contentType: 'movie' | 'episode' | null;
+  };
+  next?: {
+    title: string;
+    genres: string[];
+    contentType: 'movie' | 'episode' | null;
+  };
+}
+
+export async function getAIChannelFilter(params: {
+  query: string;
+  channels: AIFilterChannelInput[];
+  focusedChannelId?: number | null;
+}): Promise<{ channelIds: number[]; reason: string }> {
+  return request('/schedule/ai-filter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  }, LONG_REQUEST_TIMEOUT_MS);
+}
+
 export interface HiddenGem {
   media_item_id: string;
   title: string;

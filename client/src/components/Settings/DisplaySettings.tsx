@@ -506,7 +506,14 @@ export function setGuideHours(hours: number): void {
   window.dispatchEvent(new CustomEvent('guidehourschange', { detail: { hours: clamped } }));
 }
 
-export default function DisplaySettings() {
+export type DisplayPanel = 'player' | 'theme' | 'guide' | 'channels';
+
+interface DisplaySettingsProps {
+  panel?: DisplayPanel;
+}
+
+export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
+  const show = (p: DisplayPanel) => !panel || panel === p;
   const [visibleChannels, setVisibleChannels] = useState(getVisibleChannels);
   const [channelCount, setChannelCountState] = useState(getChannelCount);
   const [guideHours, setGuideHoursState] = useState(getGuideHours);
@@ -688,10 +695,10 @@ export default function DisplaySettings() {
 
   return (
     <div className="settings-section">
-      <h3>DISPLAY</h3>
+      {!panel && <h3>DISPLAY</h3>}
 
-      {/* ── Playback ─────────────────────────────────────── */}
-      <div className="settings-group-heading">PLAYBACK</div>
+      {show('player') && (<>
+      {!panel && <div className="settings-group-heading">PLAYBACK</div>}
 
       <div className="settings-subsection">
         <h4>VIDEO QUALITY</h4>
@@ -714,8 +721,10 @@ export default function DisplaySettings() {
       </div>
 
 
-      {/* ── Appearance ───────────────────────────────────── */}
-      <div className="settings-group-heading">APPEARANCE</div>
+      </>)}
+
+      {show('theme') && (<>
+      {!panel && <div className="settings-group-heading">APPEARANCE</div>}
 
       <div className="settings-subsection">
         <h4>COLOR SCHEME</h4>
@@ -746,6 +755,9 @@ export default function DisplaySettings() {
         </div>
       </div>
 
+      </>)}
+
+      {show('player') && (<>
       <div className="settings-subsection">
         <h4>PREVIEW BACKGROUND</h4>
         <p className="settings-field-hint">
@@ -795,8 +807,10 @@ export default function DisplaySettings() {
         </div>
       </div>
 
-      {/* ── Guide ────────────────────────────────────────── */}
-      <div className="settings-group-heading">GUIDE</div>
+      </>)}
+
+      {show('guide') && (<>
+      {!panel && <div className="settings-group-heading">GUIDE</div>}
 
       <div className="settings-subsection">
         <h4>LAYOUT</h4>
@@ -1067,6 +1081,9 @@ export default function DisplaySettings() {
         )}
       </div>
 
+      </>)}
+
+      {show('player') && (<>
       <div className="settings-subsection">
         <h4>IN-VIDEO NOTIFICATIONS</h4>
         <p className="settings-field-hint">
@@ -1106,6 +1123,9 @@ export default function DisplaySettings() {
         </div>
       </div>
 
+      </>)}
+
+      {show('channels') && (<>
       <div className="settings-subsection">
         <h4>TOTAL CHANNELS</h4>
         <p className="settings-field-hint">
@@ -1128,6 +1148,7 @@ export default function DisplaySettings() {
           <span>{MAX_CHANNEL_COUNT}</span>
         </div>
       </div>
+      </>)}
 
     </div>
   );

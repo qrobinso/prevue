@@ -6,11 +6,12 @@ import PreviewPanel from './PreviewPanel';
 import ProgramInfoModal from './ProgramInfoModal';
 import ChannelSearch from './ChannelSearch';
 import GuideFilterDropdown from './GuideFilter';
+import AIFilterModal from './AIFilterModal';
 import Ticker from './Ticker';
 import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle, getTickerEnabled } from '../Settings/DisplaySettings';
 import type { PreviewStyle } from '../Settings/DisplaySettings';
 import Settings from '../Settings/Settings';
-import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, GearSix } from '@phosphor-icons/react';
+import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, GearSix, Sparkle, X } from '@phosphor-icons/react';
 import { isIOSPWA } from '../../utils/platform';
 import {
   getFullscreenElement,
@@ -22,6 +23,8 @@ import {
 import { getGuideFilters, setGuideFilters, applyGuideFilter, type GuideFilterId } from './guideFilterUtils';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
+import { getAIStatus, getAIChannelFilter, type AIFilterChannelInput } from '../../services/api';
+import { useNotifications } from '../../notifications';
 import { requestPlaybackHandoff } from '../../services/playbackHandoff';
 import './Guide.css';
 
@@ -86,6 +89,24 @@ export default function Guide({
   // Guide filter state
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<GuideFilterId[]>(getGuideFilters);
+
+  // AI natural-language filter state (session-only, not persisted)
+  interface AIFilterState {
+    query: string;
+    channelIds: Set<number>;
+    reason: string;
+  }
+  const { toast } = useNotifications();
+  const [aiFilter, setAIFilter] = useState<AIFilterState | null>(null);
+  const [aiModalOpen, setAIModalOpen] = useState(false);
+  const [aiSubmitting, setAISubmitting] = useState(false);
+  const [aiAvailable, setAIAvailable] = useState(false);
+
+  useEffect(() => {
+    getAIStatus()
+      .then(({ available }) => setAIAvailable(available))
+      .catch(() => setAIAvailable(false));
+  }, []);
 
   // Update preview time at low frequency so the entire guide tree does not rerender every second.
   useEffect(() => {
@@ -152,10 +173,13 @@ export default function Guide({
   // Pin the currently-focused channel so it stays visible even if it no longer
   // matches a time-sensitive filter (e.g. iconic-scene window passed).
   const pinnedChannelId = prevFocusedIdRef.current;
-  const filteredChannels = useMemo(
-    () => applyGuideFilter(channels, scheduleByChannel, activeFilters, pinnedChannelId),
-    [channels, scheduleByChannel, activeFilters, pinnedChannelId],
-  );
+  const filteredChannels = useMemo(() => {
+    const base = applyGuideFilter(channels, scheduleByChannel, activeFilters, pinnedChannelId);
+    if (!aiFilter) return base;
+    return base.filter(ch =>
+      aiFilter.channelIds.has(ch.id) || (pinnedChannelId != null && ch.id === pinnedChannelId),
+    );
+  }, [channels, scheduleByChannel, activeFilters, pinnedChannelId, aiFilter]);
 
   // When the filtered list changes, try to keep the same channel focused by ID.
   // If the channel was filtered out, clamp to the nearest valid index.
@@ -311,6 +335,72 @@ export default function Guide({
   prevFocusedIdRef.current = focusedChannel?.id ?? null;
   const focusedPrograms = focusedChannel ? scheduleByChannel.get(focusedChannel.id) || [] : [];
   const focusedProgram = focusedPrograms[focusedProgramIdx] || null;
+
+  // Build AI filter channel snapshot and submit the query
+  const handleAISubmit = useCallback(async (query: string) => {
+    setAISubmitting(true);
+    try {
+      const now = Date.now();
+      const channelInputs: AIFilterChannelInput[] = channels.map(ch => {
+        const schedule = scheduleByChannel.get(ch.id) ?? [];
+        const current = schedule.find(p => {
+          if (p.type !== 'program') return false;
+          const start = p.start_ms ?? new Date(p.start_time).getTime();
+          const end = p.end_ms ?? new Date(p.end_time).getTime();
+          return now >= start && now < end;
+        }) ?? ch.current_program ?? null;
+        const upcoming = schedule.find(p => {
+          if (p.type !== 'program') return false;
+          const start = p.start_ms ?? new Date(p.start_time).getTime();
+          return start > now;
+        }) ?? ch.next_program ?? null;
+        return {
+          id: ch.id,
+          number: ch.number,
+          name: ch.name,
+          current: current ? {
+            title: current.title,
+            year: current.year ?? null,
+            genres: current.genres ?? [],
+            rating: current.rating ?? null,
+            durationMin: current.duration_ms ? Math.round(current.duration_ms / 60000) : null,
+            contentType: (current.content_type as 'movie' | 'episode' | null) ?? null,
+          } : undefined,
+          next: upcoming ? {
+            title: upcoming.title,
+            genres: upcoming.genres ?? [],
+            contentType: (upcoming.content_type as 'movie' | 'episode' | null) ?? null,
+          } : undefined,
+        };
+      });
+
+      const result = await getAIChannelFilter({
+        query,
+        channels: channelInputs,
+        focusedChannelId: focusedChannel?.id ?? null,
+      });
+
+      if (result.channelIds.length === 0) {
+        toast({ variant: 'warn', message: `No channels matched "${query}".` });
+        return;
+      }
+      setAIFilter({
+        query,
+        channelIds: new Set(result.channelIds),
+        reason: result.reason,
+      });
+      setAIModalOpen(false);
+      if (result.reason) {
+        toast({ variant: 'info', message: result.reason, duration: 5000 });
+      }
+    } catch (err) {
+      toast({ variant: 'error', message: (err as Error).message });
+    } finally {
+      setAISubmitting(false);
+    }
+  }, [channels, scheduleByChannel, focusedChannel?.id, toast]);
+
+  const clearAIFilter = useCallback(() => setAIFilter(null), []);
 
   useEffect(() => {
     onFocusedChannelChange?.(focusedChannel?.id ?? null);
@@ -702,6 +792,37 @@ export default function Guide({
     >
       {/* Header buttons — navigable as a zone via remote control */}
       <div ref={headerRef} style={{ display: 'contents' }}>
+        {aiFilter ? (
+          <div
+            className={`guide-ai-filter-pill ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => setAIModalOpen(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setAIModalOpen(true); }}
+            title={aiFilter.reason || 'Edit AI filter'}
+          >
+            <Sparkle size={14} weight="fill" className="guide-ai-filter-pill-sparkle" />
+            <span className="guide-ai-filter-pill-text">{aiFilter.query}</span>
+            <button
+              type="button"
+              className="guide-ai-filter-pill-close"
+              onClick={(e) => { e.stopPropagation(); clearAIFilter(); }}
+              aria-label="Clear AI filter"
+            >
+              <X size={14} weight="bold" />
+            </button>
+          </div>
+        ) : (
+          <button
+            className={`guide-ai-filter-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+            onClick={() => setAIModalOpen(true)}
+            disabled={!aiAvailable}
+            title={aiAvailable ? 'Ask AI to narrow channels' : 'Configure AI in Settings → AI to enable'}
+            aria-label="AI channel filter"
+          >
+            <Sparkle size={18} weight="bold" />
+          </button>
+        )}
         <button
           className={`guide-search-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
           onClick={() => setSearchOpen(true)}
@@ -768,6 +889,13 @@ export default function Guide({
           onClose={() => setSearchOpen(false)}
         />
       )}
+      <AIFilterModal
+        open={aiModalOpen}
+        initialQuery={aiFilter?.query}
+        submitting={aiSubmitting}
+        onSubmit={handleAISubmit}
+        onClose={() => { if (!aiSubmitting) setAIModalOpen(false); }}
+      />
       {filterOpen && (
         <GuideFilterDropdown
           channels={channels}

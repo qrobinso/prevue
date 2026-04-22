@@ -1,41 +1,28 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from '@phosphor-icons/react';
-import './Player.css';
+import type { OverlayData } from './types';
 
-interface BottomNotificationProps {
-  /** Controls visibility. When false, triggers exit animation then unmounts. */
+interface OverlayRendererProps {
+  /** The current overlay data, or null when idle. */
+  data: OverlayData | null;
+  /** Controls visibility. When false, triggers exit animation then notifies onExited. */
   visible: boolean;
-  /** Called when user swipes down to dismiss. Consumer should set visible=false. */
-  onDismiss?: () => void;
-  /** Called after exit animation completes and component unmounts from DOM. */
-  onExited?: () => void;
-  /** Auto-dismiss after this many ms. Omit or 0 to stay visible indefinitely. */
-  autoDismissMs?: number;
-  /** Pause auto-dismiss timer on mouse hover. Default: false. */
-  pauseOnHover?: boolean;
-  /** Make the entire bar clickable. */
-  onClick?: () => void;
-  /** Extra CSS class on the outer wrapper (e.g. modifier for styling). */
-  className?: string;
-  /** z-index override. Default: 20. */
-  zIndex?: number;
-  children: React.ReactNode;
+  /** User swipe/X button dismiss. Consumer should flip visible to false. */
+  onDismiss: () => void;
+  /** Called after exit animation completes. */
+  onExited: () => void;
 }
 
 const SWIPE_THRESHOLD = 40;
 const EXIT_TRANSITION_MS = 550;
+const DEFAULT_Z_INDEX = 20;
 
-export default function BottomNotification({
+export default function OverlayRenderer({
+  data,
   visible,
   onDismiss,
   onExited,
-  autoDismissMs = 0,
-  pauseOnHover = false,
-  onClick,
-  className,
-  zIndex = 20,
-  children,
-}: BottomNotificationProps) {
+}: OverlayRendererProps) {
   const [rendered, setRendered] = useState(false);
   const [entered, setEntered] = useState(false);
 
@@ -52,7 +39,6 @@ export default function BottomNotification({
     }
   }, []);
 
-  // Enter: mount then trigger slide-in on next frame
   useEffect(() => {
     if (visible) {
       if (exitTimer.current) {
@@ -62,31 +48,29 @@ export default function BottomNotification({
       setRendered(true);
       requestAnimationFrame(() => setEntered(true));
     } else if (rendered) {
-      // Exit: slide out then unmount
       setEntered(false);
       clearDismissTimer();
       exitTimer.current = setTimeout(() => {
         setRendered(false);
-        onExited?.();
+        onExited();
       }, EXIT_TRANSITION_MS);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  // Auto-dismiss timer
+  const autoDismissMs = data?.autoDismissMs ?? 0;
+  const pauseOnHover = data?.pauseOnHover ?? false;
+
   useEffect(() => {
     if (entered && autoDismissMs > 0) {
       dismissStartedAt.current = Date.now();
       dismissRemaining.current = autoDismissMs;
-      dismissTimer.current = setTimeout(() => {
-        onDismiss?.();
-      }, autoDismissMs);
+      dismissTimer.current = setTimeout(() => onDismiss(), autoDismissMs);
       return () => clearDismissTimer();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entered, autoDismissMs]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (exitTimer.current) clearTimeout(exitTimer.current);
@@ -104,9 +88,7 @@ export default function BottomNotification({
   const handleMouseLeave = useCallback(() => {
     if (!pauseOnHover || dismissRemaining.current <= 0 || !entered) return;
     dismissStartedAt.current = Date.now();
-    dismissTimer.current = setTimeout(() => {
-      onDismiss?.();
-    }, dismissRemaining.current);
+    dismissTimer.current = setTimeout(() => onDismiss(), dismissRemaining.current);
   }, [pauseOnHover, entered, onDismiss]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -119,44 +101,61 @@ export default function BottomNotification({
     if (touchStartY.current === null) return;
     const deltaY = e.changedTouches[0].clientY - touchStartY.current;
     touchStartY.current = null;
-    if (deltaY > SWIPE_THRESHOLD) {
-      onDismiss?.();
-    }
+    if (deltaY > SWIPE_THRESHOLD) onDismiss();
   }, [onDismiss]);
 
-  if (!rendered) return null;
+  if (!rendered || !data) return null;
 
-  const isClickable = !!onClick;
+  const isClickable = !!data.onClick;
 
   return (
     <div
       className={[
-        'bottom-notification',
-        entered && 'bottom-notification-entered',
-        isClickable && 'bottom-notification-clickable',
-        className,
+        'notifications-overlay',
+        entered && 'notifications-overlay--entered',
+        isClickable && 'notifications-overlay--clickable',
+        data.className,
       ].filter(Boolean).join(' ')}
-      style={{ zIndex }}
-      onClick={onClick}
+      style={{ zIndex: DEFAULT_Z_INDEX }}
+      onClick={data.onClick}
       onMouseEnter={pauseOnHover ? handleMouseEnter : undefined}
       onMouseLeave={pauseOnHover ? handleMouseLeave : undefined}
-      onTouchStart={onDismiss ? handleTouchStart : undefined}
-      onTouchEnd={onDismiss ? handleTouchEnd : undefined}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       role={isClickable ? 'button' : undefined}
       tabIndex={isClickable ? 0 : undefined}
-      onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick?.(); } : undefined}
+      onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') data.onClick?.(); } : undefined}
     >
-      <div className="bottom-notification-card">
-        {children}
-        {onDismiss && (
-          <button
-            className="bottom-notification-close"
-            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
-            aria-label="Close notification"
+      <div className="notifications-overlay-card">
+        <div className="notifications-overlay-info">
+          <span
+            className="notifications-overlay-label"
+            style={data.labelColor ? { color: data.labelColor } : undefined}
           >
-            <X size={16} weight="bold" />
-          </button>
+            {data.label}
+          </span>
+          <span className="notifications-overlay-title">{data.title}</span>
+          {data.subtitle && (
+            <span className="notifications-overlay-subtitle">{data.subtitle}</span>
+          )}
+          {data.meta && (
+            <div className="notifications-overlay-meta">{data.meta}</div>
+          )}
+        </div>
+        {data.backdropUrl && (
+          <div
+            className="notifications-overlay-backdrop"
+            style={{ backgroundImage: `url("${data.backdropUrl}")` }}
+          />
         )}
+        <button
+          type="button"
+          className="notifications-overlay-close"
+          onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+          aria-label="Close notification"
+        >
+          <X size={16} weight="bold" />
+        </button>
       </div>
     </div>
   );

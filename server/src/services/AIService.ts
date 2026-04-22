@@ -370,6 +370,87 @@ Viewer tuned in at: ${elapsedMinutes} minutes into the film`;
   }
 
   /**
+   * Filter a list of channels by a natural-language viewer intent.
+   * Returns the subset of channel IDs whose currently playing program matches,
+   * plus a short one-line explanation of the pick.
+   */
+  async generateChannelFilter(
+    query: string,
+    channels: {
+      id: number;
+      number: number;
+      name: string;
+      current?: {
+        title: string;
+        year: number | null;
+        genres: string[];
+        rating: string | null;
+        durationMin: number | null;
+        contentType: 'movie' | 'episode' | null;
+      };
+      next?: {
+        title: string;
+        genres: string[];
+        contentType: 'movie' | 'episode' | null;
+      };
+    }[],
+    focusedChannelId: number | null,
+    options?: AIRequestOptions
+  ): Promise<{ channelIds: number[]; reason: string }> {
+    const apiKey = this.resolveApiKey(options);
+    if (!apiKey) throw new Error('AI not configured');
+    const model = this.resolveModel(options);
+
+    if (channels.length === 0) return { channelIds: [], reason: 'No channels available' };
+
+    const systemPrompt = `You are a TV guide assistant. The user wants to narrow down which channels to watch based on what's currently airing. You receive a short user intent and a list of channels with their current program.
+
+Pick the channel IDs whose current program best matches the user's intent. Be selective — quality over quantity. Usually pick 1-8 channels. Return an empty array if nothing truly matches; don't force picks.
+
+If the user references "this" or asks for something relative ("shorter", "more like this"), use the FOCUSED channel's current program as the anchor.
+
+Return ONLY JSON:
+{
+  "channelIds": [<numbers from the provided list>],
+  "reason": "<one short sentence explaining the pick, max 15 words>"
+}`;
+
+    const lines = channels.map(c => {
+      const cur = c.current;
+      if (!cur) return `[${c.id}] ${c.number} ${c.name} — off air`;
+      const yearStr = cur.year ? ` (${cur.year})` : '';
+      const genreStr = cur.genres.length > 0 ? ` ${cur.genres.slice(0, 3).join('/')}` : '';
+      const ratingStr = cur.rating ? ` ${cur.rating}` : '';
+      const durStr = cur.durationMin ? ` ${cur.durationMin}m` : '';
+      const typeStr = cur.contentType === 'episode' ? ' [TV]' : cur.contentType === 'movie' ? ' [MOVIE]' : '';
+      return `[${c.id}] ${c.number} ${c.name}:${typeStr} ${cur.title}${yearStr}${genreStr}${ratingStr}${durStr}`;
+    });
+
+    const focusedLine = focusedChannelId != null
+      ? `\nFOCUSED CHANNEL ID: ${focusedChannelId}`
+      : '';
+
+    const userMessage = `USER INTENT: ${query}${focusedLine}
+
+CHANNELS (id in brackets is the ID you must return):
+${lines.join('\n')}`;
+
+    const content = await this.callLLM('channel-filter', [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage },
+    ], { model, apiKey, max_tokens: 512, temperature: 0.3 });
+
+    const parsed = JSON.parse(content) as { channelIds?: unknown; reason?: unknown };
+    const rawIds = Array.isArray(parsed.channelIds) ? parsed.channelIds : [];
+    const validIds = new Set(channels.map(c => c.id));
+    const channelIds = rawIds
+      .filter((v): v is number => typeof v === 'number' && validIds.has(v));
+    const reason = typeof parsed.reason === 'string' ? parsed.reason : '';
+
+    return { channelIds, reason };
+  }
+
+  /**
    * Generate hidden gem recommendations from underwatched library items.
    * Takes user watch profile + candidate items, returns AI-picked gems with reasons.
    */

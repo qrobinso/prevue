@@ -9,7 +9,7 @@ Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
 
 **No more decision fatigue.** You shouldn't have to choose what to watch every time you sit down. Just turn it on and something good is already playing.
 
-**AI that stays out of the way.** Create channels with one-liners like "80s action movies", get notified when iconic scenes are playing live, catch up on movies already in progress. All optional, all powered by OpenRouter.
+**AI that stays out of the way.** Spin up channels with one-liners like "80s action movies", filter the guide in natural language ("something light for dinner"), surface underwatched gems hiding in your library, get notified when iconic scenes are playing live, and catch up on movies already in progress. All optional, all opt-in, all powered by your own OpenRouter key.
 
 **Works on everything.** The guide is a PWA, so it runs great on iOS and Android without needing a native app. Fully customizable time windows, channel counts, colors, and layout.
 
@@ -19,19 +19,27 @@ Open source under CC BY-NC-SA 4.0. Free for personal and non-commercial use.
 
 - **Self-hosted** - runs on your own server, Docker or bare metal
 - **Jellyfin & Plex** - syncs your full movie and TV library
-- **AI channel creation** - describe a channel in plain English ("90s nostalgia", "Christopher Nolan marathon") and it builds itself via OpenRouter
 - **Preset and custom channels** - auto-generates by genre, era, director, actor, collection, and more. Or build your own manually.
 - **Content filters** - filter by type, rating, genre, unwatched status
 - **Hardware transcoding** - uses your media server's transcoding pipeline. Quality presets from 480p to 4K, HEVC supported.
 - **Subtitles and audio tracks** - multi-track selection with per-language preferences
 - **Guide and player** - retro Prevue Channel-style EPG grid, built-in HLS player, overlay controls, nerd stats, PiP
-- **Iconic scene detection** - AI flags famous movie moments across the guide, player, and filters as they happen
-- **"What Did I Miss"** - land on a movie already in progress and get a quick spoiler-free catch-up. Triggers after 15 seconds or press `M`.
-- **Live ticker** - scrolling marquee with primetime picks, recently added titles, library stats, and trivia
 - **Just Watch mode** - skip the guide, go straight to a channel picked by time of day and watch history
 - **Sleep timer** - 15 to 120 minutes. Volume fades, screen dims, then a goodnight screen. Tap to snooze.
+- **Live ticker** - scrolling marquee with primetime picks, recently added titles, library stats, and AI trivia
 - **IPTV server** - M3U playlist and XMLTV EPG for Kodi, VLC, Jellyfin, TiviMate, etc.
 - **Open source** - CC BY-NC-SA 4.0, non-commercial use
+
+### AI Features (opt-in, OpenRouter)
+
+All AI features are off by default and require your own [OpenRouter](https://openrouter.ai) API key. Configure once in **Settings → AI**, then toggle individual features on.
+
+- **AI channel creation** - describe a channel in plain English ("90s nostalgia", "Christopher Nolan marathon", "comfort food sitcoms") and it builds itself with the right programs from your library.
+- **AI guide filter** - tap the Sparkle button above the guide and ask for whatever fits the moment ("something funny under 90 minutes", "nothing too heavy"). The LLM narrows the channel list on the fly. Session-only and stacks with your existing filter pills.
+- **Hidden Gems** - analyzes your watch history and library to surface quality titles you've been sleeping on. Flagged with a gold badge in the guide and rotated into the ticker. Refresh on demand from Settings.
+- **Iconic scene detection** - flags famous movie moments across the guide, player, and filters as they actually happen, so you can catch the shower scene, the opera scene, the bus jump — live.
+- **What Did I Miss** - land on a movie already in progress and get a quick spoiler-free catch-up. Triggers 15 seconds after tuning in, or press `M`.
+- **Program Facts** - rotating AI trivia and behind-the-scenes facts about what's currently playing, shown inline in the channel ticker.
 
 | EPG | Full Screen | Settings |
 |:---:|:---:|:---:|
@@ -46,7 +54,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Open `http://localhost:3080` and go to **Settings > Servers** to connect Jellyfin or Plex. Your library syncs automatically and channels are generated on first run.
+Open `http://localhost:3080` and go to **Settings → Sources** to connect Jellyfin or Plex. Your library syncs automatically and channels are generated on first run. To enable AI features, drop an [OpenRouter](https://openrouter.ai) key into **Settings → AI**.
 
 ## Quick Start (Development)
 

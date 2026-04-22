@@ -7,6 +7,7 @@ import {
   type ServerInfo, type DiscoveredServer, type PlexServerInfo, type LibraryStats,
 } from '../../services/api';
 import { Hexagon } from '@phosphor-icons/react';
+import { useNotifications } from '../../notifications';
 
 interface ServerSettingsProps {
   onServerAdded?: (server: ServerInfo) => void;
@@ -16,6 +17,7 @@ type ProviderType = 'jellyfin' | 'plex';
 type PlexStep = 'qr' | 'servers' | 'connecting';
 
 export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
+  const { confirm, toast } = useNotifications();
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSetup, setShowSetup] = useState(false);
@@ -31,7 +33,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   const [reauthPassword, setReauthPassword] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [resyncing, setResyncing] = useState(false);
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   // Plex auth state
   const [plexStep, setPlexStep] = useState<PlexStep>('qr');
@@ -139,17 +140,19 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
   };
 
   const handleDisconnect = async () => {
-    if (!confirmDisconnect) {
-      setConfirmDisconnect(true);
-      return;
-    }
     if (!activeServer) return;
+    const ok = await confirm({
+      title: 'Disconnect Server',
+      message: `Disconnect "${activeServer.name}"? Channels and schedules tied to this server will be removed.`,
+      confirmLabel: 'Disconnect',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      setConfirmDisconnect(false);
       await deleteServer(activeServer.id);
       await loadServers();
     } catch (err) {
-      setError((err as Error).message);
+      toast({ variant: 'error', message: (err as Error).message });
     }
   };
 
@@ -283,8 +286,6 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
 
   return (
     <>
-      <h3>General</h3>
-
       <div className="settings-group-heading">MEDIA SERVER</div>
 
       {error && <div className="settings-error">{error}</div>}
@@ -391,11 +392,10 @@ export default function ServerSettings({ onServerAdded }: ServerSettingsProps) {
               </button>
             )}
             <button
-              className={`server-action-btn server-action-danger ${confirmDisconnect ? 'server-action-danger-confirm' : ''}`}
+              className="server-action-btn server-action-danger"
               onClick={handleDisconnect}
-              onBlur={() => setConfirmDisconnect(false)}
             >
-              {confirmDisconnect ? 'CONFIRM DISCONNECT' : 'DISCONNECT'}
+              DISCONNECT
             </button>
           </div>
         </div>

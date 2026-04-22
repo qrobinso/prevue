@@ -368,8 +368,6 @@ export default function FilterSettings() {
 
   return (
     <div className="settings-section">
-      <h3>Content Filters</h3>
-
       {/* Status bar */}
       <div className="filter-status-bar">
         <div className="filter-status-left">
