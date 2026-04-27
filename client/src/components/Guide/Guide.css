@@ -1734,6 +1734,21 @@ html[data-preview-bg="white"] .preview-video-container {
   50% { box-shadow: 0 0 12px 4px rgba(255, 215, 0, 0.7); }
 }
 
+.guide-trailer-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
 .guide-program-artwork {
   display: inline-block;
   flex-shrink: 0;

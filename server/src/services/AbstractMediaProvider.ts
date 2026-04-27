@@ -89,6 +89,12 @@ export abstract class AbstractMediaProvider implements MediaProvider {
   abstract getCollections(): Promise<{ id: string; name: string; items: MediaItem[] }[]>;
   abstract getPlaylists(): Promise<{ id: string; name: string; items: MediaItem[] }[]>;
 
+  // Default no-op for providers that don't support remote trailers (Plex).
+  // JellyfinClient overrides this to fetch RemoteTrailers in batches.
+  async ensureRemoteTrailers(_itemIds: string[]): Promise<void> {
+    return;
+  }
+
   // ─── Playback ─────────────────────────────────────────
 
   abstract getPlaybackInfo(itemId: string): Promise<PlaybackInfoResult>;
@@ -105,6 +111,7 @@ export abstract class AbstractMediaProvider implements MediaProvider {
   abstract reportPlaybackStart(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number): Promise<void>;
   abstract reportPlaybackProgress(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number, isPaused?: boolean): Promise<void>;
   abstract reportPlaybackStopped(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number): Promise<void>;
+  abstract markPlayed(itemId: string): Promise<void>;
 
   // ─── Image / Proxy Helpers ────────────────────────────
 

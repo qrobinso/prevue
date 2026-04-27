@@ -226,8 +226,11 @@ export async function getAISuggestions(): Promise<{ suggestions: string[] }> {
   return request('/channels/ai/suggestions');
 }
 
-export async function regenerateChannels(): Promise<{ channels_created: number }> {
-  return request('/channels/regenerate', { method: 'POST' });
+export async function regenerateChannels(opts: { force_sync?: boolean } = {}): Promise<{ channels_created: number }> {
+  return request('/channels/regenerate', {
+    method: 'POST',
+    body: JSON.stringify({ force_sync: opts.force_sync ?? false }),
+  });
 }
 
 export async function getGenres(): Promise<{ genre: string; count: number; totalDurationMs: number }[]> {
@@ -467,7 +470,7 @@ function supportsHevc(): boolean {
 export async function getPlaybackInfo(
   channelId: number,
   quality?: QualityParams
-): Promise<PlaybackInfo & { is_interstitial: boolean }> {
+): Promise<PlaybackInfo & { is_interstitial: boolean; is_trailer?: boolean }> {
   const params = new URLSearchParams();
   if (quality?.bitrate) params.set('bitrate', String(quality.bitrate));
   if (quality?.maxWidth) params.set('maxWidth', String(quality.maxWidth));
@@ -489,6 +492,18 @@ export async function reportPlaybackProgress(itemId: string, positionMs: number)
   return request('/stream/progress', {
     method: 'POST',
     body: JSON.stringify({ itemId, positionMs }),
+  });
+}
+
+/**
+ * Tell the media server an item was played to the end. Drives the "Unwatched only"
+ * filter — Plex/Jellyfin's progress endpoints alone don't reliably increment
+ * viewCount/Played on natural end-of-video.
+ */
+export async function reportPlaybackCompleted(itemId: string): Promise<{ success: boolean }> {
+  return request('/stream/completed', {
+    method: 'POST',
+    body: JSON.stringify({ itemId }),
   });
 }
 

@@ -746,16 +746,29 @@ export class PlexClient extends AbstractMediaProvider {
 
   // ─── Progress Reporting ───────────────────────────────
 
+  /**
+   * Pull the item's full duration in ms from the in-memory library cache so
+   * Plex's /timeline endpoint can compute completion %. Plex won't increment
+   * viewCount without it. Falls back to the raw item duration field used by
+   * Movie items, then 0 (which makes Plex skip progress tracking).
+   */
+  private getItemDurationMsForTimeline(itemId: string): number {
+    const item = this.libraryItems.get(itemId);
+    if (!item) return 0;
+    return this.getItemDurationMs(item);
+  }
+
   async reportPlaybackStart(itemId: string, _playSessionId: string, _mediaSourceId: string, positionMs: number): Promise<void> {
     try {
       const baseUrl = this.getServerUrl();
       const headers = this.getPlexHeaders();
       const timeMs = Math.round(positionMs);
+      const durationMs = this.getItemDurationMsForTimeline(itemId);
       await fetch(
-        `${baseUrl}/:/timeline?ratingKey=${itemId}&state=playing&time=${timeMs}&duration=0&key=/library/metadata/${itemId}`,
+        `${baseUrl}/:/timeline?ratingKey=${itemId}&state=playing&time=${timeMs}&duration=${durationMs}&key=/library/metadata/${itemId}`,
         { method: 'GET', headers }
       );
-      console.log(`[Plex] Reported playback start: item=${itemId}, position=${Math.round(positionMs / 1000)}s`);
+      console.log(`[Plex] Reported playback start: item=${itemId}, position=${Math.round(positionMs / 1000)}s, duration=${Math.round(durationMs / 1000)}s`);
     } catch (err) {
       console.error('[Plex] Failed to report playback start:', err);
     }
@@ -767,8 +780,9 @@ export class PlexClient extends AbstractMediaProvider {
       const headers = this.getPlexHeaders();
       const state = isPaused ? 'paused' : 'playing';
       const timeMs = Math.round(positionMs);
+      const durationMs = this.getItemDurationMsForTimeline(itemId);
       await fetch(
-        `${baseUrl}/:/timeline?ratingKey=${itemId}&state=${state}&time=${timeMs}&key=/library/metadata/${itemId}`,
+        `${baseUrl}/:/timeline?ratingKey=${itemId}&state=${state}&time=${timeMs}&duration=${durationMs}&key=/library/metadata/${itemId}`,
         { method: 'GET', headers }
       );
     } catch (err) {
@@ -781,13 +795,44 @@ export class PlexClient extends AbstractMediaProvider {
       const baseUrl = this.getServerUrl();
       const headers = this.getPlexHeaders();
       const timeMs = Math.round(positionMs);
+      const durationMs = this.getItemDurationMsForTimeline(itemId);
       await fetch(
-        `${baseUrl}/:/timeline?ratingKey=${itemId}&state=stopped&time=${timeMs}&key=/library/metadata/${itemId}`,
+        `${baseUrl}/:/timeline?ratingKey=${itemId}&state=stopped&time=${timeMs}&duration=${durationMs}&key=/library/metadata/${itemId}`,
         { method: 'GET', headers }
       );
       console.log(`[Plex] Reported playback stopped: item=${itemId}, position=${Math.round(positionMs / 1000)}s`);
     } catch (err) {
       console.error('[Plex] Failed to report playback stopped:', err);
+    }
+  }
+
+  async markPlayed(itemId: string): Promise<void> {
+    try {
+      const baseUrl = this.getServerUrl();
+      const headers = this.getPlexHeaders();
+      // Plex's explicit "mark watched" endpoint. Increments viewCount and sets
+      // lastViewedAt — the same effect as clicking ✓ in the Plex UI.
+      const response = await fetch(
+        `${baseUrl}/:/scrobble?key=${itemId}&identifier=com.plexapp.plugins.library`,
+        { method: 'GET', headers }
+      );
+      if (!response.ok) {
+        console.warn(`[Plex] Scrobble returned ${response.status} for item=${itemId}`);
+        return;
+      }
+      // Update the in-memory cache so the unwatched filter sees the new state
+      // immediately, without waiting for the next library sync.
+      const cached = this.libraryItems.get(itemId);
+      if (cached) {
+        cached.UserData = {
+          ...(cached.UserData ?? {}),
+          Played: true,
+          LastPlayedDate: new Date().toISOString(),
+        };
+      }
+      console.log(`[Plex] Marked item ${itemId} as played`);
+    } catch (err) {
+      console.error('[Plex] Failed to mark item played:', err);
     }
   }
 

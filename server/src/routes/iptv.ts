@@ -8,6 +8,7 @@ import { rewriteM3u8Urls, activeSessions, lastActivityByItemId, iptvSessionInfo 
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
 import type { ChannelParsed } from '../types/index.js';
+import { NOW_PLAYING_PRESET_ID } from '../data/channelPresets.js';
 
 export const iptvRoutes = Router();
 
@@ -178,7 +179,9 @@ iptvRoutes.get('/playlist.m3u', (req: Request, res: Response) => {
       return;
     }
 
-    const channels = queries.getAllChannels(db);
+    // Now Playing channels stream YouTube via yt-dlp signed URLs that don't fit
+    // IPTV's sliding-window pipeline, so they're omitted from M3U/XMLTV output.
+    const channels = queries.getAllChannels(db).filter(c => c.preset_id !== NOW_PLAYING_PRESET_ID);
     const baseUrl = getBaseUrl(req, db);
     const token = isAuthEnabled() ? (getTokenParam(req) || getApiKey()) : undefined;
     const epgUrl = appendToken(`${baseUrl}/api/iptv/epg.xml`, token);
@@ -216,7 +219,7 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
     }
 
     const hours = Math.min(48, Math.max(1, parseInt(req.query.hours as string, 10) || 24));
-    const channels = queries.getAllChannels(db);
+    const channels = queries.getAllChannels(db).filter(c => c.preset_id !== NOW_PLAYING_PRESET_ID);
     const baseUrl = getBaseUrl(req, db);
     const token = isAuthEnabled() ? (getTokenParam(req) || getApiKey()) : undefined;
     const timezone = (queries.getSetting(db, 'iptv_timezone') as string | undefined) || undefined;
@@ -270,7 +273,7 @@ iptvRoutes.get('/epg.xml', (req: Request, res: Response) => {
       const channelBlocks = blocksByChannel.get(ch.id) || [];
       for (const block of channelBlocks) {
         for (const prog of block.programs) {
-          if (prog.type === 'interstitial') continue;
+          if (prog.type === 'interstitial' || prog.type === 'trailer') continue;
 
           const progEnd = new Date(prog.end_time);
           const progStart = new Date(prog.start_time);
@@ -370,6 +373,11 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
     const channel = queries.getChannelByNumber(db, channelNumber);
     if (!channel) {
       res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    if (channel.preset_id === NOW_PLAYING_PRESET_ID) {
+      res.status(404).json({ error: 'Now Playing channel is not available over IPTV (web player only)' });
       return;
     }
 
@@ -482,7 +490,7 @@ iptvRoutes.get('/status', (req: Request, res: Response) => {
   try {
     const { db } = req.app.locals;
     const enabled = isIptvEnabled(db);
-    const channels = queries.getAllChannels(db);
+    const channels = queries.getAllChannels(db).filter(c => c.preset_id !== NOW_PLAYING_PRESET_ID);
     const baseUrl = getBaseUrl(req, db);
     const token = isAuthEnabled() ? getApiKey() : undefined;
 

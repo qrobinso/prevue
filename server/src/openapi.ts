@@ -458,6 +458,18 @@ export const openApiSpec = {
         responses: { 200: { description: 'Progress reported', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, reported: { type: 'boolean' }, reason: { type: 'string' } } } } } } },
       },
     },
+    '/stream/completed': {
+      post: {
+        tags: ['Stream'],
+        summary: 'Mark item watched on the media server',
+        description: 'Fired when a video reaches its natural end. Calls Plex /:/scrobble or Jellyfin markPlayedItem so the unwatched filter sees the new state.',
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object', required: ['itemId'], properties: { itemId: { type: 'string' } } } } },
+        },
+        responses: { 200: { description: 'Item marked played', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' } } } } } } },
+      },
+    },
     '/stream/sessions': {
       get: {
         tags: ['Stream'],

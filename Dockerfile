@@ -22,6 +22,12 @@ RUN npm run build -w server
 FROM node:20-alpine
 WORKDIR /app
 
+# yt-dlp powers the optional Now Playing channel (extracts direct media URLs
+# from YouTube trailers). Installed via pip so `yt-dlp -U` can self-update
+# in long-running containers when YouTube changes its signing.
+RUN apk add --no-cache python3 py3-pip ffmpeg \
+ && pip3 install --no-cache-dir --break-system-packages yt-dlp
+
 COPY package.json package-lock.json ./
 COPY client/package.json ./client/
 COPY server/package.json ./server/

@@ -446,7 +446,21 @@ channelRoutes.put('/ai/config', (req: Request, res: Response) => {
 // POST /api/channels/regenerate - Regenerate channels (presets or auto/genre-based)
 channelRoutes.post('/regenerate', async (req: Request, res: Response) => {
   try {
-    const { channelManager, scheduleEngine, wss, db, triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
+    const { channelManager, scheduleEngine, wss, db, mediaProvider, triggerIconicSceneGeneration: triggerIconic } = req.app.locals;
+    const { force_sync = false } = req.body ?? {};
+
+    // Optionally re-pull library from the media server first. Callers (e.g. the
+    // "Unwatched only" toggle) need fresh UserData.Played to avoid acting on
+    // stale cached watch state.
+    if (force_sync) {
+      const provider = mediaProvider as MediaProvider;
+      broadcast(wss, { type: 'generation:progress', payload: { step: 'syncing', message: 'Refreshing library from media server...' } });
+      console.log('[Channels] Force sync requested for /regenerate');
+      await provider.syncLibrary((message) => {
+        broadcast(wss, { type: 'generation:progress', payload: { step: 'syncing', message } });
+      });
+      queries.setSetting(db, 'last_library_sync', new Date().toISOString());
+    }
 
     // Check if we have saved preset selections
     const selectedPresets = queries.getSetting(db, 'selected_presets') as string[] | undefined;

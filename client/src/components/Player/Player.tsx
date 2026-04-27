@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Hls from 'hls.js';
-import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings, metricsStart, metricsStop } from '../../services/api';
+import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, reportPlaybackCompleted, updateSettings, metricsStart, metricsStop } from '../../services/api';
 import { getClientId } from '../../services/clientIdentity';
 import { useNavZone, useNavigation } from '../../navigation';
 import { useSwipe } from '../../hooks/useSwipe';
@@ -468,6 +468,45 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       if (hlsRef.current) {
         destroySharedStream();
         hlsRef.current = null;
+      }
+
+      // Now Playing trailers are direct MP4 URLs (resolved server-side via yt-dlp).
+      // The browser plays them natively — no HLS, no transcoding controls, no
+      // YouTube branding. Trailers always start at position 0 since they're short.
+      if (info.is_trailer) {
+        const onTrailerPlaying = () => {
+          if (cancelledRef?.current) return;
+          video.removeEventListener('playing', onTrailerPlaying);
+          video.removeEventListener('error', onTrailerError);
+          setIsBuffering(false);
+          setAutoplayMutedLock(false);
+          video.muted = mutedRef.current;
+          video.volume = isMobile() ? 1.0 : volumeRef.current;
+          setTimeout(() => {
+            if (cancelledRef?.current) return;
+            setVideoReady(true);
+            setLoadingFadeOut(true);
+            setLoading(false);
+          }, 200);
+        };
+        const onTrailerError = () => {
+          if (cancelledRef?.current) return;
+          const code = video.error?.code;
+          const msg = video.error?.message;
+          // Map MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED.
+          const codeName = ['', 'ABORTED', 'NETWORK', 'DECODE', 'SRC_NOT_SUPPORTED'][code ?? 0] || `code=${code}`;
+          console.warn(`[Player] Trailer load error: ${codeName} ${msg ?? ''}`);
+          video.removeEventListener('playing', onTrailerPlaying);
+          video.removeEventListener('error', onTrailerError);
+          setError(`Trailer playback failed (${codeName})`);
+          setLoading(false);
+        };
+        video.addEventListener('playing', onTrailerPlaying);
+        video.addEventListener('error', onTrailerError);
+        video.src = info.stream_url;
+        video.load();
+        tryAutoplay(video);
+        return;
       }
 
       if (Hls.isSupported()) {
@@ -1015,6 +1054,18 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         // program prop passed in on mount doesn't trigger an immediate reload before
         // the real session info has been applied.
         if (now >= end && !autoAdvanceDisabledRef.current && programConfirmedRef.current) {
+          // If the user watched essentially the whole item before auto-advance,
+          // mark it played on the media server. The video's 'ended' listener
+          // catches the natural-end case; this catches the schedule-cuts-the-source
+          // case where ended never fires.
+          const outgoingId = currentItemIdRef.current;
+          const video = videoRef.current;
+          if (outgoingId && video && video.duration > 0) {
+            const completedFraction = video.currentTime / video.duration;
+            if (completedFraction >= 0.9) {
+              reportPlaybackCompleted(outgoingId).catch(() => {});
+            }
+          }
           // Use pre-warmed info if available (transcode already started)
           const prewarmed = prewarmedInfoRef.current;
           prewarmedInfoRef.current = null;
