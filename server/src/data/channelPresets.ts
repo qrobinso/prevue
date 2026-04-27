@@ -57,6 +57,12 @@ export const PRESET_CATEGORIES: PresetCategoryInfo[] = [
     description: 'Channels based on directors and actors',
     icon: '🎬',
   },
+  {
+    id: 'meta',
+    name: 'Meta',
+    description: 'Channels that program based on what\'s airing elsewhere',
+    icon: '📡',
+  },
 ];
 
 // Predefined channel presets
@@ -495,7 +501,21 @@ export const CHANNEL_PRESETS: ChannelPreset[] = [
       includeEpisodes: true,
     },
   },
+
+  // ─── Meta ──────────────────────────────────────────────
+  // Programs trailers for whatever items are currently airing on other channels.
+  // Off by default; requires a library re-sync to populate trailer URLs.
+  {
+    id: 'now-playing',
+    name: 'Now Playing',
+    description: 'Plays YouTube trailers for items currently airing on your other channels. Requires a library re-sync after enabling.',
+    category: 'meta',
+    icon: '🎞️',
+    filter: {},
+  },
 ];
+
+export const NOW_PLAYING_PRESET_ID = 'now-playing';
 
 // Helper to get presets by category
 export function getPresetsByCategory(category: ChannelPresetCategory): ChannelPreset[] {

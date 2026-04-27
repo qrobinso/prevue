@@ -28,7 +28,7 @@ export interface ScheduleProgram {
   start_time: string;
   end_time: string;
   duration_ms: number;
-  type: 'program' | 'interstitial';
+  type: 'program' | 'interstitial' | 'trailer';
   content_type: 'movie' | 'episode' | null;
   backdrop_url?: string | null;
   guide_url?: string | null;

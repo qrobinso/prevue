@@ -233,6 +233,27 @@ streamRoutes.post('/stream/progress', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/stream/completed - Item finished playing; tell the media server it's watched.
+// Fires when the <video> element raises 'ended' (or when we cross the credits boundary
+// for an item we know the user finished). Always runs regardless of share_playback_progress —
+// without it, Plex viewCount never increments and the "Unwatched only" filter rots.
+streamRoutes.post('/stream/completed', async (req: Request, res: Response) => {
+  try {
+    const { mediaProvider } = req.app.locals;
+    const provider = mediaProvider as MediaProvider;
+    const { itemId } = req.body ?? {};
+    if (!itemId || typeof itemId !== 'string') {
+      res.status(400).json({ error: 'itemId is required' });
+      return;
+    }
+    await provider.markPlayed(itemId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Stream] Error marking item completed:', err);
+    res.json({ success: false, error: (err as Error).message });
+  }
+});
+
 // GET /api/stream/sessions - List active sessions (debugging)
 streamRoutes.get('/stream/sessions', (_req: Request, res: Response) => {
   const sessions = Array.from(activeSessions.entries()).map(([itemId, session]) => ({

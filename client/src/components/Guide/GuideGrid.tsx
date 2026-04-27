@@ -306,6 +306,9 @@ const GuideProgramCell = memo(function GuideProgramCell({
                 {isGem && (
                   <span className="guide-gem-badge">GEM</span>
                 )}
+                {prog.type === 'trailer' && (
+                  <span className="guide-trailer-badge">TRAILER</span>
+                )}
               </>
             )}
           </span>

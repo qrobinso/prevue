@@ -12,7 +12,7 @@ export interface ServerConfig {
 }
 
 // Channel preset categories
-export type ChannelPresetCategory = 
+export type ChannelPresetCategory =
   | 'auto'            // Auto-generated (Genres, Eras based on library content)
   | 'collections'     // Jellyfin collections (BoxSets)
   | 'time_mood'       // Time & mood based (Late Night, Saturday Morning)
@@ -24,6 +24,7 @@ export type ChannelPresetCategory =
   | 'format'          // Format-driven (Anthology, Marathon, Shuffle)
   | 'cast'            // Cast & Crew (Directors, Lead Actors)
   | 'genre'           // Legacy genre category (may be removed)
+  | 'meta'            // Meta channels that program based on what's airing elsewhere (Now Playing)
   | 'custom';         // User-defined
 
 // Channel preset definition
@@ -130,7 +131,7 @@ export interface ScheduleProgram {
   start_time: string;
   end_time: string;
   duration_ms: number;
-  type: 'program' | 'interstitial';
+  type: 'program' | 'interstitial' | 'trailer';
   content_type: 'movie' | 'episode' | null;
   backdrop_url?: string | null;
   guide_url?: string | null;
@@ -148,6 +149,11 @@ export interface ScheduleProgram {
   audience_rating?: number | null;
   rating_image?: string | null;
   audience_rating_image?: string | null;
+  // Set when type === 'trailer'. media_item_id points to the SOURCE library item
+  // (the thing the trailer is for); these fields point at the trailer media itself.
+  trailer_url?: string;
+  trailer_duration_ms?: number;
+  source_channel_id?: number;
 }
 
 export interface ScheduleBlock {
@@ -198,6 +204,10 @@ export interface MediaItem {
   Tags?: string[];
   People?: { Name: string; Type: string }[];  // Actors, Directors, etc.
   MediaSources?: { MediaStreams?: { Type?: string; Width?: number; Height?: number; BitDepth?: number; ColorPrimaries?: string; ColorTrc?: string; DOVIPresent?: boolean }[] }[];
+  // YouTube trailer URLs from Jellyfin RemoteTrailers / Plex Extras with subtype "trailer".
+  // DurationMs fills in lazily — the trailer-stream route caches it on first playback.
+  // Url is optional in Jellyfin's SDK type, so consumers must filter out empty entries.
+  RemoteTrailers?: { Url?: string | null; Name?: string | null; DurationMs?: number }[];
 }
 
 export interface MediaLibrary {

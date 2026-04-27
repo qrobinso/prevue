@@ -208,24 +208,34 @@ export class JellyfinClient extends AbstractMediaProvider {
     // Try a single full fetch first. If the server still paginates, fall back to batched requests.
     try {
       console.log(`[Jellyfin] Attempting single-request fetch for ${itemType}s...`);
-      const firstResponse = await itemsApi.getItems({
-        userId,
-        includeItemTypes: [itemType as 'Movie' | 'Episode'],
-        recursive: true,
-        fields: [
-          'Genres',
-          'Overview',
-          'Studios',
-          'DateCreated',
-          'Tags',
-          'People',
-          'MediaSources',
-        ],
-        enableUserData: true,
-        enableImages: true,
-        sortBy: ['SortName'],
-        sortOrder: ['Ascending'],
-      });
+      const startedAt = Date.now();
+      const heartbeat = setInterval(() => {
+        const elapsed = Math.round((Date.now() - startedAt) / 1000);
+        console.log(`[Jellyfin] ${itemType}s single-request still in flight after ${elapsed}s — Jellyfin hasn't responded yet`);
+      }, 15_000);
+      let firstResponse;
+      try {
+        firstResponse = await itemsApi.getItems({
+          userId,
+          includeItemTypes: [itemType as 'Movie' | 'Episode'],
+          recursive: true,
+          fields: [
+            'Genres',
+            'Overview',
+            'Studios',
+            'DateCreated',
+            'Tags',
+            'People',
+            'MediaSources',
+          ],
+          enableUserData: true,
+          enableImages: true,
+          sortBy: ['SortName'],
+          sortOrder: ['Ascending'],
+        });
+      } finally {
+        clearInterval(heartbeat);
+      }
 
       const firstData = firstResponse.data;
       if (firstData.Items) {
@@ -262,8 +272,8 @@ export class JellyfinClient extends AbstractMediaProvider {
           includeItemTypes: [itemType as 'Movie' | 'Episode'],
           recursive: true,
           fields: [
-            'Genres', 
-            'Overview', 
+            'Genres',
+            'Overview',
             'Studios',           // Studios/Networks
             'DateCreated',       // When added to library
             'Tags',              // Custom tags
@@ -349,6 +359,70 @@ export class JellyfinClient extends AbstractMediaProvider {
 
   getItemDurationMs(item: MediaItem): number {
     return item.RunTimeTicks ? ticksToMs(item.RunTimeTicks) : 0;
+  }
+
+  // ─── Remote Trailers (Now Playing channel) ─────────────────
+
+  /**
+   * Fetch RemoteTrailers for the given items if missing. Done as a separate
+   * pass because including 'RemoteTrailers' in the bulk getItems() request
+   * causes some Jellyfin builds to hang or time out.
+   *
+   * Best-effort: errors are logged and the items just stay without trailers.
+   */
+  override async ensureRemoteTrailers(itemIds: string[]): Promise<void> {
+    const need: string[] = [];
+    for (const id of itemIds) {
+      const item = this.libraryItems.get(id);
+      if (!item) continue;
+      if (item.RemoteTrailers !== undefined) continue; // already fetched (may be empty)
+      need.push(id);
+    }
+    if (need.length === 0) return;
+
+    let api;
+    let userId: string;
+    try {
+      api = this.getApi();
+      userId = this.getUserId();
+    } catch (err) {
+      console.warn('[Jellyfin] ensureRemoteTrailers: cannot fetch (no auth)', (err as Error).message);
+      return;
+    }
+    const itemsApi = getItemsApi(api);
+
+    const BATCH = 50;
+    let fetched = 0;
+    const server = this.getActiveServer();
+
+    for (let i = 0; i < need.length; i += BATCH) {
+      const batch = need.slice(i, i + BATCH);
+      try {
+        const response = await itemsApi.getItems({
+          userId,
+          ids: batch,
+          fields: ['RemoteTrailers'],
+        });
+        for (const fetchedItem of response.data.Items || []) {
+          if (!fetchedItem.Id) continue;
+          const target = this.libraryItems.get(fetchedItem.Id);
+          if (!target) continue;
+          target.RemoteTrailers = (fetchedItem.RemoteTrailers || []) as MediaItem['RemoteTrailers'];
+          fetched++;
+          if (server) {
+            try {
+              queries.upsertLibraryItem(this.db, target.Id, server.id, target);
+            } catch { /* best-effort */ }
+          }
+        }
+      } catch (err) {
+        console.warn(`[Jellyfin] Trailer batch ${i / BATCH + 1} failed:`, (err as Error).message);
+      }
+    }
+
+    if (fetched > 0) {
+      console.log(`[Jellyfin] Fetched RemoteTrailers for ${fetched}/${need.length} items`);
+    }
   }
 
   // ─── Collections ───────────────────────────────────────
@@ -728,6 +802,35 @@ export class JellyfinClient extends AbstractMediaProvider {
       console.log(`[Jellyfin] Reported playback stopped: item=${itemId}, position=${Math.round(positionMs / 1000)}s`);
     } catch (err) {
       console.error(`[Jellyfin] Failed to report playback stopped:`, err);
+    }
+  }
+
+  /**
+   * Explicitly mark an item as played on Jellyfin. reportPlaybackStopped only
+   * marks items watched when the final position is close to the end; this is
+   * the unconditional equivalent of Jellyfin Web's ✓.
+   */
+  async markPlayed(itemId: string): Promise<void> {
+    try {
+      const api = this.getApi();
+      const playstateApi = getPlaystateApi(api);
+      const userId = this.getUserId();
+      await playstateApi.markPlayedItem({
+        userId,
+        itemId,
+        datePlayed: new Date().toISOString(),
+      });
+      const cached = this.libraryItems.get(itemId);
+      if (cached) {
+        cached.UserData = {
+          ...(cached.UserData ?? {}),
+          Played: true,
+          LastPlayedDate: new Date().toISOString(),
+        };
+      }
+      console.log(`[Jellyfin] Marked item ${itemId} as played`);
+    } catch (err) {
+      console.error('[Jellyfin] Failed to mark item played:', err);
     }
   }
 

@@ -13,6 +13,10 @@ let videoEl: HTMLVideoElement | null = null;
 let hlsInstance: Hls | null = null;
 let currentItemId: string | null = null;
 let currentOwner: 'guide' | 'player' | null = null;
+// Most recently completed item — guards against the same item being marked
+// played twice if the video happens to fire 'ended' more than once (HLS quirks,
+// user replay, etc.).
+let lastCompletedItemId: string | null = null;
 
 export function getVideoElement(): HTMLVideoElement {
   if (!videoEl) {
@@ -20,6 +24,20 @@ export function getVideoElement(): HTMLVideoElement {
     videoEl.playsInline = true;
     videoEl.setAttribute('playsinline', '');
     videoEl.setAttribute('webkit-playsinline', '');
+    // Tell the media server this item finished. Plex/Jellyfin's progress
+    // endpoints alone don't reliably increment Played/viewCount on natural
+    // end-of-video, so the "Unwatched only" filter needs this signal to update.
+    videoEl.addEventListener('ended', () => {
+      const itemId = currentItemId;
+      if (!itemId || itemId === lastCompletedItemId) return;
+      lastCompletedItemId = itemId;
+      fetch('/api/stream/completed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId }),
+        keepalive: true, // survives navigation away from the page
+      }).catch(() => {});
+    });
   }
   return videoEl;
 }
@@ -44,6 +62,8 @@ export function getSharedItemId(): string | null {
 }
 
 export function setSharedItemId(id: string | null): void {
+  // When the item changes, allow the new item to be marked completed when it ends.
+  if (id !== currentItemId) lastCompletedItemId = null;
   currentItemId = id;
 }
 

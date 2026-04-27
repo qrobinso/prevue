@@ -176,6 +176,8 @@ app.use('/api/ticker', tickerRoutes);
 // Proxy routes for Jellyfin streams and images (mounted at /api root)
 import { streamRoutes, startTranscodeIdleCleanup, activeSessions, lastActivityByItemId } from './routes/stream.js';
 import { iptvRoutes } from './routes/iptv.js';
+import { trailerRoutes } from './routes/trailer.js';
+app.use('/api/stream', trailerRoutes);
 app.use('/api', streamRoutes);
 app.use('/api/iptv', iptvRoutes);
 startTranscodeIdleCleanup(app);
@@ -291,6 +293,28 @@ async function bootSequence() {
     }
   }, 15 * 60 * 1000);
   activeIntervals.push(maintenanceId);
+
+  // Library sync: re-pull from the media server every 6 hours so cached
+  // UserData.Played stays roughly fresh. Without this, items watched directly
+  // on Plex/Jellyfin never disappear from the "Unwatched only" filter until
+  // the user manually regenerates channels or the server restarts.
+  let librarySyncRunning = false;
+  const LIBRARY_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
+  const librarySyncId = setInterval(async () => {
+    if (librarySyncRunning) return;
+    if (!mediaProvider.getActiveServer()) return;
+    librarySyncRunning = true;
+    try {
+      console.log('[Prevue] Periodic library sync (refresh watch state)...');
+      await mediaProvider.syncLibrary();
+      queries.setSetting(db, 'last_library_sync', new Date().toISOString());
+    } catch (err) {
+      console.error('[Prevue] Periodic library sync failed:', err);
+    } finally {
+      librarySyncRunning = false;
+    }
+  }, LIBRARY_SYNC_INTERVAL_MS);
+  activeIntervals.push(librarySyncId);
 
   // Metrics retention: prune old watch data daily (check every 15 min, run once/day)
   let lastRetentionRun = 0;

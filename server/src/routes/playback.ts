@@ -96,6 +96,28 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
       return;
     }
 
+    // Now Playing channel: serve the trailer through a dedicated yt-dlp-backed route.
+    // Skip the Jellyfin/Plex playback-info path entirely.
+    if (program.type === 'trailer') {
+      const trailerSeekMs = Math.max(0, seekMs);
+      res.json({
+        stream_url: `/api/stream/trailer/${channelId}`,
+        seek_position_ms: trailerSeekMs,
+        seek_position_seconds: trailerSeekMs / 1000,
+        program,
+        next_program: next,
+        channel,
+        is_interstitial: false,
+        is_trailer: true,
+        audio_tracks: [],
+        audio_stream_index: null,
+        subtitle_tracks: [] as { index: number; language: string; name: string; codec: string | null; forced: boolean; key: string | null }[],
+        subtitle_index: null,
+        outro_start_ms: null,
+      });
+      return;
+    }
+
     // Get quality and audio track from query
     const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : undefined;
     const maxWidth = req.query.maxWidth ? parseInt(req.query.maxWidth as string, 10) : undefined;

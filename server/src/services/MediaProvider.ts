@@ -61,6 +61,13 @@ export interface MediaProvider {
   getGenres(): Map<string, MediaItem[]>;
   getCollections(): Promise<{ id: string; name: string; items: MediaItem[] }[]>;
   getPlaylists(): Promise<{ id: string; name: string; items: MediaItem[] }[]>;
+  /**
+   * Populate `RemoteTrailers` on the given items if missing. Used by the
+   * Now Playing channel on demand instead of fetching for every library item
+   * during the main sync (which is slow and brittle for some Jellyfin setups).
+   * Best-effort: failures should be logged, not thrown.
+   */
+  ensureRemoteTrailers(itemIds: string[]): Promise<void>;
 
   // ─── Playback ─────────────────────────────────────────
   getPlaybackInfo(itemId: string): Promise<PlaybackInfoResult>;
@@ -75,6 +82,13 @@ export interface MediaProvider {
   reportPlaybackStart(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number): Promise<void>;
   reportPlaybackProgress(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number, isPaused?: boolean): Promise<void>;
   reportPlaybackStopped(itemId: string, playSessionId: string, mediaSourceId: string, positionMs: number): Promise<void>;
+  /**
+   * Explicitly mark an item as fully watched on the media server. Updates the
+   * server's watch state so subsequent library syncs reflect `Played: true`.
+   * Used when a video reaches its natural end — neither Plex's /timeline nor
+   * Jellyfin's /Stopped reliably mark items watched on their own.
+   */
+  markPlayed(itemId: string): Promise<void>;
 
   // ─── Image / Proxy Helpers ────────────────────────────
   getImageUrl(itemId: string, imageType?: string, maxWidth?: number): string;

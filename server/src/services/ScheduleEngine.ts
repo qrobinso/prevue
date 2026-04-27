@@ -6,6 +6,10 @@ import * as queries from '../db/queries.js';
 import { generateSeed } from '../utils/crypto.js';
 import { getBlockStart, getBlockEnd, getNextBlockStart, getBlockHours, snapForwardTo15Min } from '../utils/time.js';
 import { getHdrFlag } from '../utils/hdr.js';
+import { NOW_PLAYING_PRESET_ID } from '../data/channelPresets.js';
+
+const DEFAULT_TRAILER_DURATION_MS = 150_000; // 2.5 min, used when yt-dlp duration not yet probed
+const MIN_TRAILER_DURATION_MS = 30_000;      // ignore trailers shorter than this
 
 const EPISODE_RUN_LENGTH_MIN = 2;
 const EPISODE_RUN_LENGTH_MAX = 5;
@@ -123,6 +127,13 @@ function weightedRandomPick<T>(items: T[], weights: number[], rng: () => number)
   return items[items.length - 1];
 }
 
+function sortNowPlayingLast<T extends { preset_id: string | null }>(channels: T[]): T[] {
+  return [
+    ...channels.filter(c => c.preset_id !== NOW_PLAYING_PRESET_ID),
+    ...channels.filter(c => c.preset_id === NOW_PLAYING_PRESET_ID),
+  ];
+}
+
 /**
  * Tracks which items are playing at which times across all channels.
  * Used to prevent the same movie/show from playing on multiple channels simultaneously.
@@ -162,7 +173,9 @@ export class ScheduleEngine {
 
     for (const block of allBlocks) {
       for (const prog of block.programs) {
-        if (prog.type === 'interstitial' || !prog.media_item_id) continue;
+        // Trailers reference a source library item but don't actually play it,
+        // so they must not contribute to the "currently airing" tracker.
+        if (prog.type === 'interstitial' || prog.type === 'trailer' || !prog.media_item_id) continue;
 
         const startMs = new Date(prog.start_time).getTime();
         const endMs = new Date(prog.end_time).getTime();
@@ -265,9 +278,12 @@ export class ScheduleEngine {
   /**
    * Generate schedules for all channels (current block + next block).
    * Yields between channels so API requests (e.g. GET /api/schedule) can be served during boot.
+   *
+   * Now Playing channels are processed last because they read sibling channels'
+   * just-written schedule_blocks to decide which trailers to air.
    */
   async generateAllSchedules(): Promise<void> {
-    const channels = queries.getAllChannels(this.db);
+    const channels = sortNowPlayingLast(queries.getAllChannels(this.db));
     const now = new Date();
     const currentBlockStart = getBlockStart(now);
     const nextBlockStart = getNextBlockStart(currentBlockStart);
@@ -325,6 +341,12 @@ export class ScheduleEngine {
     blockStart: Date,
     globalTracker?: GlobalScheduleTracker
   ): Promise<ScheduleBlockParsed> {
+    // Now Playing channels program trailers based on what other channels are airing —
+    // their content is derived, not filtered from a library item set.
+    if (channel.preset_id === NOW_PLAYING_PRESET_ID) {
+      return this.generateNowPlayingBlock(channel, blockStart);
+    }
+
     const blockEnd = getBlockEnd(blockStart);
     const seed = generateSeed(channel.id, blockStart.toISOString());
     const rng = seedrandom(seed);
@@ -919,7 +941,7 @@ export class ScheduleEngine {
    */
   async maintainSchedules(): Promise<void> {
     const now = new Date();
-    const channels = queries.getAllChannels(this.db);
+    const channels = sortNowPlayingLast(queries.getAllChannels(this.db));
     const currentBlockStart = getBlockStart(now);
     const currentBlockEnd = getBlockEnd(currentBlockStart);
     const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
@@ -951,7 +973,7 @@ export class ScheduleEngine {
    * Designed to run periodically (e.g. every 4 hours) so returning users always have content.
    */
   async extendSchedules(): Promise<void> {
-    const channels = queries.getAllChannels(this.db);
+    const channels = sortNowPlayingLast(queries.getAllChannels(this.db));
     if (channels.length === 0) return;
 
     const now = new Date();
@@ -1039,10 +1061,19 @@ export class ScheduleEngine {
   // ─── Helpers ──────────────────────────────────────────
 
   private getChannelItems(channel: ChannelParsed): MediaItem[] {
+    // Re-check the unwatched filter at schedule time so items watched on the
+    // media server after channel generation drop out of upcoming schedule blocks
+    // without forcing a full channel regeneration.
+    const globalUnwatchedOnly = (queries.getSetting(this.db, 'unwatched_only') as boolean) ?? false;
+    const channelUnwatchedOnly = channel.filter?.unwatchedOnly ?? false;
+    const enforceUnwatched = globalUnwatchedOnly || channelUnwatchedOnly;
+
     const items: MediaItem[] = [];
     for (const id of channel.item_ids) {
       const item = this.provider.getItem(id);
-      if (item) items.push(item);
+      if (!item) continue;
+      if (enforceUnwatched && item.UserData?.Played) continue;
+      items.push(item);
     }
     return items;
   }
@@ -1173,6 +1204,232 @@ export class ScheduleEngine {
       }
     }
     return merged;
+  }
+
+  // ─── Now Playing channel ──────────────────────────────────
+
+  /**
+   * Generate a 24-hour block for a Now Playing meta channel.
+   * Walks the time horizon and, at each slot, picks a YouTube trailer for
+   * an item currently airing on a sibling channel. Trailer durations come
+   * from the cached MediaItem.RemoteTrailers[].DurationMs (or a default
+   * if not yet probed).
+   *
+   * Sibling channels' schedule_blocks must already be written for this
+   * range — generateAllSchedules / extendSchedules / maintainSchedules
+   * order channels so Now Playing runs last.
+   */
+  async generateNowPlayingBlock(
+    channel: ChannelParsed,
+    blockStart: Date,
+  ): Promise<ScheduleBlockParsed> {
+    const blockEnd = getBlockEnd(blockStart);
+    const seed = generateSeed(channel.id, blockStart.toISOString());
+    const blockEndMs = blockEnd.getTime();
+
+    // Pull every program airing on every other (non-now-playing) channel during this block.
+    const siblingBlocks = queries.getAllScheduleBlocksInRange(
+      this.db,
+      blockStart.toISOString(),
+      blockEnd.toISOString(),
+    );
+
+    type SiblingProg = { prog: ScheduleProgram; channel_id: number; startMs: number; endMs: number };
+    const siblingPrograms: SiblingProg[] = [];
+    const siblingChannelIds = new Set<number>();
+    for (const block of siblingBlocks) {
+      if (block.channel_id === channel.id) continue;
+      const sourceChannel = queries.getChannelById(this.db, block.channel_id);
+      if (sourceChannel?.preset_id === NOW_PLAYING_PRESET_ID) continue;
+      siblingChannelIds.add(block.channel_id);
+      for (const prog of block.programs) {
+        if (prog.type !== 'program' || !prog.media_item_id) continue;
+        siblingPrograms.push({
+          prog,
+          channel_id: block.channel_id,
+          startMs: new Date(prog.start_time).getTime(),
+          endMs: new Date(prog.end_time).getTime(),
+        });
+      }
+    }
+
+    if (siblingPrograms.length === 0) {
+      console.log(`[ScheduleEngine] Now Playing channel ${channel.id}: no sibling programs in block ${blockStart.toISOString()}, writing empty block`);
+      return queries.upsertScheduleBlock(
+        this.db, channel.id,
+        blockStart.toISOString(), blockEnd.toISOString(),
+        [], seed,
+      );
+    }
+
+    // On-demand: fetch RemoteTrailers for the items we're about to consider.
+    // Cheaper than enriching every library item at sync time, and the cost
+    // amortizes across regenerations because results are cached on the item.
+    const distinctItemIds = Array.from(new Set(siblingPrograms.map(s => s.prog.media_item_id)));
+    try {
+      await this.provider.ensureRemoteTrailers(distinctItemIds);
+    } catch (err) {
+      console.warn('[ScheduleEngine] ensureRemoteTrailers failed:', (err as Error).message);
+    }
+
+    let itemsWithTrailers = 0;
+    let itemsMissing = 0;
+    for (const id of distinctItemIds) {
+      const item = this.provider.getItem(id);
+      if (!item) { itemsMissing++; continue; }
+      const hasTrailer = (item.RemoteTrailers || []).some(t => !!t.Url && t.Url.length > 0);
+      if (hasTrailer) itemsWithTrailers++;
+    }
+    console.log(`[ScheduleEngine] Now Playing channel ${channel.id} sources: ${siblingChannelIds.size} channels, ${distinctItemIds.length} distinct items (${itemsWithTrailers} with trailers, ${itemsMissing} not in cache)`);
+    if (itemsWithTrailers === 0) {
+      console.warn(`[ScheduleEngine] Now Playing channel ${channel.id}: 0 items in the airing set have RemoteTrailers. Either Jellyfin didn't return trailer URLs (check the item's metadata provider) or yt-dlp/your network couldn't reach them.`);
+    }
+
+    // Sort by start time so the at-T scan can short-circuit.
+    siblingPrograms.sort((a, b) => a.startMs - b.startMs);
+
+    const programs: ScheduleProgram[] = [];
+    const channelRotation = new Map<number, number>();
+    const rng = seedrandom(seed);
+    let currentTime = new Date(blockStart);
+    const ADVANCE_ON_NO_TRAILER_MS = 60_000;
+    let yieldCounter = 0;
+
+    while (currentTime.getTime() < blockEndMs) {
+      const nowMs = currentTime.getTime();
+      yieldCounter++;
+      if (yieldCounter % 25 === 0) {
+        await new Promise(resolve => setImmediate(resolve));
+      }
+
+      // Programs airing at nowMs across sibling channels.
+      const candidates = siblingPrograms.filter(p => p.startMs <= nowMs && p.endMs > nowMs);
+      if (candidates.length === 0) {
+        // No siblings airing — fill with a short interstitial and try again.
+        const fillerEnd = Math.min(nowMs + ADVANCE_ON_NO_TRAILER_MS, blockEndMs);
+        if (fillerEnd > nowMs) {
+          programs.push(this.createInterstitial(currentTime, new Date(fillerEnd), null));
+        }
+        currentTime = new Date(fillerEnd);
+        continue;
+      }
+
+      // Round-robin across source channels: prefer least-used so far in this block.
+      const sortedCandidates = [...candidates].sort((a, b) => {
+        const ua = channelRotation.get(a.channel_id) || 0;
+        const ub = channelRotation.get(b.channel_id) || 0;
+        if (ua !== ub) return ua - ub;
+        return rng() - 0.5;
+      });
+
+      let picked: { sib: SiblingProg; trailerUrl: string; durationMs: number; sourceItem: MediaItem } | null = null;
+      for (const sib of sortedCandidates) {
+        const sourceItem = this.provider.getItem(sib.prog.media_item_id);
+        if (!sourceItem) continue;
+        const trailers = (sourceItem.RemoteTrailers || []).filter(
+          (t): t is { Url: string; Name?: string | null; DurationMs?: number } =>
+            !!t.Url && t.Url.length > 0,
+        );
+        if (trailers.length === 0) continue;
+
+        // Skip trailers we know are too short. Unknown durations are allowed
+        // (the player will probe and cache on first play).
+        const trailer = trailers.find(t => !t.DurationMs || t.DurationMs >= MIN_TRAILER_DURATION_MS);
+        if (!trailer) continue;
+
+        const durationMs = trailer.DurationMs ?? DEFAULT_TRAILER_DURATION_MS;
+        if (nowMs + durationMs > blockEndMs) {
+          // Doesn't fit; let the next iteration with a smaller default try again,
+          // but we'll still cap at blockEnd via the interstitial filler.
+          continue;
+        }
+        picked = { sib, trailerUrl: trailer.Url, durationMs, sourceItem };
+        break;
+      }
+
+      if (!picked) {
+        const fillerEnd = Math.min(nowMs + ADVANCE_ON_NO_TRAILER_MS, blockEndMs);
+        if (fillerEnd > nowMs) {
+          programs.push(this.createInterstitial(currentTime, new Date(fillerEnd), null));
+        }
+        currentTime = new Date(fillerEnd);
+        continue;
+      }
+
+      const endTime = new Date(nowMs + picked.durationMs);
+      programs.push(this.createTrailerProgram(
+        picked.sourceItem,
+        picked.trailerUrl,
+        picked.durationMs,
+        currentTime,
+        endTime,
+        picked.sib.channel_id,
+      ));
+      channelRotation.set(picked.sib.channel_id, (channelRotation.get(picked.sib.channel_id) || 0) + 1);
+      currentTime = endTime;
+    }
+
+    const merged = this.mergeAdjacentInterstitials(programs);
+    console.log(`[ScheduleEngine] Now Playing channel ${channel.id}: emitted ${merged.length} entries (${merged.filter(p => p.type === 'trailer').length} trailers) from ${siblingChannelIds.size} source channels`);
+
+    return queries.upsertScheduleBlock(
+      this.db, channel.id,
+      blockStart.toISOString(), blockEnd.toISOString(),
+      merged, seed,
+    );
+  }
+
+  /**
+   * Build a ScheduleProgram entry for a trailer. media_item_id points to the SOURCE
+   * library item so the EPG can reuse its title/backdrop; trailer_url and trailer_duration_ms
+   * are what the player streams.
+   */
+  private createTrailerProgram(
+    sourceItem: MediaItem,
+    trailerUrl: string,
+    durationMs: number,
+    start: Date,
+    end: Date,
+    sourceChannelId: number,
+  ): ScheduleProgram {
+    const sourceTitle = sourceItem.Type === 'Episode'
+      ? (sourceItem.SeriesName || sourceItem.Name)
+      : sourceItem.Name;
+
+    const hasBackdrop = Array.isArray(sourceItem.BackdropImageTags) && sourceItem.BackdropImageTags.length > 0;
+    const hasParentBackdrop =
+      Array.isArray(sourceItem.ParentBackdropImageTags) &&
+      sourceItem.ParentBackdropImageTags.length > 0 &&
+      Boolean(sourceItem.ParentBackdropItemId);
+    const backdropUrl = hasBackdrop
+      ? `/api/images/${sourceItem.Id}/Backdrop`
+      : hasParentBackdrop
+        ? `/api/images/${sourceItem.ParentBackdropItemId}/Backdrop`
+        : null;
+
+    return {
+      media_item_id: sourceItem.Id,
+      title: `Trailer: ${sourceTitle}`,
+      subtitle: null,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      duration_ms: end.getTime() - start.getTime(),
+      type: 'trailer',
+      content_type: null,
+      backdrop_url: backdropUrl,
+      guide_url: `/api/images/${sourceItem.Id}/Guide`,
+      thumbnail_url: `/api/images/${sourceItem.Id}/Primary`,
+      banner_url: `/api/images/${sourceItem.Id}/Banner`,
+      year: sourceItem.ProductionYear || null,
+      rating: null,
+      resolution: null,
+      is_hdr: null,
+      genres: sourceItem.Genres && sourceItem.Genres.length > 0 ? sourceItem.Genres : null,
+      description: sourceItem.Overview || null,
+      trailer_url: trailerUrl,
+      trailer_duration_ms: durationMs,
+      source_channel_id: sourceChannelId,
+    };
   }
 
   /**

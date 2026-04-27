@@ -325,7 +325,10 @@ export function getItemIdsScheduledInRangeForChannel(
   for (const block of blocks) {
     const parsed = parseScheduleBlock(block);
     for (const prog of parsed.programs) {
-      if (prog.media_item_id && prog.type !== 'interstitial') {
+      // Trailers reference a source item but don't air it — excluding them prevents
+      // a "Now Playing trailer for Inception" entry from blocking Inception itself
+      // from airing in the cooldown window.
+      if (prog.media_item_id && prog.type === 'program') {
         itemIds.add(prog.media_item_id);
       }
     }

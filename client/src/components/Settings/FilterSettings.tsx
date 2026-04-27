@@ -173,6 +173,10 @@ export default function FilterSettings() {
 
   // Track if filters have changed since initial load
   const hasChangedRef = useRef(false);
+  // True when the user toggled "Unwatched only". Triggers a fresh library sync
+  // on regenerate so the filter sees up-to-date Played state from the media
+  // server rather than potentially-stale cached data from the last sync.
+  const unwatchedToggledRef = useRef(false);
   const initialLoadRef = useRef(true);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -262,7 +266,7 @@ export default function FilterSettings() {
 
       // If filters changed, regenerate channels
       if (hasChangedRef.current) {
-        regenerateChannels().catch(() => {
+        regenerateChannels({ force_sync: unwatchedToggledRef.current }).catch(() => {
           // Handle error silently
         });
       }
@@ -322,6 +326,7 @@ export default function FilterSettings() {
     const newValue = !unwatchedOnly;
     setUnwatchedOnly(newValue);
     if (!initialLoadRef.current) {
+      unwatchedToggledRef.current = true;
       autoSave(genreFilter, contentTypes, ratingFilter, newValue);
     }
   };
