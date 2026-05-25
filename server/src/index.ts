@@ -4,8 +4,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 import { createServer } from 'http';
+import Bonjour from 'bonjour-service';
 import { initDatabase } from './db/index.js';
 import { initWebSocket } from './websocket/index.js';
 import { channelRoutes } from './routes/channels.js';
@@ -25,6 +28,11 @@ import { HiddenGemsService } from './services/HiddenGemsService.js';
 import { authMiddleware, isAuthEnabled } from './middleware/auth.js';
 import { decrypt } from './utils/crypto.js';
 import * as queries from './db/queries.js';
+import { buildPrevueTxt } from './utils/mdns.js';
+
+let bonjour: Bonjour | undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let mdnsService: any;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -224,6 +232,25 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('[Prevue] API key authentication is ENABLED');
   } else {
     console.log('[Prevue] API key authentication is DISABLED (set PREVUE_API_KEY to enable)');
+  }
+
+  // Advertise over mDNS/Bonjour so clients can discover this server on the LAN
+  if (process.env.PREVUE_MDNS_DISABLED !== '1') {
+    try {
+      const pkgJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string };
+      const version = pkgJson.version ?? '0';
+      const name = process.env.PREVUE_SERVER_NAME || os.hostname().replace(/\.local$/, '');
+      bonjour = new Bonjour();
+      mdnsService = bonjour.publish({
+        name,
+        type: 'prevue',
+        port: PORT,
+        txt: buildPrevueTxt(isAuthEnabled(), version),
+      });
+      console.log(`[Prevue] Advertising _prevue._tcp as "${name}" on port ${PORT}`);
+    } catch (err) {
+      console.warn('[Prevue] mDNS advertisement failed (non-fatal):', (err as Error).message);
+    }
   }
 
   // Boot sequence: sync library and generate channels/schedules
@@ -444,6 +471,9 @@ function startScheduleAutoUpdateJob(): void {
 // ─── Graceful shutdown ──────────────────────────────
 async function gracefulShutdown(signal: string) {
   console.log(`[Prevue] ${signal} received — shutting down gracefully...`);
+
+  // Stop mDNS advertisement (best-effort)
+  try { mdnsService?.stop(); bonjour?.destroy(); } catch { /* best-effort */ }
 
   // Clear all recurring intervals
   for (const id of activeIntervals) clearInterval(id);
