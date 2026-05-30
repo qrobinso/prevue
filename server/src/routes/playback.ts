@@ -204,6 +204,15 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     if (req.query.hevc === '1') {
       streamParams.set('hevc', '1');
     }
+    // Plex only: start the transcode at the live position server-side so the client
+    // plays from 0 instead of seeking into a not-yet-transcoded region (the -15628
+    // decode race). Ticks (100ns) match PlexClient.getHlsStreamUrl's startPositionTicks.
+    // Jellyfin deliberately omits this — passing StartTimeTicks crashes its FFmpeg
+    // (exit 234) on rapid channel switching, so it keeps the client-side hls.js seek.
+    const plexServerOffset = provider.providerType === 'plex' && seekMs > 0;
+    if (plexServerOffset) {
+      streamParams.set('startTimeTicks', String(Math.floor(seekMs / 1000) * 10_000_000));
+    }
     const queryString = streamParams.toString();
     const streamUrl = `/api/stream/${program.media_item_id}${queryString ? `?${queryString}` : ''}`;
 
@@ -281,6 +290,12 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
 
     res.json({
       stream_url: streamUrl,
+      // Keep the real seek position even when Plex applies the server-side offset.
+      // Plex's `offset` does NOT rebase the stream to 0 — it emits a playlist with
+      // `#EXT-X-START:TIME-OFFSET=<offset>` and positions the transcoded content at the
+      // offset, leaving the pre-offset segments empty. The client must therefore seek to
+      // the offset to land on real media; the server offset's job is to prime Plex's
+      // transcoder there so that seek resolves immediately (no -15628 cold-seek race).
       seek_position_ms: seekMs,
       seek_position_seconds: seekSeconds,
       program,

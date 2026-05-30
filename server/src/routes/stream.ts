@@ -601,6 +601,10 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
     ? parseInt(req.query.subtitleStreamIndex as string, 10) : undefined;
   const audioStreamIndex = req.query.audioStreamIndex != null
     ? parseInt(req.query.audioStreamIndex as string, 10) : undefined;
+  // Live offset (100ns ticks) set by /api/playback so Plex transcodes forward from the
+  // join point instead of starting at 0 and letting the client seek into a cold session.
+  const startPositionTicks = req.query.startTimeTicks
+    ? parseInt(req.query.startTimeTicks as string, 10) : undefined;
   const streamOpts = {
     ...(bitrate != null && { bitrate }),
     ...(maxWidth != null && { maxWidth }),
@@ -608,7 +612,7 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
     ...(audioStreamIndex != null && !Number.isNaN(audioStreamIndex) && { audioStreamIndex }),
   };
 
-  let hlsInfo = await provider.getHlsStreamUrl(itemId, undefined, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
+  let hlsInfo = await provider.getHlsStreamUrl(itemId, startPositionTicks, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
   let { playSessionId, mediaSourceId } = hlsInfo;
   let masterUrl = hlsInfo.url;
 
@@ -631,7 +635,7 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
     await new Promise(r => setTimeout(r, delay));
     if (retry === retryDelays.length - 1) {
       // Final retry: fresh session with new ID and params
-      hlsInfo = await provider.getHlsStreamUrl(itemId, undefined, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
+      hlsInfo = await provider.getHlsStreamUrl(itemId, startPositionTicks, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
       playSessionId = hlsInfo.playSessionId;
       mediaSourceId = hlsInfo.mediaSourceId;
       masterUrl = hlsInfo.url;
