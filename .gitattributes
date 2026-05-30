@@ -1,0 +1,24 @@
+# Normalize all text files to LF on commit and in the working tree.
+# Prevents CRLF noise when the repo is checked out on Windows.
+* text=auto eol=lf
+
+# Explicitly mark binary assets so they are never line-ending normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.svg text eol=lf
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.mp4 binary
+*.webm binary
+*.pdf binary
+*.db binary
+*.sqlite binary
+
+# Shell scripts must keep LF regardless of platform.
+*.sh text eol=lf
