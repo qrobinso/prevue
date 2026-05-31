@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Hls from 'hls.js';
 import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, reportPlaybackCompleted, updateSettings, metricsStart, metricsStop } from '../../services/api';
-import { getClientId } from '../../services/clientIdentity';
+import { getClientId, getMetricsClientFields } from '../../services/clientIdentity';
 import { useNavZone, useNavigation } from '../../navigation';
 import { useSwipe } from '../../hooks/useSwipe';
 import { CornersIn, FrameCorners, GearSix, ArrowCounterClockwise, X } from '@phosphor-icons/react';
@@ -443,7 +443,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       // Report metrics for this playback
       const isEpisode = info.program?.content_type === 'episode';
       metricsStart({
-        client_id: getClientId(),
+        ...getMetricsClientFields(),
         channel_id: channel.id,
         channel_name: channel.name,
         item_id: info.program?.media_item_id,
@@ -867,7 +867,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
         const isEpisode = handoff.info.program?.content_type === 'episode';
         metricsStart({
-          client_id: getClientId(),
+          ...getMetricsClientFields(),
           channel_id: channel.id,
           channel_name: channel.name,
           item_id: handoff.info.program?.media_item_id,
@@ -906,7 +906,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
           const isEpisode = info.program?.content_type === 'episode';
           metricsStart({
-            client_id: getClientId(),
+            ...getMetricsClientFields(),
             channel_id: channel.id,
             channel_name: channel.name,
             item_id: info.program?.media_item_id,

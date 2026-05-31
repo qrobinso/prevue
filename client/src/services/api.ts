@@ -659,8 +659,21 @@ export async function connectPlexServer(data: {
 
 // ─── Metrics ──────────────────────────────────────────
 
+export async function metricsRegister(data: {
+  client_id: string;
+  display_name?: string;
+  platform?: string;
+}): Promise<{ success: boolean; enabled?: boolean }> {
+  return request('/metrics/register', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export async function metricsStart(data: {
   client_id: string;
+  display_name?: string;
+  platform?: string;
   channel_id?: number;
   channel_name?: string;
   item_id?: string;
@@ -683,6 +696,8 @@ export async function metricsStop(clientId: string): Promise<{ success: boolean 
 
 export async function metricsChannelSwitch(data: {
   client_id: string;
+  display_name?: string;
+  platform?: string;
   from_channel_id?: number;
   from_channel_name?: string;
   to_channel_id?: number;
@@ -704,11 +719,24 @@ export interface MetricsDashboard {
   topChannels?: { channel_id: number; channel_name: string; total_seconds: number; session_count: number }[];
   topShows?: { item_id: string; title: string; content_type: string | null; total_seconds: number; session_count: number }[];
   topSeries?: { series_name: string; total_seconds: number; session_count: number; episode_count: number }[];
-  topClients?: { client_id: string; user_agent: string | null; total_seconds: number; session_count: number; last_seen: string | null }[];
+  topClients?: {
+    client_id: string;
+    display_name: string | null;
+    platform: string | null;
+    user_agent: string | null;
+    first_seen: string | null;
+    last_seen: string | null;
+    total_seconds: number;
+    session_count: number;
+    switch_count: number;
+    is_online?: boolean;
+  }[];
   hourlyActivity?: { hour: number; total_seconds: number; session_count: number }[];
   recentSessions?: {
     id: number;
     client_id: string;
+    client_display_name: string | null;
+    client_platform: string | null;
     channel_name: string | null;
     title: string | null;
     content_type: string | null;

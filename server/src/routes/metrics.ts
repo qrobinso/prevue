@@ -10,6 +10,36 @@ function getService(req: Request): MetricsService {
 
 // ─── Ingestion endpoints ─────────────────────────────
 
+// POST /api/metrics/register - Register a connected client (app load / heartbeat)
+metricsRoutes.post('/register', (req: Request, res: Response) => {
+  try {
+    const svc = getService(req);
+    if (!svc.isEnabled()) {
+      res.json({ success: true, enabled: false });
+      return;
+    }
+
+    const { client_id, display_name, platform } = req.body;
+    if (!client_id || typeof client_id !== 'string') {
+      res.status(400).json({ error: 'client_id is required' });
+      return;
+    }
+
+    const userAgent = req.headers['user-agent'];
+    svc.registerClient({
+      client_id,
+      display_name: typeof display_name === 'string' ? display_name : undefined,
+      platform: typeof platform === 'string' ? platform : undefined,
+      user_agent: userAgent,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Metrics] Error registering client:', err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // POST /api/metrics/start - Start a watch session
 metricsRoutes.post('/start', (req: Request, res: Response) => {
   try {
@@ -19,7 +49,7 @@ metricsRoutes.post('/start', (req: Request, res: Response) => {
       return;
     }
 
-    const { client_id, channel_id, channel_name, item_id, title, series_name, content_type } = req.body;
+    const { client_id, channel_id, channel_name, item_id, title, series_name, content_type, display_name, platform } = req.body;
     if (!client_id) {
       res.status(400).json({ error: 'client_id is required' });
       return;
@@ -35,6 +65,8 @@ metricsRoutes.post('/start', (req: Request, res: Response) => {
       series_name,
       content_type,
       user_agent: userAgent,
+      display_name: typeof display_name === 'string' ? display_name : undefined,
+      platform: typeof platform === 'string' ? platform : undefined,
     });
 
     res.json({ success: true, session_id: session.id });
@@ -76,18 +108,22 @@ metricsRoutes.post('/channel-switch', (req: Request, res: Response) => {
       return;
     }
 
-    const { client_id, from_channel_id, from_channel_name, to_channel_id, to_channel_name } = req.body;
+    const { client_id, from_channel_id, from_channel_name, to_channel_id, to_channel_name, display_name, platform } = req.body;
     if (!client_id) {
       res.status(400).json({ error: 'client_id is required' });
       return;
     }
 
+    const userAgent = req.headers['user-agent'];
     svc.recordChannelSwitch({
       client_id,
       from_channel_id,
       from_channel_name,
       to_channel_id,
       to_channel_name,
+      user_agent: userAgent,
+      display_name: typeof display_name === 'string' ? display_name : undefined,
+      platform: typeof platform === 'string' ? platform : undefined,
     });
 
     res.json({ success: true });

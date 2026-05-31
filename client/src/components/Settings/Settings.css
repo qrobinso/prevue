@@ -3753,16 +3753,50 @@
   gap: 10px;
 }
 
+.metrics-clients-hint {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
 .metrics-client-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.metrics-client-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .metrics-client-browser {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.metrics-client-online {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #7ee787;
+  background: rgba(126, 231, 135, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.metrics-client-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.75;
 }
 
 .metrics-client-detail {

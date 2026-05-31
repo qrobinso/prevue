@@ -1,3 +1,5 @@
+import { getClientDisplayName, getClientPlatform } from '../utils/clientDisplay';
+
 const CLIENT_ID_KEY = 'prevue_client_id';
 
 /** Generate a UUID v4 with fallback for non-secure contexts. */
@@ -40,4 +42,17 @@ export function getClientId(): string {
   }
 
   return id;
+}
+
+/** Client fields included on metrics API calls. */
+export function getMetricsClientFields(): {
+  client_id: string;
+  display_name: string;
+  platform: string;
+} {
+  return {
+    client_id: getClientId(),
+    display_name: getClientDisplayName(),
+    platform: getClientPlatform(),
+  };
 }

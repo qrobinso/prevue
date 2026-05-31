@@ -484,15 +484,24 @@ export function insertWatchEvent(
 export function upsertClient(
   db: Database.Database,
   clientId: string,
-  userAgent?: string
+  options?: {
+    userAgent?: string;
+    displayName?: string;
+    platform?: string;
+  }
 ): void {
+  const userAgent = options?.userAgent ?? null;
+  const displayName = options?.displayName ?? null;
+  const platform = options?.platform ?? null;
   db.prepare(
-    `INSERT INTO client_registry (client_id, user_agent, first_seen, last_seen)
-     VALUES (?, ?, datetime('now'), datetime('now'))
+    `INSERT INTO client_registry (client_id, display_name, platform, user_agent, first_seen, last_seen)
+     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(client_id) DO UPDATE SET
        last_seen = datetime('now'),
-       user_agent = COALESCE(excluded.user_agent, client_registry.user_agent)`
-  ).run(clientId, userAgent ?? null);
+       user_agent = COALESCE(excluded.user_agent, client_registry.user_agent),
+       display_name = COALESCE(excluded.display_name, client_registry.display_name),
+       platform = COALESCE(excluded.platform, client_registry.platform)`
+  ).run(clientId, displayName, platform, userAgent);
 }
 
 // ─── Metrics: Aggregated Reads ────────────────────────────
@@ -504,15 +513,25 @@ export interface MetricsSummary {
 }
 
 export function getMetricsSummary(db: Database.Database, since: string): MetricsSummary {
-  const row = db.prepare(`
+  const watch = db.prepare(`
     SELECT
       COALESCE(SUM(duration_seconds), 0) as total_watch_seconds,
-      COUNT(*) as total_sessions,
-      COUNT(DISTINCT client_id) as active_clients
+      COUNT(*) as total_sessions
     FROM watch_sessions
     WHERE started_at >= ?
-  `).get(since) as MetricsSummary;
-  return row;
+  `).get(since) as { total_watch_seconds: number; total_sessions: number };
+
+  const clients = db.prepare(`
+    SELECT COUNT(*) as active_clients
+    FROM client_registry
+    WHERE last_seen >= ?
+  `).get(since) as { active_clients: number };
+
+  return {
+    total_watch_seconds: watch.total_watch_seconds,
+    total_sessions: watch.total_sessions,
+    active_clients: clients.active_clients,
+  };
 }
 
 export interface TopChannel {
@@ -585,27 +604,48 @@ export function getTopSeries(db: Database.Database, since: string, limit: number
 
 export interface TopClient {
   client_id: string;
+  display_name: string | null;
+  platform: string | null;
   user_agent: string | null;
+  first_seen: string | null;
+  last_seen: string | null;
   total_seconds: number;
   session_count: number;
-  last_seen: string | null;
+  switch_count: number;
 }
 
-export function getTopClients(db: Database.Database, since: string, limit: number = 10): TopClient[] {
+export function getTopClients(db: Database.Database, since: string, limit: number = 50): TopClient[] {
   return db.prepare(`
     SELECT
-      ws.client_id,
+      cr.client_id,
+      cr.display_name,
+      cr.platform,
       cr.user_agent,
-      COALESCE(SUM(ws.duration_seconds), 0) as total_seconds,
-      COUNT(*) as session_count,
-      cr.last_seen
-    FROM watch_sessions ws
-    LEFT JOIN client_registry cr ON ws.client_id = cr.client_id
-    WHERE ws.started_at >= ?
-    GROUP BY ws.client_id
-    ORDER BY total_seconds DESC
+      cr.first_seen,
+      cr.last_seen,
+      COALESCE(usage.total_seconds, 0) as total_seconds,
+      COALESCE(usage.session_count, 0) as session_count,
+      COALESCE(switches.switch_count, 0) as switch_count
+    FROM client_registry cr
+    LEFT JOIN (
+      SELECT
+        client_id,
+        COALESCE(SUM(duration_seconds), 0) as total_seconds,
+        COUNT(*) as session_count
+      FROM watch_sessions
+      WHERE started_at >= ?
+      GROUP BY client_id
+    ) usage ON cr.client_id = usage.client_id
+    LEFT JOIN (
+      SELECT client_id, COUNT(*) as switch_count
+      FROM watch_events
+      WHERE event_type = 'channel_switch' AND created_at >= ?
+      GROUP BY client_id
+    ) switches ON cr.client_id = switches.client_id
+    WHERE cr.last_seen >= ?
+    ORDER BY total_seconds DESC, cr.last_seen DESC
     LIMIT ?
-  `).all(since, limit) as TopClient[];
+  `).all(since, since, since, limit) as TopClient[];
 }
 
 export interface HourlyActivity {
@@ -627,10 +667,22 @@ export function getHourlyActivity(db: Database.Database, since: string): HourlyA
   `).all(since) as HourlyActivity[];
 }
 
-export function getRecentSessions(db: Database.Database, limit: number = 20): WatchSession[] {
-  return db.prepare(
-    'SELECT * FROM watch_sessions ORDER BY started_at DESC LIMIT ?'
-  ).all(limit) as WatchSession[];
+export interface RecentWatchSession extends WatchSession {
+  client_display_name: string | null;
+  client_platform: string | null;
+}
+
+export function getRecentSessions(db: Database.Database, limit: number = 20): RecentWatchSession[] {
+  return db.prepare(`
+    SELECT
+      ws.*,
+      cr.display_name as client_display_name,
+      cr.platform as client_platform
+    FROM watch_sessions ws
+    LEFT JOIN client_registry cr ON ws.client_id = cr.client_id
+    ORDER BY ws.started_at DESC
+    LIMIT ?
+  `).all(limit) as RecentWatchSession[];
 }
 
 export function clearMetricsData(db: Database.Database): void {

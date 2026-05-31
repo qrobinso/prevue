@@ -1,11 +1,15 @@
 import type { WSEvent } from '../types';
 import { getStoredApiKey } from './api';
+import { getClientId } from './clientIdentity';
+import { getClientDisplayName, getClientPlatform } from '../utils/clientDisplay';
 
 type WSEventHandler = (event: WSEvent) => void;
+type WSConnectedHandler = () => void;
 
 class WebSocketClient {
   private ws: WebSocket | null = null;
   private handlers: Set<WSEventHandler> = new Set();
+  private connectedHandlers: Set<WSConnectedHandler> = new Set();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
@@ -27,6 +31,9 @@ class WebSocketClient {
         // Authenticate via first message instead of URL query param (avoids key in logs/history)
         if (key && this.ws) {
           this.ws.send(JSON.stringify({ type: 'auth', api_key: key }));
+        } else {
+          this.sendClientRegister();
+          this.connectedHandlers.forEach((handler) => handler());
         }
         this.connected = true;
         this.reconnectDelay = 1000; // Reset backoff
@@ -37,6 +44,10 @@ class WebSocketClient {
           const data = JSON.parse(event.data);
           // Validate expected shape before dispatching
           if (data && typeof data === 'object' && typeof data.type === 'string') {
+            if (data.type === 'connected') {
+              this.sendClientRegister();
+              this.connectedHandlers.forEach((handler) => handler());
+            }
             this.handlers.forEach(handler => handler(data as WSEvent));
           }
         } catch {
@@ -72,6 +83,23 @@ class WebSocketClient {
   subscribe(handler: WSEventHandler): () => void {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
+  }
+
+  onConnected(handler: WSConnectedHandler): () => void {
+    this.connectedHandlers.add(handler);
+    return () => this.connectedHandlers.delete(handler);
+  }
+
+  private sendClientRegister(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({
+      type: 'client_register',
+      payload: {
+        client_id: getClientId(),
+        display_name: getClientDisplayName(),
+        platform: getClientPlatform(),
+      },
+    }));
   }
 
   isConnected(): boolean {

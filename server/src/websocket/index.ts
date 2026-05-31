@@ -3,25 +3,68 @@ import type { Server } from 'http';
 import type { IncomingMessage } from 'http';
 import type { WSMessage } from '../types/index.js';
 import { isAuthEnabled, validateApiKey } from '../middleware/auth.js';
+import type { MetricsService } from '../services/MetricsService.js';
 
 let wssInstance: WebSocketServer | null = null;
 
-export function initWebSocket(server: Server): WebSocketServer {
+type WsClient = WebSocket & {
+  isAlive: boolean;
+  authenticated: boolean;
+  metricsClientId?: string;
+};
+
+function handleClientRegister(
+  metricsService: MetricsService | undefined,
+  ws: WsClient,
+  payload: Record<string, unknown>
+): void {
+  const clientId = payload.client_id;
+  if (typeof clientId !== 'string' || !clientId) return;
+
+  ws.metricsClientId = clientId;
+  if (!metricsService) return;
+
+  metricsService.registerClient({
+    client_id: clientId,
+    display_name: typeof payload.display_name === 'string' ? payload.display_name : undefined,
+    platform: typeof payload.platform === 'string' ? payload.platform : undefined,
+    via_websocket: true,
+  });
+}
+
+function parseWsPayload(data: Buffer | ArrayBuffer | Buffer[]): {
+  type?: string;
+  api_key?: string;
+  payload?: Record<string, unknown>;
+  client_id?: string;
+  display_name?: string;
+  platform?: string;
+} | null {
+  try {
+    return JSON.parse(data.toString()) as {
+      type?: string;
+      api_key?: string;
+      payload?: Record<string, unknown>;
+      client_id?: string;
+      display_name?: string;
+      platform?: string;
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function initWebSocket(server: Server, metricsService?: MetricsService): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/ws' });
   wssInstance = wss;
 
   wss.on('connection', (ws, req: IncomingMessage) => {
-    // Mark connection as alive for ping/pong zombie detection
-    const wsExt = ws as WebSocket & { isAlive: boolean; authenticated: boolean };
+    const wsExt = ws as WsClient;
     wsExt.isAlive = true;
-    wsExt.authenticated = !isAuthEnabled(); // auto-authenticated when auth is disabled
+    wsExt.authenticated = !isAuthEnabled();
     ws.on('pong', () => { wsExt.isAlive = true; });
 
-    // When auth is enabled, require authentication via first message or query param.
-    // First-message auth is preferred (avoids leaking key in URL/logs).
-    // Query param auth is still supported for backwards compatibility with IPTV clients.
     if (isAuthEnabled()) {
-      // Check query param for backwards compatibility
       try {
         const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
         const key = url.searchParams.get('api_key');
@@ -31,16 +74,17 @@ export function initWebSocket(server: Server): WebSocketServer {
       } catch { /* ignore parse errors */ }
 
       if (!wsExt.authenticated) {
-        // Wait for auth message — auto-close after 5s if not authenticated
         const authTimeout = setTimeout(() => {
           if (!wsExt.authenticated) {
             ws.close(4001, 'Unauthorized');
           }
         }, 5000);
 
-        ws.once('message', (data) => {
-          try {
-            const msg = JSON.parse(data.toString());
+        ws.on('message', (data) => {
+          const msg = parseWsPayload(data);
+          if (!msg) return;
+
+          if (!wsExt.authenticated) {
             if (msg.type === 'auth' && typeof msg.api_key === 'string' && validateApiKey(msg.api_key)) {
               wsExt.authenticated = true;
               clearTimeout(authTimeout);
@@ -49,32 +93,46 @@ export function initWebSocket(server: Server): WebSocketServer {
               clearTimeout(authTimeout);
               ws.close(4001, 'Unauthorized');
             }
-          } catch {
-            clearTimeout(authTimeout);
-            ws.close(4001, 'Unauthorized');
+            return;
+          }
+
+          if (msg.type === 'client_register') {
+            handleClientRegister(metricsService, wsExt, msg.payload ?? msg);
           }
         });
-        return; // Don't send 'connected' yet — wait for auth
+      } else {
+        ws.on('message', (data) => {
+          const msg = parseWsPayload(data);
+          if (!msg || msg.type !== 'client_register') return;
+          handleClientRegister(metricsService, wsExt, msg.payload ?? msg);
+        });
       }
+    } else {
+      ws.on('message', (data) => {
+        const msg = parseWsPayload(data);
+        if (!msg || msg.type !== 'client_register') return;
+        handleClientRegister(metricsService, wsExt, msg.payload ?? msg);
+      });
     }
 
     ws.on('close', () => {
-      console.log('[WS] Client disconnected');
+      if (wsExt.metricsClientId && metricsService) {
+        metricsService.setClientOnline(wsExt.metricsClientId, false);
+      }
     });
 
     ws.on('error', (err) => {
       console.error('[WS] Client error:', err);
     });
 
-    // Send initial heartbeat (only when already authenticated)
-    ws.send(JSON.stringify({ type: 'connected', payload: { timestamp: new Date().toISOString() } }));
+    if (wsExt.authenticated) {
+      ws.send(JSON.stringify({ type: 'connected', payload: { timestamp: new Date().toISOString() } }));
+    }
   });
 
-  // Heartbeat: send data heartbeat + ping/pong to detect zombie connections
   const heartbeat = setInterval(() => {
     wss.clients.forEach((ws) => {
-      const wsAlive = ws as WebSocket & { isAlive: boolean };
-      // Terminate zombie connections that didn't respond to last ping
+      const wsAlive = ws as WsClient;
       if (wsAlive.isAlive === false) {
         console.log('[WS] Terminating zombie connection');
         return ws.terminate();
@@ -97,7 +155,7 @@ export function initWebSocket(server: Server): WebSocketServer {
 export function broadcast(wss: WebSocketServer, message: WSMessage): void {
   const data = JSON.stringify(message);
   wss.clients.forEach((client) => {
-    const wsExt = client as WebSocket & { authenticated?: boolean };
+    const wsExt = client as WsClient;
     if (client.readyState === WebSocket.OPEN && wsExt.authenticated !== false) {
       client.send(data);
     }

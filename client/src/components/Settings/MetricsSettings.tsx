@@ -7,6 +7,7 @@ import {
   type MetricsDashboard,
 } from '../../services/api';
 import { useNotifications } from '../../notifications';
+import { parseUserAgent, formatClientIdShort } from '../../utils/clientDisplay';
 import './Settings.css';
 
 type TimeRange = '24h' | '7d' | '30d' | 'all';
@@ -42,15 +43,13 @@ function formatTimestamp(iso: string): string {
   }
 }
 
-function parseUserAgent(ua: string | null): string {
-  if (!ua) return 'Unknown';
-  // Try to extract browser name
-  if (ua.includes('Firefox/')) return 'Firefox';
-  if (ua.includes('Edg/')) return 'Edge';
-  if (ua.includes('Chrome/') && !ua.includes('Edg/')) return 'Chrome';
-  if (ua.includes('Safari/') && !ua.includes('Chrome/')) return 'Safari';
-  if (ua.includes('Mobile')) return 'Mobile Browser';
-  return 'Browser';
+function clientLabel(client: NonNullable<MetricsDashboard['topClients']>[number]): string {
+  if (client.display_name) return client.display_name;
+  if (client.platform && client.user_agent) {
+    return `${client.platform} · ${parseUserAgent(client.user_agent)}`;
+  }
+  if (client.platform) return client.platform;
+  return parseUserAgent(client.user_agent);
 }
 
 export default function MetricsSettings() {
@@ -155,7 +154,7 @@ export default function MetricsSettings() {
         </div>
         <p className="settings-field-hint">
           {metricsEnabled
-            ? 'Prevue is recording what channels and shows are watched, when, and from which device.'
+            ? 'Prevue records each device that opens the app, plus watch time and channel changes per device.'
             : 'Metrics tracking is disabled. No new watch data is being collected. Previously collected data is still visible below.'}
         </p>
       </div>
@@ -205,7 +204,7 @@ export default function MetricsSettings() {
               </div>
               <div className="metrics-card">
                 <div className="metrics-card-value">{summary.active_clients}</div>
-                <div className="metrics-card-label">Clients</div>
+                <div className="metrics-card-label">Connected Devices</div>
               </div>
             </div>
           </div>
@@ -282,18 +281,37 @@ export default function MetricsSettings() {
             </div>
           )}
 
-          {/* Top clients */}
+          {/* Connected clients */}
           {dashboard.topClients && dashboard.topClients.length > 0 && (
             <div className="settings-subsection">
-              <h4>CLIENTS</h4>
+              <h4>CONNECTED CLIENTS</h4>
+              <p className="settings-field-hint metrics-clients-hint">
+                Each browser or device gets a persistent ID. Usage is tracked per device for the selected time range.
+              </p>
               <div className="metrics-client-list">
                 {dashboard.topClients.map((client) => (
                   <div key={client.client_id} className="metrics-client-item">
-                    <div className="metrics-client-browser">{parseUserAgent(client.user_agent)}</div>
+                    <div className="metrics-client-header">
+                      <span className="metrics-client-browser">{clientLabel(client)}</span>
+                      {client.is_online && (
+                        <span className="metrics-client-online" title="App is open now">Online</span>
+                      )}
+                    </div>
                     <div className="metrics-client-detail">
-                      {formatDurationShort(client.total_seconds)} &middot; {client.session_count} session{client.session_count !== 1 ? 's' : ''}
+                      {formatDurationShort(client.total_seconds)} watch time
+                      {' · '}
+                      {client.session_count} session{client.session_count !== 1 ? 's' : ''}
+                      {client.switch_count > 0 && (
+                        <> · {client.switch_count} channel switch{client.switch_count !== 1 ? 'es' : ''}</>
+                      )}
+                    </div>
+                    <div className="metrics-client-meta">
+                      ID …{formatClientIdShort(client.client_id)}
+                      {client.first_seen && (
+                        <> · First seen {formatTimestamp(client.first_seen)}</>
+                      )}
                       {client.last_seen && (
-                        <span className="metrics-client-lastseen"> &middot; Last seen {formatTimestamp(client.last_seen)}</span>
+                        <> · Last seen {formatTimestamp(client.last_seen)}</>
                       )}
                     </div>
                   </div>
@@ -336,7 +354,11 @@ export default function MetricsSettings() {
             <div className="settings-subsection">
               <h4>RECENT SESSIONS</h4>
               <div className="metrics-sessions-list">
-                {dashboard.recentSessions.map((s) => (
+                {dashboard.recentSessions.map((s) => {
+                  const deviceLabel = s.client_display_name
+                    || (s.client_platform ? s.client_platform : null)
+                    || `…${formatClientIdShort(s.client_id)}`;
+                  return (
                   <div key={s.id} className="metrics-session-item">
                     <div className="metrics-session-title">{s.title || 'Unknown'}</div>
                     <div className="metrics-session-detail">
@@ -344,10 +366,13 @@ export default function MetricsSettings() {
                       {s.channel_name && ' · '}
                       <span>{formatDurationShort(s.duration_seconds)}</span>
                       {' · '}
+                      <span>{deviceLabel}</span>
+                      {' · '}
                       <span>{formatTimestamp(s.started_at)}</span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

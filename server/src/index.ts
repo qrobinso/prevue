@@ -109,7 +109,7 @@ const iconicSceneService = new IconicSceneService(db, aiService);
 const hiddenGemsService = new HiddenGemsService(db, aiService);
 
 // Initialize WebSocket
-const wss = initWebSocket(server);
+const wss = initWebSocket(server, metricsService);
 
 // Make services available to routes
 app.locals.db = db;

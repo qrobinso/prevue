@@ -7,7 +7,8 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { NavigationProvider } from './navigation';
 import { NotificationProvider } from './notifications';
 import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, getServers, regenerateSchedule, type ChannelWithProgram } from './services/api';
-import { getClientId } from './services/clientIdentity';
+import { getClientId, getMetricsClientFields } from './services/clientIdentity';
+import { useClientRegistration } from './hooks/useClientRegistration';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
 import { getGuideFilters, applyGuideFilterSimple, type GuideFilterId } from './components/Guide/guideFilterUtils';
 import { isAutoTuneEnabled, getPersistedChannelNumber, setPersistedChannelNumber } from './services/autoTune';
@@ -95,6 +96,7 @@ function AppContent() {
   }, []);
 
   useWebSocket(handleWsEvent);
+  useClientRegistration();
 
   useEffect(() => {
     if (!isIOS() || interactedRef.current) return;
@@ -197,7 +199,7 @@ function AppContent() {
     enterFullscreenRef.current = opts?.fromFullscreen === true;
     navigate(`/channel/${channel.number}`);
     metricsChannelSwitch({
-      client_id: getClientId(),
+      ...getMetricsClientFields(),
       from_channel_id: prevChannel?.id,
       from_channel_name: prevChannel?.name,
       to_channel_id: channel.id,
@@ -229,7 +231,7 @@ function AppContent() {
     setLastChannelId(fromChannel?.id ?? null);
     navigate(`/channel/${target.number}`);
     metricsChannelSwitch({
-      client_id: getClientId(),
+      ...getMetricsClientFields(),
       from_channel_id: fromChannel?.id,
       from_channel_name: fromChannel?.name,
       to_channel_id: target.id,
@@ -248,7 +250,7 @@ function AppContent() {
     setLastChannelId(currentChannel.id);
     navigate(`/channel/${target.number}`);
     metricsChannelSwitch({
-      client_id: getClientId(),
+      ...getMetricsClientFields(),
       from_channel_id: currentChannel.id,
       from_channel_name: currentChannel.name,
       to_channel_id: target.id,
@@ -266,7 +268,7 @@ function AppContent() {
     setLastChannelId(currentChannel.id);
     navigate(`/channel/${target.number}`);
     metricsChannelSwitch({
-      client_id: getClientId(),
+      ...getMetricsClientFields(),
       from_channel_id: currentChannel.id,
       from_channel_name: currentChannel.name,
       to_channel_id: target.id,
@@ -286,7 +288,7 @@ function AppContent() {
     if (currentChannel) setLastChannelId(currentChannel.id);
     navigate(`/channel/${target.number}`);
     metricsChannelSwitch({
-      client_id: getClientId(),
+      ...getMetricsClientFields(),
       from_channel_id: currentChannel?.id,
       from_channel_name: currentChannel?.name,
       to_channel_id: target.id,

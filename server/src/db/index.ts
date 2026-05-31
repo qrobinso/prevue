@@ -113,6 +113,8 @@ function runMigrations(db: Database.Database): void {
     -- Metrics: client registry
     CREATE TABLE IF NOT EXISTS client_registry (
       client_id TEXT PRIMARY KEY,
+      display_name TEXT,
+      platform TEXT,
       user_agent TEXT,
       first_seen TEXT NOT NULL DEFAULT (datetime('now')),
       last_seen TEXT NOT NULL DEFAULT (datetime('now'))
@@ -202,6 +204,9 @@ function runMigrations(db: Database.Database): void {
 
   // Migration: Add server_type and plex_client_id columns for Plex support
   migrateServersTableForPlex(db);
+
+  // Migration: display_name / platform on client_registry
+  migrateClientRegistryTable(db);
 
   // Cleanup: Remove orphaned library cache entries (where server_id doesn't exist)
   cleanupOrphanedData(db);
@@ -337,6 +342,25 @@ function migrateWatchSessionsTable(db: Database.Database): void {
     try {
       db.exec("ALTER TABLE watch_sessions ADD COLUMN series_name TEXT");
       console.log('[Database] Added series_name column to watch_sessions');
+    } catch { /* column may already exist */ }
+  }
+}
+
+function migrateClientRegistryTable(db: Database.Database): void {
+  const tableInfo = db.prepare("PRAGMA table_info('client_registry')").all() as { name: string }[];
+  if (tableInfo.length === 0) return;
+  const columnNames = tableInfo.map(col => col.name);
+
+  if (!columnNames.includes('display_name')) {
+    try {
+      db.exec('ALTER TABLE client_registry ADD COLUMN display_name TEXT');
+      console.log('[Database] Added display_name column to client_registry');
+    } catch { /* column may already exist */ }
+  }
+  if (!columnNames.includes('platform')) {
+    try {
+      db.exec('ALTER TABLE client_registry ADD COLUMN platform TEXT');
+      console.log('[Database] Added platform column to client_registry');
     } catch { /* column may already exist */ }
   }
 }

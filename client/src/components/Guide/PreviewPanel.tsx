@@ -6,7 +6,7 @@ import type { ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
 import { getPlaybackInfo, stopPlayback, reportPlaybackProgress, updateSettings, metricsStart, metricsStop } from '../../services/api';
-import { getClientId } from '../../services/clientIdentity';
+import { getClientId, getMetricsClientFields } from '../../services/clientIdentity';
 import {
   consumePlaybackHandoff,
   requestPlaybackHandoff,
@@ -258,7 +258,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     // Report metrics for this preview playback
     const isEpisode = info.program.content_type === 'episode';
     metricsStart({
-      client_id: getClientId(),
+      ...getMetricsClientFields(),
       channel_id: currentChannelIdRef.current ?? info.channel.id,
       channel_name: info.channel.name,
       item_id: info.program.media_item_id,
