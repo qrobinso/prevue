@@ -1068,21 +1068,12 @@ html[data-preview-bg="white"] .preview-video-container {
 
 /* ── Classic Left: move toolbar icons to the left side ── */
 @media (min-width: 768px) {
-  .guide-classic-left .guide-settings-btn {
+  .guide-classic-left .guide-header-actions {
     right: auto;
     left: 16px;
-  }
-  .guide-classic-left .guide-fullscreen-btn {
-    right: auto;
-    left: 72px;
-  }
-  .guide-classic-left .guide-filter-btn {
-    right: auto;
-    left: 128px;
-  }
-  .guide-classic-left .guide-search-btn {
-    right: auto;
-    left: 184px;
+    /* DOM order is AI, search, filter, fullscreen, settings; reverse so settings
+       sits leftmost (matching the previous left-anchored layout). */
+    flex-direction: row-reverse;
   }
 }
 
@@ -1174,12 +1165,77 @@ html[data-preview-bg="white"] .preview-video-container {
 .guide-fullscreen-btn,
 .guide-settings-btn,
 .guide-search-btn,
-.guide-filter-btn {
+.guide-filter-btn,
+.guide-ai-filter-btn {
   width: 48px;
   height: 48px;
   min-width: 48px;
   min-height: 48px;
   transition: all 0.2s, opacity 0.4s ease;
+}
+
+/* Header action buttons — inline flex row anchored top-right. Keeps all buttons
+   (incl. the AI filter) aligned at every breakpoint. Children are static so their
+   legacy absolute top/right offsets are inert and only sizing/appearance applies. */
+.guide-header-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-header-actions > button,
+.guide-header-actions > .guide-ai-filter-pill {
+  position: static;
+}
+
+/* AI channel filter button — appearance matches the other header buttons
+   (size comes from the shared size group above). */
+.guide-ai-filter-btn {
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--border-grid);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.guide-ai-filter-btn:hover:not(:disabled) {
+  background: var(--bg-cell-hover);
+  color: var(--accent-cyan);
+}
+
+.guide-ai-filter-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* AI filter active pill — inline with the buttons; height tracks the row via align-self. */
+.guide-ai-filter-pill {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: calc(100vw - 32px);
+  padding: 0 8px 0 12px;
+  background: rgba(0, 229, 255, 0.12);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.4s ease, background 0.15s;
+}
+
+.guide-ai-filter-pill:hover {
+  background: rgba(0, 229, 255, 0.18);
 }
 
 /* Fade guide buttons with the preview overlay when hidden */
@@ -1834,10 +1890,15 @@ html[data-preview-bg="white"] .preview-video-container {
     max-width: 100%;
   }
 
+  .guide-header-actions {
+    top: 12px;
+  }
+
   .guide-fullscreen-btn,
   .guide-settings-btn,
   .guide-search-btn,
-  .guide-filter-btn {
+  .guide-filter-btn,
+  .guide-ai-filter-btn {
     width: 48px;
     height: 48px;
     min-width: 48px;
@@ -2058,10 +2119,15 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   /* Toolbar buttons — smaller, semi-transparent, stay out of the way */
+  .guide-header-actions {
+    top: 8px;
+  }
+
   .guide-fullscreen-btn,
   .guide-settings-btn,
   .guide-search-btn,
-  .guide-filter-btn {
+  .guide-filter-btn,
+  .guide-ai-filter-btn {
     width: 36px;
     height: 36px;
     min-width: 36px;
@@ -2195,10 +2261,15 @@ html[data-preview-bg="white"] .preview-video-container {
     font-size: 14px;
   }
 
+  .guide-header-actions {
+    top: 6px;
+  }
+
   .guide-fullscreen-btn,
   .guide-settings-btn,
   .guide-search-btn,
-  .guide-filter-btn {
+  .guide-filter-btn,
+  .guide-ai-filter-btn {
     width: 32px;
     height: 32px;
     min-width: 32px;
@@ -2414,10 +2485,15 @@ html[data-preview-bg="white"] .preview-video-container {
     border-color: rgba(255, 255, 255, 0.15);
   }
 
+  .guide-header-actions {
+    top: 4px;
+  }
+
   .guide-fullscreen-btn,
   .guide-settings-btn,
   .guide-search-btn,
-  .guide-filter-btn {
+  .guide-filter-btn,
+  .guide-ai-filter-btn {
     width: 34px;
     height: 34px;
     min-width: 34px;
@@ -2616,7 +2692,8 @@ html[data-preview-bg="white"] .preview-video-container {
   .guide-fullscreen-btn,
   .guide-settings-btn,
   .guide-search-btn,
-  .guide-filter-btn {
+  .guide-filter-btn,
+  .guide-ai-filter-btn {
     width: 48px;
     height: 48px;
     min-width: 48px;
@@ -2718,19 +2795,7 @@ html[data-preview-bg="white"] .preview-video-container {
     padding-right: max(16px, env(safe-area-inset-right));
   }
 
-  .guide-search-btn {
-    right: max(184px, calc(env(safe-area-inset-right) + 176px));
-  }
-
-  .guide-filter-btn {
-    right: max(128px, calc(env(safe-area-inset-right) + 120px));
-  }
-
-  .guide-fullscreen-btn {
-    right: max(72px, calc(env(safe-area-inset-right) + 64px));
-  }
-
-  .guide-settings-btn {
+  .guide-header-actions {
     right: max(16px, calc(env(safe-area-inset-right) + 8px));
   }
 

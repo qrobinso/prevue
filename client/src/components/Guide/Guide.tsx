@@ -790,8 +790,9 @@ export default function Guide({
       className={`guide ${isFullscreen ? 'guide-fullscreen' : ''} ${isIOSPWA() && isFullscreen ? 'guide-fullscreen-ios-pwa' : ''} ${previewStyle === 'classic-left' ? 'guide-classic-left' : ''}`}
       ref={guideRef}
     >
-      {/* Header buttons — navigable as a zone via remote control */}
-      <div ref={headerRef} style={{ display: 'contents' }}>
+      {/* Header buttons — navigable as a zone via remote control.
+          Inline flex row so all buttons (incl. AI filter) stay aligned at every breakpoint. */}
+      <div ref={headerRef} className="guide-header-actions">
         {aiFilter ? (
           <div
             className={`guide-ai-filter-pill ${!overlayVisible ? 'guide-btn-hidden' : ''}`}

@@ -215,62 +215,11 @@
   }
 }
 
-/* ─── Active filter pill (rendered in the guide top bar) ─── */
-.guide-ai-filter-btn {
-  position: absolute;
-  top: 16px;
-  right: 240px; /* search (184) + 48 + 8px gap */
-  z-index: 30;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid var(--border-grid);
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  min-width: 48px;
-  min-height: 48px;
-  padding: 0;
-  transition: all 0.2s, opacity 0.4s ease;
-}
-
-.guide-ai-filter-btn:hover:not(:disabled) {
-  background: var(--bg-cell-hover);
-  color: var(--accent-cyan);
-}
-
-.guide-ai-filter-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.guide-ai-filter-pill {
-  position: absolute;
-  top: 16px;
-  right: 240px;
-  z-index: 30;
-  height: 48px;
-  max-width: calc(100vw - 260px);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 12px;
-  background: rgba(0, 229, 255, 0.12);
-  border: 1px solid var(--accent-cyan);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: opacity 0.4s ease, background 0.15s;
-}
-
-.guide-ai-filter-pill:hover {
-  background: rgba(0, 229, 255, 0.18);
-}
-
+/* ─── Active filter pill (rendered in the guide top bar) ───
+   NOTE: the .guide-ai-filter-btn and .guide-ai-filter-pill base/layout rules now
+   live in Guide.css alongside the other header buttons (.guide-header-actions flex
+   row), so the AI filter stays aligned at every breakpoint. Only the pill's inner
+   bits (sparkle, text, close) live here. */
 .guide-ai-filter-pill-sparkle {
   color: var(--accent-cyan);
   flex-shrink: 0;
