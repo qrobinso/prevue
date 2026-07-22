@@ -290,6 +290,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const lastTapTimeRef = useRef(0);
   const selectedSubtitleIndexRef = useRef<number | null>(getStoredSubtitleIndex());
   const subtitleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Hidden native track that receives HLS-delivered subtitle cues (renderTextTracksNatively
+  // is false, so hls.js exposes cues via CUES_PARSED instead of creating tracks itself).
+  const hlsCueTrackRef = useRef<TextTrack | null>(null);
   const selectedAudioStreamIndexRef = useRef<number | null>(null);
   const removePlayingListenersRef = useRef<(() => void) | null>(null);
   const stopPlaybackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -553,6 +556,34 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         setSharedOwner('player');
         hls.loadSource(info.stream_url);
         hls.attachMedia(video);
+
+        // HLS-delivered text subtitles (Jellyfin SubtitleMethod=Hls): feed parsed cues
+        // into one hidden native track so the activeCues overlay polling renders them.
+        // Reuse the track across stream reloads (native tracks can't be removed) and
+        // clear stale cues from the previous session.
+        {
+          const staleTrack = hlsCueTrackRef.current;
+          if (staleTrack?.cues) {
+            while (staleTrack.cues.length > 0) staleTrack.removeCue(staleTrack.cues[0]!);
+          }
+        }
+        hls.on(Hls.Events.CUES_PARSED, (_event, data) => {
+          if (cancelledRef?.current) return;
+          if (data.type !== 'subtitles' && data.type !== 'captions') return;
+          let track = hlsCueTrackRef.current;
+          if (!track) {
+            track = video.addTextTrack('subtitles', 'Subtitles', '');
+            track.mode = 'hidden';
+            hlsCueTrackRef.current = track;
+          }
+          for (const cue of data.cues) {
+            try {
+              track.addCue(cue as VTTCue);
+            } catch {
+              // Cue already in the track (e.g. after a seek re-parse) — ignore.
+            }
+          }
+        });
 
         // Set up listeners to fade in video once it starts playing
         const onFirstPlaying = () => {

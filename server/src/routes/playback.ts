@@ -7,6 +7,14 @@ import { activeSessions, trackSession, lastActivityByItemId } from './stream.js'
 
 export const playbackRoutes = Router();
 
+// Image-based subtitle codecs can only be burned into the video (full re-encode).
+// Text codecs are delivered as HLS text tracks instead, preserving video stream copy
+// and the fast ~1-2s tune-in. Mirrors isImageSubtitle in the client.
+const IMAGE_SUBTITLE_CODECS = new Set(['pgssub', 'pgs', 'dvdsub', 'dvbsub', 'hdmvsub', 'vobsub']);
+export function subtitleMethodFor(codec: string | null): 'Hls' | 'Encode' {
+  return codec && IMAGE_SUBTITLE_CODECS.has(codec.toLowerCase()) ? 'Encode' : 'Hls';
+}
+
 // Track the last pre-warmed session so we can stop it when a new one starts.
 // This prevents orphaned FFmpeg transcodes during rapid channel switching.
 let lastPrewarmedSession: { playSessionId: string; itemId: string } | null = null;
@@ -200,17 +208,21 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     }
     if (subtitle_index != null && subtitle_tracks[subtitle_index]) {
       streamParams.set('subtitleStreamIndex', String(subtitle_tracks[subtitle_index].index));
+      streamParams.set('subtitleMethod', subtitleMethodFor(subtitle_tracks[subtitle_index].codec));
     }
     if (req.query.hevc === '1') {
       streamParams.set('hevc', '1');
     }
-    // Plex only: start the transcode at the live position server-side so the client
-    // plays from 0 instead of seeking into a not-yet-transcoded region (the -15628
-    // decode race). Ticks (100ns) match PlexClient.getHlsStreamUrl's startPositionTicks.
-    // Jellyfin deliberately omits this — passing StartTimeTicks crashes its FFmpeg
-    // (exit 234) on rapid channel switching, so it keeps the client-side hls.js seek.
-    const plexServerOffset = provider.providerType === 'plex' && seekMs > 0;
-    if (plexServerOffset) {
+    // Start the transcode at the live position server-side so the first segments the
+    // client needs already exist. Plex: fixes the -15628 cold-seek decode race. Jellyfin:
+    // without this, ffmpeg starts at 0 and the client's deep seek forces Jellyfin to kill
+    // and restart the transcode at the offset (~7-10s tune-in). Historical note: an early
+    // attempt hit "FFmpeg exit 234" on rapid channel switching; since then, unconsumed
+    // pre-warm transcodes are stopped (below) and proxy requests are deduplicated, which
+    // removes the overlapping-ffmpeg trigger. Ticks are 100ns units.
+    // The client-side seek is preserved in both cases — neither server rebases the
+    // stream to 0 (see seek_position_ms comment below).
+    if (seekMs > 0) {
       streamParams.set('startTimeTicks', String(Math.floor(seekMs / 1000) * 10_000_000));
     }
     const queryString = streamParams.toString();
@@ -259,9 +271,17 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
         VideoBitrate: String(bitrate || 120000000),
         TranscodingMaxAudioChannels: '2',
         SegmentContainer: hevc ? 'mp4' : 'ts',
-        MinSegments: '2',
+        // One short segment ready = playable. MinSegments 2 × ~6s default segments
+        // gated tune-in behind ~12s of encoding; 1 × 3s cuts that to ~3s.
+        MinSegments: '1',
+        SegmentLength: '3',
         BreakOnNonKeyFrames: 'true',
       });
+      // Start the pre-warm transcode at the live offset — matches the startTimeTicks
+      // on the stream URL so /api/stream reuses the same Jellyfin transcode session.
+      if (seekMs > 0) {
+        warmParams.set('StartTimeTicks', String(Math.floor(seekMs / 1000) * 10_000_000));
+      }
       // Match stream.ts:714-724 — only allow stream copy when auto quality
       if (!hasExplicitQuality) {
         warmParams.set('AllowVideoStreamCopy', 'true');
@@ -279,7 +299,7 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
       // pre-warms the correct transcode (with or without burn-in).
       if (subtitle_index != null && subtitle_tracks[subtitle_index]) {
         warmParams.set('SubtitleStreamIndex', String(subtitle_tracks[subtitle_index].index));
-        warmParams.set('SubtitleMethod', 'Encode');
+        warmParams.set('SubtitleMethod', subtitleMethodFor(subtitle_tracks[subtitle_index].codec));
       }
       const warmUrl = `${baseUrl}/Videos/${program.media_item_id}/master.m3u8?${warmParams}`;
       void fetch(warmUrl, { headers }).catch(() => {});

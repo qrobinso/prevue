@@ -669,10 +669,11 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
 }
 
 // ─── Jellyfin: stream handler ─────────────────────────
-// Note: We do NOT pass StartTimeTicks to Jellyfin because:
-// 1. Jellyfin uses static HLS transcoding (not dynamic/on-demand)
-// 2. StartTimeTicks causes FFmpeg conflicts (exit code 234) when switching videos
-// 3. The seek is handled client-side by hls.js using startPosition
+// StartTimeTicks is passed on the master playlist request (only — it is stripped from
+// child playlist/segment URLs by rewriteM3u8Urls and the proxy) so ffmpeg starts at the
+// live offset instead of position 0. The client still seeks to the offset (Jellyfin does
+// not rebase the stream); the server offset's job is to have those segments ready so the
+// seek resolves immediately instead of forcing a transcode restart (~7-10s tune-in).
 //
 // If Jellyfin logs "FFmpeg exited with code 234" during VAAPI transcoding, that is a
 // Jellyfin/FFmpeg/VAAPI issue (e.g. try disabling "Low power encoding" in Jellyfin
@@ -688,6 +689,9 @@ async function handleJellyfinStream(provider: MediaProvider, itemId: string, req
     ? parseInt(req.query.subtitleStreamIndex as string, 10)
     : undefined;
   const clientSupportsHevc = req.query.hevc === '1';
+  const startTimeTicks = req.query.startTimeTicks
+    ? parseInt(req.query.startTimeTicks as string, 10)
+    : undefined;
 
   const baseUrl = provider.getBaseUrl();
   const headers = provider.getProxyHeaders();
@@ -735,9 +739,15 @@ async function handleJellyfinStream(provider: MediaProvider, itemId: string, req
     VideoBitrate: String(bitrate),
     TranscodingMaxAudioChannels: '2',
     SegmentContainer: segmentContainer,
-    MinSegments: '2',
+    // Must match the pre-warm params in playback.ts — one short segment ready = playable.
+    MinSegments: '1',
+    SegmentLength: '3',
     BreakOnNonKeyFrames: 'true',
   });
+  // Master playlist only — stripped from child/segment URLs (Jellyfin rejects it there).
+  if (startTimeTicks != null && !Number.isNaN(startTimeTicks) && startTimeTicks > 0) {
+    params.set('StartTimeTicks', String(startTimeTicks));
+  }
 
   if (!hasExplicitQuality) {
     // Auto: allow stream copy where possible (same as Jellyfin web direct-stream preference).
@@ -755,8 +765,12 @@ async function handleJellyfinStream(provider: MediaProvider, itemId: string, req
   }
   if (subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex)) {
     params.set('SubtitleStreamIndex', String(subtitleStreamIndex));
-    // Burn subtitles into the video stream during transcoding (works with all formats)
-    params.set('SubtitleMethod', 'Encode');
+    // Text subtitles are delivered as HLS text tracks (subtitleMethod=Hls from
+    // /api/playback) so video stream copy is preserved — burn-in (Encode) forces a
+    // full re-encode and is reserved for image codecs (PGS/VobSub/...). Direct calls
+    // without the param keep the safe burn-in default.
+    const subtitleMethod = req.query.subtitleMethod === 'Hls' ? 'Hls' : 'Encode';
+    params.set('SubtitleMethod', subtitleMethod);
   }
 
   const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;

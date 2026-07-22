@@ -19,6 +19,8 @@ export class JellyfinClient extends AbstractMediaProvider {
   private deviceId: string;
   private userId: string | null = null;
   private currentToken: string | null = null;
+  private syncInFlight: Promise<MediaItem[]> | null = null;
+  private syncAbort: AbortController | null = null;
 
   constructor(db: Database.Database) {
     super(db);
@@ -71,11 +73,22 @@ export class JellyfinClient extends AbstractMediaProvider {
     return this.api;
   }
 
-  // Reset API when server changes
+  // Reset API when server changes — also stops any in-flight sync, since its
+  // requests belong to the old connection.
   resetApi(): void {
+    this.cancelSync();
     this.api = null;
     this.userId = null;
     this.currentToken = null;
+  }
+
+  // Abort an in-flight library sync (server disconnected/switched). The cancelled
+  // sync resolves promptly with [] and does not touch the library caches.
+  cancelSync(): void {
+    if (this.syncAbort && !this.syncAbort.signal.aborted) {
+      console.log('[Jellyfin] Cancelling in-flight library sync');
+      this.syncAbort.abort();
+    }
   }
 
   // Authenticate with username/password and get access token
@@ -146,6 +159,23 @@ export class JellyfinClient extends AbstractMediaProvider {
   // ─── Library ──────────────────────────────────────────
 
   async syncLibrary(onProgress?: (message: string) => void): Promise<MediaItem[]> {
+    // Dedupe concurrent syncs: boot, routes, and retries can all trigger a sync;
+    // stacking whole-library fetches multiplies load on Jellyfin and looks like a stall.
+    // A cancelled sync is never reused — a fresh one starts even if it hasn't settled yet.
+    if (this.syncInFlight && this.syncAbort && !this.syncAbort.signal.aborted) {
+      console.log('[Jellyfin] Sync already in progress — reusing in-flight sync');
+      return this.syncInFlight;
+    }
+    const controller = new AbortController();
+    this.syncAbort = controller;
+    const sync = this.performSync(controller.signal, onProgress).finally(() => {
+      if (this.syncInFlight === sync) this.syncInFlight = null;
+    });
+    this.syncInFlight = sync;
+    return sync;
+  }
+
+  private async performSync(signal: AbortSignal, onProgress?: (message: string) => void): Promise<MediaItem[]> {
     const server = this.getActiveServer();
     if (!server) {
       console.log('[Jellyfin] No active server to sync');
@@ -157,9 +187,16 @@ export class JellyfinClient extends AbstractMediaProvider {
     // Fetch movies and episodes in parallel
     onProgress?.('Fetching movies and episodes...');
     const [movies, episodes] = await Promise.all([
-      this.fetchItems('Movie', onProgress),
-      this.fetchItems('Episode', onProgress),
+      this.fetchItems('Movie', onProgress, signal),
+      this.fetchItems('Episode', onProgress, signal),
     ]);
+
+    // Cancelled mid-sync: return without touching the in-memory or DB caches —
+    // partial data must not replace a complete previous sync.
+    if (signal.aborted) {
+      console.log('[Jellyfin] Library sync cancelled — discarding partial results');
+      return [];
+    }
 
     const allItems = [...movies, ...episodes];
 
@@ -193,81 +230,28 @@ export class JellyfinClient extends AbstractMediaProvider {
     return allItems as MediaItem[];
   }
 
-  private async fetchItems(itemType: string, onProgress?: (message: string) => void): Promise<BaseItemDto[]> {
-    const items: BaseItemDto[] = [];
-    let startIndex = 0;
-    const limit = 7500;
+  private async fetchItems(
+    itemType: string,
+    onProgress?: (message: string) => void,
+    syncSignal?: AbortSignal
+  ): Promise<BaseItemDto[]> {
+    const PAGE_SIZE = 2500;
+    const CONCURRENCY = 4;
+    const PAGE_TIMEOUT_MS = 120_000;
     const api = this.getApi();
     const itemsApi = getItemsApi(api);
     const userId = this.getUserId();
-    let totalCount = 0;
-    let pageCount = 0;
+    // Every request aborts on its own timeout OR when the whole sync is cancelled.
+    const requestSignal = (timeoutMs: number): AbortSignal =>
+      syncSignal
+        ? AbortSignal.any([syncSignal, AbortSignal.timeout(timeoutMs)])
+        : AbortSignal.timeout(timeoutMs);
 
     console.log(`[Jellyfin] Starting to fetch ${itemType}s...`);
 
-    // Try a single full fetch first. If the server still paginates, fall back to batched requests.
-    try {
-      console.log(`[Jellyfin] Attempting single-request fetch for ${itemType}s...`);
-      const startedAt = Date.now();
-      const heartbeat = setInterval(() => {
-        const elapsed = Math.round((Date.now() - startedAt) / 1000);
-        console.log(`[Jellyfin] ${itemType}s single-request still in flight after ${elapsed}s — Jellyfin hasn't responded yet`);
-      }, 15_000);
-      let firstResponse;
-      try {
-        firstResponse = await itemsApi.getItems({
-          userId,
-          includeItemTypes: [itemType as 'Movie' | 'Episode'],
-          recursive: true,
-          fields: [
-            'Genres',
-            'Overview',
-            'Studios',
-            'DateCreated',
-            'Tags',
-            'People',
-            'MediaSources',
-          ],
-          enableUserData: true,
-          enableImages: true,
-          sortBy: ['SortName'],
-          sortOrder: ['Ascending'],
-        });
-      } finally {
-        clearInterval(heartbeat);
-      }
-
-      const firstData = firstResponse.data;
-      if (firstData.Items) {
-        items.push(...firstData.Items);
-      }
-      totalCount = firstData.TotalRecordCount || items.length;
-
-      console.log(`[Jellyfin] Single-request fetch returned ${items.length}/${totalCount} ${itemType}s`);
-      if (totalCount > 0) {
-        onProgress?.(`Fetching ${itemType.toLowerCase()}s: ${items.length}/${totalCount}`);
-      }
-
-      if (!firstData.TotalRecordCount || items.length >= firstData.TotalRecordCount) {
-        console.log(`[Jellyfin] Finished fetching ${itemType}s in single request: ${items.length} total`);
-        return items;
-      }
-
-      // Continue batched fetching from where single-request left off.
-      startIndex = items.length;
-      console.log(`[Jellyfin] Falling back to batched fetch for remaining ${itemType}s (starting at ${startIndex})...`);
-    } catch (err) {
-      console.warn(`[Jellyfin] Single-request fetch failed for ${itemType}s, falling back to batches:`, err);
-      items.length = 0;
-      startIndex = 0;
-      totalCount = 0;
-    }
-
-    while (true) {
-      try {
-        pageCount++;
-        console.log(`[Jellyfin] Fetching ${itemType}s page ${pageCount} (starting at ${startIndex})...`);
-        const response = await itemsApi.getItems({
+    const fetchPage = async (startIndex: number): Promise<{ items: BaseItemDto[]; total: number }> => {
+      const response = await itemsApi.getItems(
+        {
           userId,  // Required for user-specific data (favorites, watch status)
           includeItemTypes: [itemType as 'Movie' | 'Episode'],
           recursive: true,
@@ -283,35 +267,96 @@ export class JellyfinClient extends AbstractMediaProvider {
           enableUserData: true,  // Fetch watch status, favorites, etc.
           enableImages: true,
           startIndex,
-          limit,
+          limit: PAGE_SIZE,
           sortBy: ['SortName'],
           sortOrder: ['Ascending'],
-        });
+        },
+        { signal: requestSignal(PAGE_TIMEOUT_MS) }
+      );
+      return { items: response.data.Items ?? [], total: response.data.TotalRecordCount ?? 0 };
+    };
 
-        const data = response.data;
-        if (data.Items) {
-          items.push(...data.Items);
-          console.log(`[Jellyfin] Received ${data.Items.length} ${itemType}s, total now: ${items.length}`);
-        }
-        
-        totalCount = data.TotalRecordCount || 0;
-        
-        // Report progress
-        if (totalCount > 0) {
-          onProgress?.(`Fetching ${itemType.toLowerCase()}s: ${items.length}/${totalCount}`);
-        }
-
-        if (!data.TotalRecordCount || items.length >= data.TotalRecordCount) {
-          console.log(`[Jellyfin] Finished fetching ${itemType}s: ${items.length} total`);
-          break;
-        }
-        startIndex += limit;
+    // Each page is retried once — timeouts are transient while Jellyfin is under load.
+    // No retry when the sync itself was cancelled.
+    const fetchPageWithRetry = async (startIndex: number) => {
+      try {
+        return await fetchPage(startIndex);
       } catch (err) {
-        console.error(`[Jellyfin] Failed to fetch ${itemType}s at page ${pageCount}:`, err);
-        break;
+        if (syncSignal?.aborted) throw err;
+        console.warn(`[Jellyfin] ${itemType} page at ${startIndex} failed, retrying once:`, (err as Error)?.message);
+        return fetchPage(startIndex);
+      }
+    };
+
+    // Cheap count precheck (limit: 0, no fields) so all pages can be fetched in
+    // parallel. Unbounded whole-library requests with heavy fields (People,
+    // MediaSources, ...) take Jellyfin minutes to serialize and used to stall the sync.
+    let total: number | null = null;
+    try {
+      const countResponse = await itemsApi.getItems(
+        {
+          userId,
+          includeItemTypes: [itemType as 'Movie' | 'Episode'],
+          recursive: true,
+          limit: 0,
+          enableTotalRecordCount: true,
+          enableUserData: false,
+          enableImages: false,
+        },
+        { signal: requestSignal(30_000) }
+      );
+      total = countResponse.data.TotalRecordCount ?? null;
+      console.log(`[Jellyfin] ${itemType} count precheck: ${total ?? 'unknown'}`);
+    } catch (err) {
+      console.warn(`[Jellyfin] ${itemType} count precheck failed (continuing):`, (err as Error)?.message);
+    }
+
+    const pages: BaseItemDto[][] = [];
+    let fetchedCount = 0;
+    if (syncSignal?.aborted) return [];
+
+    // Count unknown (older server): fetch the first page alone to learn the total.
+    if (total == null) {
+      try {
+        const first = await fetchPageWithRetry(0);
+        pages[0] = first.items;
+        fetchedCount = first.items.length;
+        total = first.total || first.items.length;
+      } catch (err) {
+        console.error(`[Jellyfin] First ${itemType} page failed:`, (err as Error)?.message);
+        return [];
       }
     }
 
+    const pageStarts: number[] = [];
+    for (let start = 0; start < total; start += PAGE_SIZE) {
+      if (pages[start / PAGE_SIZE] === undefined) pageStarts.push(start);
+    }
+
+    // Worker pool: wall-clock time becomes (pages / CONCURRENCY) × page time
+    // instead of the sum of all pages. Ordered by slot so sort order is preserved.
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < pageStarts.length && !syncSignal?.aborted) {
+        const start = pageStarts[cursor++];
+        try {
+          const result = await fetchPageWithRetry(start);
+          pages[start / PAGE_SIZE] = result.items;
+          fetchedCount += result.items.length;
+          console.log(`[Jellyfin] Received ${result.items.length} ${itemType}s (${fetchedCount}/${total})`);
+          onProgress?.(`Fetching ${itemType.toLowerCase()}s: ${fetchedCount}/${total}`);
+        } catch (err) {
+          if (!syncSignal?.aborted) {
+            console.error(`[Jellyfin] ${itemType} page at ${start} failed after retry:`, (err as Error)?.message);
+          }
+          pages[start / PAGE_SIZE] = [];
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pageStarts.length) }, () => worker()));
+
+    const items = pages.flat();
+    console.log(`[Jellyfin] Finished fetching ${itemType}s: ${items.length} total`);
     return items;
   }
 
