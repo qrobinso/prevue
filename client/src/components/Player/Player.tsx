@@ -31,7 +31,6 @@ import type { Channel, ScheduleProgram } from '../../types';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../../types';
 import { formatAudioTrackNameFromServer, formatSubtitleTrackNameFromServer, isImageSubtitle } from '../Guide/audioTrackUtils';
 import { safeBgImage, sanitizeImageUrl } from '../../utils/sanitize';
-import { getIconicScenesEnabled } from '../Settings/GeneralSettings';
 import SleepTimerOverlay, { SleepTimerBadge } from './SleepTimerOverlay';
 import type { SleepTimerState, SleepTimerActions } from '../../hooks/useSleepTimer';
 import { formatPlaybackError } from '../../utils/playbackError';
@@ -245,6 +244,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [videoReady, setVideoReady] = useState(hasSharedStream);
   const [loadingArtworkUrl, setLoadingArtworkUrl] = useState<string | null>(null);
   const [videoQualityId, setVideoQualityId] = usePref('video_quality', 'auto');
+  const [iconicScenesEnabled] = usePref('iconic_scenes_enabled', false);
   const currentQuality: QualityPreset =
     QUALITY_PRESETS.find(p => p.id === videoQualityId) ?? QUALITY_PRESETS.find(p => p.id === 'auto')!;
   // Persisted preference (per profile). `subtitleIndexPref` is the user's saved default;
@@ -1703,7 +1703,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         <div className="player-progress">
           <div className="player-progress-bar" ref={progressBarRef} />
           {/* Iconic scene markers */}
-          {getIconicScenesEnabled() && currentProgram.content_type === 'movie' && currentProgram.iconic_scenes?.length ? (() => {
+          {iconicScenesEnabled && currentProgram.content_type === 'movie' && currentProgram.iconic_scenes?.length ? (() => {
             const startMs = new Date(currentProgram.start_time).getTime();
             const endMs = new Date(currentProgram.end_time).getTime();
             const totalMin = (endMs - startMs) / 60000;

@@ -3,7 +3,6 @@ import { getTickerItems, getBatchProgramFacts, getHiddenGems } from '../services
 import type { TickerItem, BatchFactsProgram } from '../services/api';
 import type { ScheduleProgram } from '../types';
 import { usePref } from './usePref';
-import { getHiddenGemsEnabled } from '../components/Settings/GeneralSettings';
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const FACTS_DELAY_MS = 10 * 1000; // wait 10s after schedule loads before requesting facts
@@ -27,6 +26,7 @@ export function useTicker(
   const [showResolution] = usePref('guide_resolution', false);
   const [showHdr] = usePref('guide_hdr', false);
   const [programFactsEnabled] = usePref('program_facts_enabled', false);
+  const [hiddenGemsEnabled] = usePref('hidden_gems_enabled', false);
 
   // Pick the next fact from the pool (round-robin so each fact gets shown)
   const rotateFact = useCallback(() => {
@@ -62,7 +62,7 @@ export function useTicker(
 
   // Fetch hidden gems for ticker display
   useEffect(() => {
-    if (!enabled || !getHiddenGemsEnabled()) {
+    if (!enabled || !hiddenGemsEnabled) {
       setActiveGem(null);
       return;
     }
@@ -91,7 +91,7 @@ export function useTicker(
 
     const timer = setTimeout(fetchGems, FACTS_DELAY_MS);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [enabled, rotateGem]);
+  }, [enabled, rotateGem, hiddenGemsEnabled]);
 
   // Fetch base ticker items (primetime, new, stats) + rotate fact/gem each cycle
   useEffect(() => {

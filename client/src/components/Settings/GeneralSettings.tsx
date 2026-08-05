@@ -19,36 +19,6 @@ function SubModal({ id, onClose, children }: { id: string; onClose: () => void; 
 const APP_VERSION = '1.0.0';
 const GITHUB_URL = 'https://github.com/qrobinso/prevue';
 
-const ICONIC_SCENES_KEY = 'prevue_iconic_scenes_enabled';
-
-export function getIconicScenesEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(ICONIC_SCENES_KEY);
-    if (stored !== null) return stored === 'true';
-  } catch {}
-  return false; // default: off (opt-in AI feature)
-}
-
-export function setIconicScenesEnabled(enabled: boolean): void {
-  localStorage.setItem(ICONIC_SCENES_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('iconicsceneschange', { detail: { enabled } }));
-}
-
-const HIDDEN_GEMS_KEY = 'prevue_hidden_gems_enabled';
-
-export function getHiddenGemsEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(HIDDEN_GEMS_KEY);
-    if (stored !== null) return stored === 'true';
-  } catch {}
-  return false; // default: off (opt-in AI feature)
-}
-
-export function setHiddenGemsEnabled(enabled: boolean): void {
-  localStorage.setItem(HIDDEN_GEMS_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('hiddengemschange', { detail: { enabled } }));
-}
-
 export type GeneralPanel = 'sources' | 'playback' | 'ai' | 'about' | 'system';
 
 interface GeneralSettingsProps {
@@ -75,12 +45,12 @@ export default function GeneralSettings({ onServerAdded, panel }: GeneralSetting
   const [aiConfigSaving, setAiConfigSaving] = useState(false);
   const [aiConfigExpanded, setAiConfigExpanded] = useState(false);
   const [aiError, setAiError] = useState('');
-  const [iconicScenesEnabled, setIconicScenesEnabledState] = useState(getIconicScenesEnabled);
+  const [iconicScenesEnabled, setIconicScenesEnabled] = usePref('iconic_scenes_enabled', false);
   const [iconicLastRefreshed, setIconicLastRefreshed] = useState<string | null>(null);
   const [iconicRefreshing, setIconicRefreshing] = useState(false);
   const [programFactsEnabled, setProgramFactsEnabled] = usePref('program_facts_enabled', false);
   const [catchUpEnabled, setCatchUpEnabled] = usePref('catch_up_enabled', false);
-  const [hiddenGemsEnabled, setHiddenGemsEnabledState] = useState(getHiddenGemsEnabled);
+  const [hiddenGemsEnabled, setHiddenGemsEnabled] = usePref('hidden_gems_enabled', false);
   const [gemsLastRefreshed, setGemsLastRefreshed] = useState<string | null>(null);
   const [gemsRefreshing, setGemsRefreshing] = useState(false);
   const [gemsCount, setGemsCount] = useState(0);
@@ -195,9 +165,7 @@ export default function GeneralSettings({ onServerAdded, panel }: GeneralSetting
   };
 
   const handleIconicScenesToggle = () => {
-    const newValue = !iconicScenesEnabled;
-    setIconicScenesEnabledState(newValue);
-    setIconicScenesEnabled(newValue);
+    setIconicScenesEnabled(!iconicScenesEnabled);
   };
 
   const handleIconicRefresh = async () => {
@@ -221,9 +189,7 @@ export default function GeneralSettings({ onServerAdded, panel }: GeneralSetting
   };
 
   const handleHiddenGemsToggle = () => {
-    const newValue = !hiddenGemsEnabled;
-    setHiddenGemsEnabledState(newValue);
-    setHiddenGemsEnabled(newValue);
+    setHiddenGemsEnabled(!hiddenGemsEnabled);
   };
 
   const handleGemsRefresh = async () => {

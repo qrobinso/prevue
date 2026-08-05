@@ -1,6 +1,5 @@
 import type { ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
-import { getIconicScenesEnabled, getHiddenGemsEnabled } from '../Settings/GeneralSettings';
 
 export type GuideFilterId =
   | 'movies'
@@ -44,13 +43,16 @@ const BASE_FILTER_PRESETS: GuideFilterPreset[] = [
   { id: 'sci-fi', label: 'Sci-Fi & Fantasy' },
 ];
 
-/** Returns available filter presets, conditionally including AI filters. */
-export function getAvailableFilters(): GuideFilterPreset[] {
+/** Returns available filter presets, conditionally including AI filters.
+ *  `iconicScenesEnabled`/`hiddenGemsEnabled` come from the caller's `usePref` values —
+ *  this module is plain (non-hook) code shared outside component context, so it can't
+ *  read the profile's prefs itself. */
+export function getAvailableFilters(iconicScenesEnabled: boolean, hiddenGemsEnabled: boolean): GuideFilterPreset[] {
   const filters = [...BASE_FILTER_PRESETS];
-  if (getIconicScenesEnabled()) {
+  if (iconicScenesEnabled) {
     filters.push({ id: 'iconic-scene', label: 'Iconic Scene Now' });
   }
-  if (getHiddenGemsEnabled()) {
+  if (hiddenGemsEnabled) {
     filters.push({ id: 'hidden-gem', label: 'Hidden Gems' });
   }
   return filters;
@@ -199,10 +201,12 @@ export function applyGuideFilterSimple(
 export function countFilterMatches(
   channels: ChannelWithProgram[],
   scheduleByChannel: Map<number, ScheduleProgram[]>,
+  iconicScenesEnabled: boolean,
+  hiddenGemsEnabled: boolean,
 ): Record<GuideFilterId, number> {
   const counts = {} as Record<GuideFilterId, number>;
   const now = Date.now();
-  for (const preset of getAvailableFilters()) {
+  for (const preset of getAvailableFilters(iconicScenesEnabled, hiddenGemsEnabled)) {
     counts[preset.id] = channels.filter(ch => {
       const schedule = scheduleByChannel.get(ch.id) ?? [];
       const current = findCurrentProgram(schedule, now) ?? ch.current_program;

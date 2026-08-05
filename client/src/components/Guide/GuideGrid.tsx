@@ -4,7 +4,6 @@ import type { ChannelWithProgram } from '../../services/api';
 import type { ClockFormat } from '../Settings/DisplaySettings';
 import { DEFAULT_GUIDE_COLOR_MOVIE, DEFAULT_GUIDE_COLOR_EPISODE } from '../Settings/DisplaySettings';
 import { usePref } from '../../hooks/usePref';
-import { getIconicScenesEnabled, getHiddenGemsEnabled } from '../Settings/GeneralSettings';
 import { isIconicSceneActive } from './guideFilterUtils';
 import {
   type GuideDivider,
@@ -466,34 +465,29 @@ function GuideGrid({
   const [showHdr] = usePref('guide_hdr', false);
   const [showArtwork] = usePref('guide_artwork', false);
   const [showTomato] = usePref('guide_tomato', false);
-  const [showIconicScenes, setShowIconicScenes] = useState(getIconicScenesEnabled);
-  const [showHiddenGems, setShowHiddenGems] = useState(getHiddenGemsEnabled);
+  const [showIconicScenes] = usePref('iconic_scenes_enabled', false);
+  const [showHiddenGems] = usePref('hidden_gems_enabled', false);
   const [clockFormat] = usePref<ClockFormat>('clock_format', '12h');
 
   // Channel colors & dividers from localStorage
   const [channelColorMap, setChannelColorMap] = useState<Record<number, string>>(() => getChannelColors());
   const [guideDividers, setGuideDividers] = useState<GuideDivider[]>(() => getGuideDividers());
 
-  // guide colors, badges, artwork, and clock format now come from the profile's prefs via
-  // usePref, which re-renders this component on change through ProfileContext — no event
-  // listener needed for those. Channel colors/dividers still sync via events below (they
-  // remain on the global settings store, not per-profile prefs; see task-15-report.md).
+  // guide colors, badges, artwork, clock format, and iconic-scene/hidden-gem toggles now
+  // come from the profile's prefs via usePref, which re-renders this component on change
+  // through ProfileContext — no event listener needed for those. Channel colors/dividers
+  // still sync via events below (they remain on the global settings store, not per-profile
+  // prefs; see task-15-report.md).
   useEffect(() => {
     const refreshChannelColors = () => setChannelColorMap(getChannelColors());
     const refreshDividers = () => setGuideDividers(getGuideDividers());
-    const refreshIconicScenes = () => setShowIconicScenes(getIconicScenesEnabled());
-    const refreshHiddenGems = () => setShowHiddenGems(getHiddenGemsEnabled());
 
     window.addEventListener('channelcolorschange', refreshChannelColors);
     window.addEventListener('guidedividerschange', refreshDividers);
-    window.addEventListener('iconicsceneschange', refreshIconicScenes);
-    window.addEventListener('hiddengemschange', refreshHiddenGems);
 
     return () => {
       window.removeEventListener('channelcolorschange', refreshChannelColors);
       window.removeEventListener('guidedividerschange', refreshDividers);
-      window.removeEventListener('iconicsceneschange', refreshIconicScenes);
-      window.removeEventListener('hiddengemschange', refreshHiddenGems);
     };
   }, []);
 

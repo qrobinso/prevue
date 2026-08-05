@@ -8,6 +8,7 @@ import {
   type GuideFilterId,
 } from './guideFilterUtils';
 import { useNavLayer, moveFocus } from '../../navigation';
+import { usePref } from '../../hooks/usePref';
 import './Guide.css';
 
 interface GuideFilterProps {
@@ -27,6 +28,9 @@ export default function GuideFilter({
   onClearFilters,
   onClose,
 }: GuideFilterProps) {
+  const [iconicScenesEnabled] = usePref('iconic_scenes_enabled', false);
+  const [hiddenGemsEnabled] = usePref('hidden_gems_enabled', false);
+
   // Refresh counts periodically so numbers update in real time while the dropdown is open
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -35,9 +39,9 @@ export default function GuideFilter({
   }, []);
 
   const counts = useMemo(
-    () => countFilterMatches(channels, scheduleByChannel),
+    () => countFilterMatches(channels, scheduleByChannel, iconicScenesEnabled, hiddenGemsEnabled),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [channels, scheduleByChannel, tick],
+    [channels, scheduleByChannel, tick, iconicScenesEnabled, hiddenGemsEnabled],
   );
 
   const activeSet = useMemo(() => new Set(activeFilters), [activeFilters]);
@@ -94,7 +98,7 @@ export default function GuideFilter({
               Clear All Filters
             </button>
           )}
-          {getAvailableFilters().map((preset) => (
+          {getAvailableFilters(iconicScenesEnabled, hiddenGemsEnabled).map((preset) => (
             <button
               key={preset.id}
               type="button"

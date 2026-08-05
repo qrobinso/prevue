@@ -165,7 +165,8 @@ export default function ChannelSettings() {
       }
       const savedSet = new Set(savedPresets);
       setSelectedPresets(savedSet);
-      // Derive multipliers from saved list when expanded (duplicates present); else use saved/localStorage
+      // Derive multipliers from saved list when expanded (duplicates present); else use the
+      // profile's saved multipliers (presetMultipliers, via usePref)
       const fromServer: Record<string, number> = {};
       for (const id of savedPresets) {
         fromServer[id] = (fromServer[id] ?? 0) + 1;
