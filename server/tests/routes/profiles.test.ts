@@ -21,10 +21,27 @@ describe('profiles API', () => {
     ({ app } = createProfileApp());
   });
 
-  it('returns an empty list initially', async () => {
+  it('self-heals an empty table by seeding a Default profile', async () => {
+    // A Default profile must always exist, so the list is never empty — even on
+    // a brand new install, or a database that somehow lost its profiles.
     const res = await request(app).get('/api/profiles');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].name).toBe('Default');
+    expect(res.body[0].is_kids).toBe(false);
+  });
+
+  it('does not seed a second Default on repeated listing', async () => {
+    await request(app).get('/api/profiles');
+    await request(app).get('/api/profiles');
+    const res = await request(app).get('/api/profiles');
+    expect(res.body).toHaveLength(1);
+  });
+
+  it('does not seed Default when a profile already exists', async () => {
+    await request(app).post('/api/profiles').send({ name: 'Joey' });
+    const res = await request(app).get('/api/profiles');
+    expect(res.body.map((p: { name: string }) => p.name)).toEqual(['Joey']);
   });
 
   it('creates a profile', async () => {

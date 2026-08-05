@@ -10,6 +10,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { NavigationProvider } from './navigation';
 import { NotificationProvider } from './notifications';
 import { ProfileProvider, useProfile } from './contexts/ProfileContext';
+import { useApplyTheme } from './hooks/useApplyTheme';
 import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, getServers, regenerateSchedule, type ChannelWithProgram } from './services/api';
 import { getClientId, getMetricsClientFields } from './services/clientIdentity';
 import { useClientRegistration } from './hooks/useClientRegistration';
@@ -62,6 +63,10 @@ function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const { activeProfile, loading: profileLoading } = useProfile();
+
+  // The colour theme is a per-profile preference, so apply it app-wide here
+  // rather than only while the Settings page is mounted.
+  useApplyTheme();
 
   // Derive active channel from URL
   const channelMatch = location.pathname.match(/^\/channel\/(\d+)$/);

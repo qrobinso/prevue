@@ -26,6 +26,12 @@ function isValidCeiling(maxRating: string): boolean {
 profileRoutes.get('/', (req: Request, res: Response) => {
   try {
     const { db } = req.app.locals;
+    // Self-heal: a Default profile must always exist. Boot seeds one, but this
+    // guarantees the invariant on any path that could leave the table empty
+    // (a database restored from a backup taken before profiles existed, a
+    // hand-edited database, a future reset). Without it the client would show
+    // no profile at all and the nav bar would read "Profile" with no identity.
+    queries.ensureDefaultProfile(db);
     res.json(queries.getAllProfiles(db));
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

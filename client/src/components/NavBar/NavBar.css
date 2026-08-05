@@ -51,10 +51,17 @@
     padding: 6px 10px;
     font-size: 12px;
   }
-  .navbar-pill span {
+  /* Collapse to icons only. The profile avatar is a <span>, not an <svg>, so it
+     must be exempted here or the Profile pill loses its only visible content and
+     collapses to an empty pill. */
+  .navbar-pill span:not(.profile-avatar) {
     display: none;
   }
-  .navbar-pill svg {
+  .navbar-pill svg,
+  .navbar-pill .profile-avatar {
     display: block;
+  }
+  .navbar-pill .profile-avatar {
+    display: inline-flex;
   }
 }

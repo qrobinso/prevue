@@ -726,6 +726,12 @@ export function factoryReset(db: Database.Database): void {
     insertSetting.run('metrics_enabled', JSON.stringify(true));
   });
   txn();
+
+  // Profiles deliberately survive a factory reset — they are user identities,
+  // not configuration. This is a safety net for the invariant that a Default
+  // profile always exists: a no-op today, but it keeps the guarantee intact if
+  // profiles are ever added to the delete list above.
+  ensureDefaultProfile(db);
 }
 
 // ─── Iconic Scenes ───────────────────────────────────────
