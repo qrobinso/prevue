@@ -98,6 +98,7 @@ app.use('/api', authMiddleware);
 
 // Initialize database
 const db = initDatabase();
+queries.ensureDefaultProfile(db);
 
 // Initialize services
 let mediaProvider: MediaProvider = createProvider(db);

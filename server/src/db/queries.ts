@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { ServerConfig, Channel, ChannelParsed, ChannelFilter, ScheduleBlock, ScheduleBlockParsed, IconicScene, HiddenGem } from '../types/index.js';
+import type { ServerConfig, Channel, ChannelParsed, ChannelFilter, ScheduleBlock, ScheduleBlockParsed, IconicScene, HiddenGem, Profile, ProfileParsed } from '../types/index.js';
 
 // ─── Servers ──────────────────────────────────────────────
 
@@ -863,4 +863,112 @@ export function clearAllHiddenGems(db: Database.Database): void {
 export function getHiddenGemsLastRefreshed(db: Database.Database): string | null {
   const row = db.prepare('SELECT MAX(created_at) as last_refreshed FROM hidden_gems').get() as { last_refreshed: string | null } | undefined;
   return row?.last_refreshed ?? null;
+}
+
+// ─── Profiles ─────────────────────────────────────────────
+
+const DEFAULT_AVATAR_COLOR = '#7c5cff';
+
+function parseProfile(row: Profile): ProfileParsed {
+  let prefs: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(row.prefs);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      prefs = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Malformed blob: fall back to empty preferences rather than throwing.
+  }
+  return { ...row, is_kids: row.is_kids === 1, prefs };
+}
+
+export function getAllProfiles(db: Database.Database): ProfileParsed[] {
+  const rows = db
+    .prepare('SELECT * FROM profiles ORDER BY sort_order ASC, id ASC')
+    .all() as Profile[];
+  return rows.map(parseProfile);
+}
+
+export function getProfile(db: Database.Database, id: number): ProfileParsed | undefined {
+  const row = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id) as Profile | undefined;
+  return row ? parseProfile(row) : undefined;
+}
+
+export function countProfiles(db: Database.Database): number {
+  const row = db.prepare('SELECT COUNT(*) as count FROM profiles').get() as { count: number };
+  return row.count;
+}
+
+export function createProfile(
+  db: Database.Database,
+  data: {
+    name: string;
+    avatar_glyph?: string;
+    avatar_color?: string;
+    is_kids?: boolean;
+    max_rating?: string | null;
+  }
+): ProfileParsed {
+  const maxRow = db
+    .prepare('SELECT COALESCE(MAX(sort_order), -1) as max_order FROM profiles')
+    .get() as { max_order: number };
+
+  const result = db
+    .prepare(
+      `INSERT INTO profiles (name, avatar_glyph, avatar_color, is_kids, max_rating, prefs, sort_order)
+       VALUES (?, ?, ?, ?, ?, '{}', ?)`
+    )
+    .run(
+      data.name,
+      data.avatar_glyph ?? '',
+      data.avatar_color ?? DEFAULT_AVATAR_COLOR,
+      data.is_kids ? 1 : 0,
+      data.max_rating ?? null,
+      maxRow.max_order + 1
+    );
+
+  const created = getProfile(db, Number(result.lastInsertRowid));
+  if (!created) throw new Error('Failed to create profile');
+  return created;
+}
+
+export function updateProfile(
+  db: Database.Database,
+  id: number,
+  data: {
+    name?: string;
+    avatar_glyph?: string;
+    avatar_color?: string;
+    is_kids?: boolean;
+    max_rating?: string | null;
+  }
+): ProfileParsed | undefined {
+  const existing = getProfile(db, id);
+  if (!existing) return undefined;
+
+  db.prepare(
+    `UPDATE profiles
+     SET name = ?, avatar_glyph = ?, avatar_color = ?, is_kids = ?, max_rating = ?
+     WHERE id = ?`
+  ).run(
+    data.name ?? existing.name,
+    data.avatar_glyph ?? existing.avatar_glyph,
+    data.avatar_color ?? existing.avatar_color,
+    (data.is_kids ?? existing.is_kids) ? 1 : 0,
+    data.max_rating === undefined ? existing.max_rating : data.max_rating,
+    id
+  );
+
+  return getProfile(db, id);
+}
+
+export function deleteProfile(db: Database.Database, id: number): boolean {
+  const result = db.prepare('DELETE FROM profiles WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+/** Seed a single "Default" profile when none exist. Safe to call on every boot. */
+export function ensureDefaultProfile(db: Database.Database): void {
+  if (countProfiles(db) > 0) return;
+  createProfile(db, { name: 'Default' });
 }
