@@ -36,6 +36,64 @@ Default model: `google/gemini-3-flash-preview` (configurable in Settings).
 
 When enabled in **Settings > General > AI**, Prevue generates trivia facts about currently airing programs.
 
+## Profiles
+
+Prevue supports multiple **profiles** per instance, so a household sharing one server gets
+personal guides instead of one shared set of preferences. Switch profiles from the nav bar's
+**Profile** pill, or manage them at `/profile`.
+
+### What a profile owns
+
+- All display preferences: theme, guide colors, ratings/year/resolution/HDR/artwork toggles,
+  channel count, guide hours, visible channels, preview style, clock format, video quality,
+  video fit
+- Guide filters and guide customization keys (see the caveat below — these currently don't
+  do anything per-profile yet)
+- Sleep timer settings
+- AI feature toggles: Program Facts, Iconic Scenes, Hidden Gems, Catch-Up
+- Last-watched channel / auto-tune state
+- Subtitle and audio track preferences
+- Channel lineup overrides — hide or reorder channels per profile (API only; there is no
+  Settings UI for this yet)
+- Watch history and metrics attribution (`watch_sessions.profile_id`)
+
+### What stays global
+
+- Media servers (Jellyfin/Plex) and library sync
+- Channel definitions, presets, and the generated schedule itself
+- OpenRouter API key and AI service configuration
+- IPTV (M3U/XMLTV) output configuration
+- Aggregate metrics and connected-device tracking
+
+### Kids profiles
+
+A profile can be marked `is_kids` with a `max_rating` ceiling (e.g. `PG`). The ceiling is
+enforced **server-side** in the channel list, schedule, ticker, and auto-tune recommendation
+— not just hidden client-side — so a direct API call or deep link can't bypass it.
+
+It fails closed: content with a missing or unrecognized rating is **blocked**, not allowed
+through. Rating codes with no defined minimum age (`NR`, `Unrated`) count as unknown and are
+blocked too. Unrestricted profiles (`max_rating` unset) are unaffected by any of this.
+
+**Known limitation:** IPTV output (M3U/XMLTV) is **not** filtered by any profile's kids
+ceiling. Those feeds are fetched by URL with no profile context attached, so there's nothing
+to enforce a ceiling against — this is a deliberate scope boundary, not a bug.
+
+### No PINs, no launch-blocking picker
+
+Profiles are for personalization, not access control. There is no PIN or password on a
+profile, and the app never blocks on a profile picker at launch — it auto-tunes straight
+into video, falling back to the first profile if none is otherwise selected. Avatars are a
+monogram on a chosen accent color plus an optional preset glyph; there's no image upload.
+
+### The `guideCustomization` caveat
+
+Guide dividers and custom channel colors (`client/src/utils/guideCustomization.ts`) still
+persist through the **global** `/api/settings` store, not through a profile's `prefs`. The
+one-time prefs migration copies those keys onto each profile's blob, but those copies are
+currently inert — nothing reads them per-profile. Don't assume dividers or channel colors
+are personal; they are still shared across every profile on the instance.
+
 ## Iconic Scene Detection
 
 AI identifies famous movie moments and surfaces them across the UI as they happen. Enable in **Settings > General > AI** with an OpenRouter API key.

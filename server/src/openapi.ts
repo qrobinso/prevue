@@ -14,6 +14,7 @@ export const openApiSpec = {
   tags: [
     { name: 'Auth & Health', description: 'Authentication status and health checks' },
     { name: 'Channels', description: 'Channel CRUD, AI generation, presets, and library search' },
+    { name: 'Profiles', description: 'Multi-user profiles: preferences, kids rating ceiling, and per-profile channel lineup overrides' },
     { name: 'Schedule', description: 'Program schedule queries and regeneration' },
     { name: 'Playback', description: 'Stream info for the current program on a channel' },
     { name: 'Stream', description: 'HLS proxy, playback sessions, progress reporting, and image proxy' },
@@ -42,6 +43,29 @@ export const openApiSpec = {
           ai_prompt: { type: 'string', nullable: true },
           sort_order: { type: 'integer' },
           created_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      Profile: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          name: { type: 'string' },
+          avatar_glyph: { type: 'string' },
+          avatar_color: { type: 'string' },
+          is_kids: { type: 'boolean' },
+          max_rating: { type: 'string', nullable: true },
+          prefs: { type: 'object', additionalProperties: true },
+          sort_order: { type: 'integer' },
+          created_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      ProfileLineupEntry: {
+        type: 'object',
+        required: ['channel_id'],
+        properties: {
+          channel_id: { type: 'integer' },
+          hidden: { type: 'boolean', default: false },
+          sort_order: { type: 'integer', nullable: true },
         },
       },
       ChannelWithProgram: {
@@ -351,6 +375,80 @@ export const openApiSpec = {
           content: { 'application/json': { schema: { type: 'object', properties: { max_channels: { type: 'integer' }, selected_presets: { type: 'array', items: { type: 'string' } } } } } },
         },
         responses: { 200: { description: 'Updated', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' } } } } } } },
+      },
+    },
+
+    // ── Profiles ───────────────────────────────────────
+    '/profiles': {
+      get: {
+        tags: ['Profiles'],
+        summary: 'List profiles',
+        responses: { 200: { description: 'Profile list', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Profile' } } } } } },
+      },
+      post: {
+        tags: ['Profiles'],
+        summary: 'Create profile',
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, avatar_glyph: { type: 'string' }, avatar_color: { type: 'string' }, is_kids: { type: 'boolean' }, max_rating: { type: 'string', nullable: true } } } } },
+        },
+        responses: { 201: { description: 'Created profile', content: { 'application/json': { schema: { $ref: '#/components/schemas/Profile' } } } } },
+      },
+    },
+    '/profiles/{id}': {
+      put: {
+        tags: ['Profiles'],
+        summary: 'Update profile',
+        description: 'Update name, avatar, kids flag, or rating ceiling. Only supplied fields change.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: {
+          content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, avatar_glyph: { type: 'string' }, avatar_color: { type: 'string' }, is_kids: { type: 'boolean' }, max_rating: { type: 'string', nullable: true } } } } },
+        },
+        responses: { 200: { description: 'Updated profile', content: { 'application/json': { schema: { $ref: '#/components/schemas/Profile' } } } } },
+      },
+      delete: {
+        tags: ['Profiles'],
+        summary: 'Delete profile',
+        description: 'Cascades to that profile\'s channel lineup overrides. Returns 400 if this is the last remaining profile.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { 200: { description: 'Deleted', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' } } } } } } },
+      },
+    },
+    '/profiles/{id}/prefs': {
+      get: {
+        tags: ['Profiles'],
+        summary: 'Get profile preferences',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { 200: { description: 'Preference blob', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } } },
+      },
+      put: {
+        tags: ['Profiles'],
+        summary: 'Merge-patch profile preferences',
+        description: 'Supplied keys overwrite, omitted keys are preserved, unrecognized keys pass through unvalidated.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } },
+        },
+        responses: { 200: { description: 'Merged preference blob', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } } },
+      },
+    },
+    '/profiles/{id}/lineup': {
+      get: {
+        tags: ['Profiles'],
+        summary: 'Get profile channel lineup overrides',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { 200: { description: 'Lineup overrides', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/ProfileLineupEntry' } } } } } },
+      },
+      put: {
+        tags: ['Profiles'],
+        summary: 'Replace profile channel lineup overrides',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/ProfileLineupEntry' } } } },
+        },
+        responses: { 200: { description: 'Saved lineup overrides', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/ProfileLineupEntry' } } } } } },
       },
     },
 

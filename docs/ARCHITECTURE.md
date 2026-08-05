@@ -368,6 +368,69 @@ A pre-generated 8-hour chunk:
 }
 ```
 
+### Profile
+
+Stored in DB (`server/src/db/index.ts`):
+```typescript
+{
+  id: number;
+  name: string;
+  avatar_glyph: string;        // preset glyph id; '' renders a monogram
+  avatar_color: string;        // hex, e.g. '#7c5cff'
+  is_kids: number;             // 0/1 in SQLite; boolean on ProfileParsed
+  max_rating: string | null;   // null = unrestricted
+  prefs: string;               // JSON-stringified Record<string, unknown>
+  sort_order: number;
+  created_at: string;
+}
+```
+
+`ProfileChannels` (join table, `profile_id`/`channel_id` composite primary key):
+```typescript
+{
+  profile_id: number;   // FK -> profiles(id) ON DELETE CASCADE
+  channel_id: number;   // FK -> channels(id) ON DELETE CASCADE
+  hidden: number;       // 0/1
+  sort_order: number | null;
+}
+```
+
+Both tables cascade-delete: removing a profile drops its `profile_channels` rows, and
+removing a channel drops any overrides that referenced it. Nothing can be left orphaned.
+
+`watch_sessions` carries a nullable `profile_id INTEGER` column, added via a guarded
+`ALTER TABLE` (checked with `PRAGMA table_info` before running, so it's safe to run against
+an existing DB and a no-op on a fresh one). It's nullable so pre-existing rows stay valid;
+aggregation treats `NULL` as unattributed rather than erroring.
+
+### Active Profile Resolution
+
+Any request that needs to know "who is asking" — `/api/channels`, `/api/schedule`,
+`/api/ticker`, and auto-tune recommendation — resolves an active profile through
+`server/src/middleware/profileResolver.ts`, mounted on all of `/api` in
+`server/src/index.ts`. The chain, in order:
+
+1. `X-Profile-Id` request header
+2. `profile_id` query param
+3. The first profile by `sort_order`
+
+The resolver is deliberately defensive: it never throws, and a missing, malformed, or
+deleted id just falls through to the next option in the chain rather than erroring. This
+matters because the app auto-tunes straight into video on launch and cannot block on
+profile resolution. Downstream route handlers treat an unresolved profile (only possible
+when the `profiles` table is empty, which boot prevents) as unrestricted.
+
+The active profile id itself is device-local, kept in the client's `localStorage`
+(`prevue_active_profile_id`) alongside the existing `prevue_client_id`, so one TV can stay
+on "Family" while a phone stays on "Joey." The client attaches it as the `X-Profile-Id`
+header centrally in `client/src/services/api.ts`, mirroring the existing `X-API-Key`
+pattern.
+
+Kids-profile enforcement (`server/src/utils/ratingCeiling.ts`) rides on top of this same
+resolved profile in the channel, schedule, and ticker routes — it does **not** run in the
+IPTV routes, since M3U/XMLTV feeds are fetched by URL with no request-scoped profile to
+resolve.
+
 ## Performance Profile
 
 ### Metrics (Rough Estimates)
@@ -391,9 +454,12 @@ A pre-generated 8-hour chunk:
 - `tests/utils/`: Utility functions (crypto, time)
 - `tests/routes/api.test.ts`: Endpoint behavior
 
-### No Client Tests
-- Complex UI interactions; manual testing via browser preferred
-- Consider adding Playwright/Cypress if UI complexity grows
+### Client Tests (Vitest + Testing Library + jsdom)
+- `client/src/hooks/usePref.test.tsx` and similar: default-before-fetch, optimistic writes
+- `client/src/contexts/ProfileContext.test.tsx`: profile switching re-renders consumers
+- `client/src/components/NavBar/NavBar.test.tsx`: visible on `/`, `/settings`, `/profile`; hidden on `/channel/:n`
+- `client/src/components/Profile/ProfilePage.test.tsx`: profile management UI
+- Run with `npm run test -w client`; most other UI interactions are still manually tested via browser
 
 ## Future Improvements
 

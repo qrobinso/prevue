@@ -422,6 +422,155 @@ Update channel generation settings.
 
 ---
 
+## Profiles
+
+Every profile owns its own preferences, channel lineup overrides, kids rating ceiling, and
+watch history. Media servers, channel definitions, schedule generation, and IPTV output stay
+global and are shared by every profile — see [FEATURES.md](FEATURES.md#profiles) for the
+full split.
+
+### Active profile resolution
+
+Requests that need to know "who is asking" (channels, schedule, ticker, auto-tune) resolve
+an active profile via, in order:
+
+1. `X-Profile-Id` request header
+2. `profile_id` query param
+3. The first profile by `sort_order`
+
+Resolution never fails — a missing, malformed, or deleted id silently falls through to the
+next option, and the server never 500s because a profile couldn't be resolved. Clients set
+`X-Profile-Id` centrally in `client/src/services/api.ts`, mirroring the `X-API-Key` pattern.
+
+### `GET /api/profiles`
+
+List all profiles, ordered by `sort_order`.
+
+**Response:** Array of `ProfileParsed` objects:
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Default",
+    "avatar_glyph": "",
+    "avatar_color": "#7c5cff",
+    "is_kids": false,
+    "max_rating": null,
+    "prefs": { "color_theme": "dark", "guide_hours": 3 },
+    "sort_order": 0,
+    "created_at": "2026-02-23T00:00:00.000Z"
+  }
+]
+```
+
+### `POST /api/profiles`
+
+Create a profile.
+
+**Body:**
+
+```json
+{
+  "name": "Joey",
+  "avatar_glyph": "star",
+  "avatar_color": "#ff5c8a",
+  "is_kids": true,
+  "max_rating": "PG"
+}
+```
+
+Only `name` is required; the rest fall back to their column defaults (`is_kids` defaults to
+`false`, `max_rating` to `null`/unrestricted).
+
+**Response:** `201` with the created `ProfileParsed` object.
+
+**Errors:** `400` if `name` is missing or empty after trimming.
+
+### `PUT /api/profiles/:id`
+
+Update a profile's name, avatar, kids flag, or rating ceiling. Only supplied fields change.
+
+**Path Params:** `id` — profile ID
+
+**Body:** Same shape as `POST`, all fields optional.
+
+**Response:** Updated `ProfileParsed` object.
+
+**Errors:** `400` invalid id or empty `name`; `404` profile not found.
+
+### `DELETE /api/profiles/:id`
+
+Delete a profile. Cascades to its `profile_channels` overrides and leaves any
+`watch_sessions` rows in place with `profile_id` still pointing at the deleted row (they
+are not scrubbed).
+
+**Path Params:** `id` — profile ID
+
+**Response:** `{ "success": true }`
+
+**Errors:** `400` if this is the last remaining profile — **at least one profile must always
+exist**; `404` profile not found.
+
+### `GET /api/profiles/:id/prefs`
+
+Read a profile's preference blob.
+
+**Path Params:** `id` — profile ID
+
+**Response:** The raw `prefs` object, e.g. `{ "color_theme": "dark", "guide_hours": 3 }`. A
+malformed stored blob is treated as `{}` rather than erroring.
+
+**Errors:** `400` invalid id; `404` profile not found.
+
+### `PUT /api/profiles/:id/prefs`
+
+Merge-patch a profile's preference blob: supplied keys overwrite, omitted keys are
+preserved, and unrecognized keys pass through unvalidated so new client-side preferences
+don't need a server change.
+
+**Path Params:** `id` — profile ID
+
+**Body:** Any JSON object, e.g. `{ "guide_hours": 4, "video_quality": "1080p" }`
+
+**Response:** The full merged `prefs` object.
+
+**Errors:** `400` invalid id or non-object body; `404` profile not found.
+
+### `GET /api/profiles/:id/lineup`
+
+Read a profile's channel lineup overrides (hidden/reordered channels).
+
+**Path Params:** `id` — profile ID
+
+**Response:** Array of `{ channel_id, hidden, sort_order }`. A profile with no overrides
+returns an empty array, and `/api/channels`/`/api/schedule` fall back to the global lineup
+unchanged.
+
+**Errors:** `400` invalid id; `404` profile not found.
+
+### `PUT /api/profiles/:id/lineup`
+
+Replace a profile's channel lineup overrides wholesale.
+
+**Path Params:** `id` — profile ID
+
+**Body:** Array of entries:
+
+```json
+[
+  { "channel_id": 3, "hidden": true },
+  { "channel_id": 5, "hidden": false, "sort_order": 1 }
+]
+```
+
+**Response:** The saved array of overrides.
+
+**Errors:** `400` invalid id, non-array body, or an entry missing an integer `channel_id`;
+`404` profile not found.
+
+---
+
 ## Schedule
 
 ### `GET /api/schedule`

@@ -14,25 +14,27 @@
 ```
 prevue/
 ├── client/                 # React Vite SPA
-│   ├── src/components/    # Guide, Player, Settings, common, AuthGate
+│   ├── src/components/    # Guide, Player, Settings, NavBar, Profile, common, AuthGate
+│   ├── src/contexts/      # ProfileContext (active profile + prefs, consumed via usePref)
 │   ├── src/hooks/         # Custom React hooks
 │   ├── src/navigation/    # Centralized focus/remote-control nav (zones, layers, focus groups)
 │   ├── src/notifications/ # Unified toast / overlay / confirm system
-│   ├── src/services/      # API client, WebSocket, identity
+│   ├── src/services/      # API client, WebSocket, identity, prefs migration
 │   ├── src/types/         # TypeScript interfaces (mirror server)
 │   ├── src/utils/         # Utilities (platform detection, sanitization, etc.)
 │   ├── vite.config.ts     # PWA via vite-plugin-pwa
+│   ├── vitest.config.ts   # Client unit tests (jsdom)
 │   └── tsconfig.json
 ├── server/                # Express backend
 │   ├── src/
 │   │   ├── index.ts              # Express app setup & boot sequence
 │   │   ├── routes/               # /api/channels, /api/playback, /api/schedule, /api/servers,
 │   │   │                         # /api/settings, /api/stream, /api/iptv, /api/metrics,
-│   │   │                         # /api/plex-auth, /api/ticker
+│   │   │                         # /api/plex-auth, /api/ticker, /api/profiles (profiles.ts)
 │   │   ├── services/             # ChannelManager, ScheduleEngine, AIService,
 │   │   │                         # HiddenGemsService, IconicSceneService, MetricsService,
 │   │   │                         # AbstractMediaProvider + JellyfinClient/PlexClient via providerFactory
-│   │   ├── middleware/           # Express middleware (auth, rate limiting)
+│   │   ├── middleware/           # Express middleware (auth, rate limiting, profileResolver)
 │   │   ├── db/                   # Database initialization & queries
 │   │   ├── websocket/            # WebSocket event handling
 │   │   ├── types/index.ts        # Shared TypeScript types
@@ -214,8 +216,12 @@ See `.env.example` for full list:
 - No integration tests (avoid hitting real Jellyfin)
 
 ### Client Tests
-- None currently (consider adding if feature complexity grows)
-- Manual testing via browser during development
+- Vitest + Testing Library + jsdom, configured in `client/vitest.config.ts`
+- `npm run test -w client` (one-shot), `npm run test:watch -w client` (watch mode)
+- Covers the riskiest client-side logic: `usePref` (default-before-fetch, optimistic writes,
+  debounced saves), `ProfileContext` (profile switching), `NavBar` (route-based visibility),
+  `ProfilePage`, the one-time prefs migration, and `DisplaySettings`
+- Most other UI interactions are still manually tested via browser
 
 ## Common Gotchas
 
@@ -224,6 +230,7 @@ See `.env.example` for full list:
 3. **seedrandom Determinism**: Same seed always produces same schedule; used for reproducibility
 4. **Jellyfin Item Types**: Only 'Movie' and 'Episode' are supported; others are skipped
 5. **Kids Rating Separation**: Don't mix kids and adult content on same channel (enforced in ScheduleEngine)
+6. **Per-Profile Prefs Live in the DB**: Per-profile preferences live in the `profiles.prefs` JSON blob and are read/written via `usePref`, never `localStorage`. Only client identity (`prevue_client_id`), the active profile id (`prevue_active_profile_id`), the migration guard flag (`prevue_prefs_migrated`), and volume/mute stay in `localStorage`.
 
 ## AI Features (Optional, OpenRouter)
 
