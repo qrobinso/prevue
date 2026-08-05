@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import NavBar from './NavBar';
 import { ProfileProvider } from '../../contexts/ProfileContext';
+import { NavigationProvider } from '../../navigation';
 import * as api from '../../services/api';
 import type { Profile } from '../../types';
 
@@ -21,9 +23,11 @@ const JOEY: Profile = {
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <ProfileProvider>
-        <NavBar />
-      </ProfileProvider>
+      <NavigationProvider>
+        <ProfileProvider>
+          <NavBar />
+        </ProfileProvider>
+      </NavigationProvider>
     </MemoryRouter>
   );
 }
@@ -67,5 +71,16 @@ describe('NavBar', () => {
     renderAt('/settings');
     const settingsLink = await screen.findByRole('link', { name: /settings/i });
     expect(settingsLink).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('moves focus between pills with arrow keys', async () => {
+    const user = userEvent.setup();
+    renderAt('/');
+    const profileLink = await screen.findByRole('link', { name: /joey/i });
+    profileLink.focus();
+    expect(document.activeElement).toBe(profileLink);
+
+    await user.keyboard('{ArrowRight}');
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: /guide/i }));
   });
 });

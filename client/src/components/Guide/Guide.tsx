@@ -644,6 +644,7 @@ export default function Guide({
     },
     getAdjacentZone: (dir) => {
       if (dir === 'down') return 'guide-grid';
+      if (dir === 'up') return 'navbar';
       return null;
     },
   });
