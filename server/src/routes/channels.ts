@@ -116,8 +116,13 @@ channelRoutes.get('/recommend', (req: Request, res: Response) => {
 channelRoutes.get('/', (req: Request, res: Response) => {
   try {
     const { db, scheduleEngine } = req.app.locals;
-    const channels = queries.getAllChannels(db);
+    const allChannels = queries.getAllChannels(db);
     const scheduleMeta = queries.getScheduleMetaForAllChannels(db);
+
+    const profile = req.activeProfile;
+    const channels = profile
+      ? queries.applyLineup(allChannels, queries.getProfileLineup(db, profile.id))
+      : allChannels;
 
     const result = channels.map(ch => {
       const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(ch.id);

@@ -993,3 +993,80 @@ export function patchProfilePrefs(
   db.prepare('UPDATE profiles SET prefs = ? WHERE id = ?').run(JSON.stringify(merged), id);
   return merged;
 }
+
+// ─── Profile channel lineup overrides ────────────────────────
+
+export interface LineupOverride {
+  channel_id: number;
+  hidden: boolean;
+  sort_order: number | null;
+}
+
+interface LineupRow {
+  channel_id: number;
+  hidden: number;
+  sort_order: number | null;
+}
+
+export function getProfileLineup(db: Database.Database, profileId: number): LineupOverride[] {
+  const rows = db
+    .prepare(
+      `SELECT channel_id, hidden, sort_order
+       FROM profile_channels
+       WHERE profile_id = ?
+       ORDER BY sort_order IS NULL, sort_order ASC, channel_id ASC`
+    )
+    .all(profileId) as LineupRow[];
+
+  return rows.map(r => ({
+    channel_id: r.channel_id,
+    hidden: r.hidden === 1,
+    sort_order: r.sort_order,
+  }));
+}
+
+/** Replace every lineup override for a profile in a single transaction. */
+export function setProfileLineup(
+  db: Database.Database,
+  profileId: number,
+  entries: LineupOverride[]
+): LineupOverride[] {
+  const clear = db.prepare('DELETE FROM profile_channels WHERE profile_id = ?');
+  const insert = db.prepare(
+    `INSERT INTO profile_channels (profile_id, channel_id, hidden, sort_order)
+     VALUES (?, ?, ?, ?)`
+  );
+
+  db.transaction(() => {
+    clear.run(profileId);
+    for (const entry of entries) {
+      insert.run(profileId, entry.channel_id, entry.hidden ? 1 : 0, entry.sort_order);
+    }
+  })();
+
+  return getProfileLineup(db, profileId);
+}
+
+/**
+ * Apply a profile's overrides to the global channel list: drop hidden channels,
+ * then order overridden channels first by their override sort_order, with the
+ * remainder following in their global order.
+ */
+export function applyLineup<T extends { id: number; sort_order: number }>(
+  channels: T[],
+  overrides: LineupOverride[]
+): T[] {
+  if (overrides.length === 0) return channels;
+
+  const byChannel = new Map(overrides.map(o => [o.channel_id, o]));
+  const visible = channels.filter(c => !byChannel.get(c.id)?.hidden);
+
+  return [...visible].sort((a, b) => {
+    const aOrder = byChannel.get(a.id)?.sort_order;
+    const bOrder = byChannel.get(b.id)?.sort_order;
+    if (aOrder != null && bOrder != null) return aOrder - bOrder;
+    if (aOrder != null) return -1;
+    if (bOrder != null) return 1;
+    return a.sort_order - b.sort_order;
+  });
+}

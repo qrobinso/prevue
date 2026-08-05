@@ -158,3 +158,67 @@ profileRoutes.put('/:id/prefs', (req: Request, res: Response) => {
     res.status(500).json({ error: (err as Error).message });
   }
 });
+
+// GET /api/profiles/:id/lineup - Read a profile's channel lineup overrides
+profileRoutes.get('/:id/lineup', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: 'Invalid profile id' });
+      return;
+    }
+    if (!queries.getProfile(db, id)) {
+      res.status(404).json({ error: 'Profile not found' });
+      return;
+    }
+
+    res.json(queries.getProfileLineup(db, id));
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PUT /api/profiles/:id/lineup - Replace a profile's channel lineup overrides
+profileRoutes.put('/:id/lineup', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: 'Invalid profile id' });
+      return;
+    }
+    if (!queries.getProfile(db, id)) {
+      res.status(404).json({ error: 'Profile not found' });
+      return;
+    }
+
+    const body: unknown = req.body;
+    if (!Array.isArray(body)) {
+      res.status(400).json({ error: 'Request body must be an array of lineup entries' });
+      return;
+    }
+
+    const entries: queries.LineupOverride[] = [];
+    for (const raw of body) {
+      if (!raw || typeof raw !== 'object') {
+        res.status(400).json({ error: 'Each lineup entry must be an object' });
+        return;
+      }
+      const entry = raw as { channel_id?: unknown; hidden?: unknown; sort_order?: unknown };
+      if (!Number.isInteger(entry.channel_id)) {
+        res.status(400).json({ error: 'Each lineup entry needs an integer channel_id' });
+        return;
+      }
+      entries.push({
+        channel_id: entry.channel_id as number,
+        hidden: entry.hidden === true,
+        sort_order: Number.isInteger(entry.sort_order) ? (entry.sort_order as number) : null,
+      });
+    }
+
+    res.json(queries.setProfileLineup(db, id, entries));
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
