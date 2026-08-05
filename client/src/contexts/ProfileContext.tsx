@@ -64,7 +64,14 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const loadProfile = useCallback(async (profile: Profile) => {
     const gen = ++loadGenRef.current;
     setActiveProfile(profile);
-    setActiveProfileId(profile.id);
+    try {
+      setActiveProfileId(profile.id);
+    } catch (err) {
+      // Persisting the active profile id (e.g. localStorage) can throw in some
+      // environments (Safari private mode quota errors, etc). Don't let that
+      // become an unhandled rejection — the in-memory switch still succeeded.
+      console.error('[Prevue] Failed to persist active profile id:', err);
+    }
     try {
       const loadedPrefs = await apiGetProfilePrefs(profile.id);
       // Discard if a newer load has started since this one was kicked off —
@@ -86,7 +93,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
   const switchProfile = useCallback(async (id: number) => {
     const target = profiles.find(p => p.id === id);
-    if (!target) return;
+    if (!target) throw new Error('Profile not found');
 
     // Flush any pending debounced write for the OUTGOING profile before
     // switching. activeIdRef.current still points at the outgoing profile

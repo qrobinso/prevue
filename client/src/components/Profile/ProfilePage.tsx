@@ -107,8 +107,12 @@ export default function ProfilePage() {
   };
 
   const select = async (profile: Profile) => {
-    await switchProfile(profile.id);
-    navigate('/');
+    try {
+      await switchProfile(profile.id);
+      navigate('/');
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   return (
@@ -164,6 +168,8 @@ export default function ProfilePage() {
             </li>
           ))}
         </ul>
+
+        {error && !(creating || editing) && <p className="profile-form-error">{error}</p>}
 
         {(creating || editing) && (
           <div className="profile-form">
