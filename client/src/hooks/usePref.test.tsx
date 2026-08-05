@@ -21,6 +21,16 @@ function Probe() {
   );
 }
 
+function ArrayProbe() {
+  const [filter] = usePref<string[]>('guide_filter', []);
+  return <span data-testid="value">{JSON.stringify(filter)}</span>;
+}
+
+function ObjectProbe() {
+  const [multipliers] = usePref<Record<string, number>>('preset_multipliers', {});
+  return <span data-testid="value">{JSON.stringify(multipliers)}</span>;
+}
+
 describe('usePref', () => {
   beforeEach(() => {
     vi.spyOn(api, 'getProfiles').mockResolvedValue([JOEY]);
@@ -60,5 +70,43 @@ describe('usePref', () => {
 
     act(() => { screen.getByText('set').click(); });
     expect(screen.getByTestId('value')).toHaveTextContent('4');
+  });
+
+  it('returns the default when null is stored under an array default', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ guide_filter: null });
+    render(<ProfileProvider><ArrayProbe /></ProfileProvider>);
+    await waitFor(() => expect(screen.getByTestId('value')).toHaveTextContent('[]'));
+  });
+
+  it('returns the default when null is stored under an object default', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ preset_multipliers: null });
+    render(<ProfileProvider><ObjectProbe /></ProfileProvider>);
+    await waitFor(() => expect(screen.getByTestId('value')).toHaveTextContent('{}'));
+  });
+
+  it('returns the default when an object is stored under an array default', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ guide_filter: { foo: 1 } });
+    render(<ProfileProvider><ArrayProbe /></ProfileProvider>);
+    await waitFor(() => expect(screen.getByTestId('value')).toHaveTextContent('[]'));
+  });
+
+  it('returns the default when an array is stored under an object default', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ preset_multipliers: ['a', 'b'] });
+    render(<ProfileProvider><ObjectProbe /></ProfileProvider>);
+    await waitFor(() => expect(screen.getByTestId('value')).toHaveTextContent('{}'));
+  });
+
+  it('returns a correct array value as-is', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ guide_filter: ['action', 'comedy'] });
+    render(<ProfileProvider><ArrayProbe /></ProfileProvider>);
+    await waitFor(() =>
+      expect(screen.getByTestId('value')).toHaveTextContent('["action","comedy"]')
+    );
+  });
+
+  it('returns a correct object value as-is', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ preset_multipliers: { horror: 2 } });
+    render(<ProfileProvider><ObjectProbe /></ProfileProvider>);
+    await waitFor(() => expect(screen.getByTestId('value')).toHaveTextContent('{"horror":2}'));
   });
 });
