@@ -17,6 +17,7 @@ import { playbackRoutes } from './routes/playback.js';
 import { settingsRoutes } from './routes/settings.js';
 import { serverRoutes } from './routes/servers.js';
 import { metricsRoutes } from './routes/metrics.js';
+import { profileRoutes } from './routes/profiles.js';
 import { createProvider } from './services/providerFactory.js';
 import type { MediaProvider } from './services/MediaProvider.js';
 import { ScheduleEngine } from './services/ScheduleEngine.js';
@@ -178,6 +179,7 @@ app.use('/api/playback', playbackRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/servers', serverRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.use('/api/profiles', profileRoutes);
 
 import { tickerRoutes } from './routes/ticker.js';
 app.use('/api/ticker', tickerRoutes);
