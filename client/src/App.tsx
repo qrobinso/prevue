@@ -9,7 +9,7 @@ import ProfilePage from './components/Profile/ProfilePage';
 import { useWebSocket } from './hooks/useWebSocket';
 import { NavigationProvider } from './navigation';
 import { NotificationProvider } from './notifications';
-import { ProfileProvider } from './contexts/ProfileContext';
+import { ProfileProvider, useProfile } from './contexts/ProfileContext';
 import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, getServers, regenerateSchedule, type ChannelWithProgram } from './services/api';
 import { getClientId, getMetricsClientFields } from './services/clientIdentity';
 import { useClientRegistration } from './hooks/useClientRegistration';
@@ -61,6 +61,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { activeProfile, loading: profileLoading } = useProfile();
 
   // Derive active channel from URL
   const channelMatch = location.pathname.match(/^\/channel\/(\d+)$/);
@@ -138,6 +139,23 @@ function AppContent() {
       })
       .catch(() => {});
   }, []);
+
+  // Refetch channels when the active profile changes (lineup/ceiling differ per
+  // profile) — otherwise the previous profile's channel list lingers until a
+  // WebSocket event or reload. Skip the run that merely observes the initial
+  // profile resolution: the mount effect above already fetched once.
+  const channelsProfileIdRef = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (profileLoading) return;
+    const id = activeProfile?.id ?? null;
+    if (channelsProfileIdRef.current === undefined) {
+      channelsProfileIdRef.current = id;
+      return;
+    }
+    if (channelsProfileIdRef.current === id) return;
+    channelsProfileIdRef.current = id;
+    getChannels().then(setChannels).catch(() => {});
+  }, [activeProfile?.id, profileLoading]);
 
   // Auto-tune: skip guide and navigate directly to a channel on mount
   const autoTuneAttemptedRef = useRef(false);

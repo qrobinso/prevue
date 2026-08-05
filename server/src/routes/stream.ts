@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { MediaProvider } from '../services/MediaProvider.js';
 import * as queries from '../db/queries.js';
+import { isRatingWithinCeiling } from '../utils/ratingCeiling.js';
 
 export const streamRoutes = Router();
 
@@ -836,6 +837,21 @@ streamRoutes.get('/stream/:itemId', async (req: Request, res: Response) => {
     if (!VALID_ITEM_ID.test(itemId)) {
       res.status(400).json({ error: 'Invalid item ID format' });
       return;
+    }
+
+    // Enforce the caller's rating ceiling here too — a direct/deep-link request to
+    // /api/stream must not bypass what the guide already hides. The library cache
+    // (provider.getItem) is a synchronous lookup, so this adds no extra round-trip.
+    // Fails closed: if the item isn't in the cache and a ceiling is set, we can't
+    // confirm it's safe, so it's blocked (same fail-closed rule as isRatingWithinCeiling).
+    const ceiling = req.activeProfile?.max_rating ?? null;
+    if (ceiling !== null) {
+      const item = provider.getItem(itemId);
+      const rating = item?.OfficialRating ?? null;
+      if (!isRatingWithinCeiling(rating, ceiling)) {
+        res.status(404).json({ error: 'Item not found' });
+        return;
+      }
     }
 
     if (provider.providerType === 'plex') {

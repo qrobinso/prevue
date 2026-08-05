@@ -152,7 +152,10 @@ Health check.
 
 ### `GET /api/channels`
 
-List all channels with currently airing and next program info.
+List all channels with currently airing and next program info. Applies the caller's active
+profile lineup overrides and `max_rating` ceiling (see [Profiles](#profiles) and
+[FEATURES.md](FEATURES.md#profiles)) — a channel whose current program is above the ceiling
+is dropped from the response.
 
 **Response:** Array of `ChannelWithProgram` objects:
 
@@ -485,7 +488,10 @@ Only `name` is required; the rest fall back to their column defaults (`is_kids` 
 
 **Response:** `201` with the created `ProfileParsed` object.
 
-**Errors:** `400` if `name` is missing or empty after trimming.
+**Errors:** `400` if `name` is missing or empty after trimming, or if `max_rating` is a string
+that isn't a recognized rating code with a defined minimum age (e.g. `"NR"` or `"Unrated"` are
+rejected — they have no minimum age, so a ceiling set to them would block everything). `null`
+is always valid.
 
 ### `PUT /api/profiles/:id`
 
@@ -497,7 +503,8 @@ Update a profile's name, avatar, kids flag, or rating ceiling. Only supplied fie
 
 **Response:** Updated `ProfileParsed` object.
 
-**Errors:** `400` invalid id or empty `name`; `404` profile not found.
+**Errors:** `400` invalid id, empty `name`, or an invalid `max_rating` (same rule as `POST`);
+`404` profile not found.
 
 ### `DELETE /api/profiles/:id`
 
@@ -575,7 +582,13 @@ Replace a profile's channel lineup overrides wholesale.
 
 ### `GET /api/schedule`
 
-Get the full schedule for all channels.
+Get the full schedule for all channels. This is the endpoint the guide actually renders
+from, so it applies the caller's active profile the same way `GET /api/channels` does: the
+profile's channel lineup overrides (hide/reorder) are applied, and any channel whose
+currently-airing program is above the profile's `max_rating` ceiling is dropped from the
+response entirely. Individual future programs above the ceiling are stripped from
+`blocks` rather than dropping the whole channel. A profile with no overrides and no
+ceiling — or no resolvable profile at all — gets the unfiltered global schedule.
 
 **Response:** Keyed by channel ID:
 
@@ -685,6 +698,11 @@ Get streaming info for the current program on a channel. This is the primary end
 - `outro_start_ms` is the media position (ms) where ending credits begin, from the Jellyfin MediaSegments API. `null` if the server doesn't support it.
 - `seek_position_ms` is calculated from the schedule — how far into the media file the current wall-clock time maps to.
 - Applies preferred audio language and subtitle settings from the database if the client doesn't specify them.
+- Re-checks the caller's active profile `max_rating` ceiling against the current program before
+  returning a stream URL — a deep link to a blocked channel gets the same `404` as "no program
+  currently airing" rather than a working stream.
+
+**Errors:** `404` if no program is currently airing, or if the current program is above the caller's active profile ceiling.
 
 ---
 
@@ -695,6 +713,12 @@ Get streaming info for the current program on a channel. This is the primary end
 Get the HLS master playlist for a Jellyfin item. All URLs in the playlist are rewritten to proxy through this server.
 
 **Path Params:** `itemId` — Jellyfin item ID
+
+**Notes:**
+- Re-checks the caller's active profile `max_rating` ceiling against the item's library rating
+  (`provider.getItem(itemId)`) before starting a transcode. Fails closed: if a ceiling is set
+  and the item isn't in the library cache (rating can't be determined), the request is
+  blocked. Returns `404` when blocked.
 
 **Query Params:**
 

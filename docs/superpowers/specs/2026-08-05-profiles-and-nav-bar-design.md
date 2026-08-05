@@ -133,18 +133,24 @@ Routes follow the project's `{ success, data, error }` response pattern, live in
 and unknown keys pass through unvalidated so client-side preferences can be added without
 a server change. A malformed stored blob is treated as `{}` rather than throwing.
 
-`/api/channels` and `/api/schedule` apply the calling profile's lineup overrides and
-rating ceiling **server-side**.
+`/api/channels` and `/api/schedule` (the endpoint the guide actually renders from) apply the
+calling profile's lineup overrides and rating ceiling **server-side**. `/api/playback/:channelId`
+and `/api/stream/:itemId` re-check the ceiling too, so a deep link straight to playback can't
+bypass what the guide already hides.
 
 ## Kids Profiles
 
 A profile with `is_kids = 1` and a `max_rating` is restricted to content at or below that
 rating, compared using the existing ordering in `server/src/data/ratingSystems.ts`.
 
-Filtering is enforced on the server, in the channel, schedule, and IPTV paths. Client-side
-filtering alone would be decoration — a direct link or API call would bypass it. Content
-with an unknown or missing rating is **blocked** for kids profiles: failing closed is the
-correct default for a content ceiling.
+Filtering is enforced on the server, in the channel, schedule, ticker, auto-tune, and
+playback/stream paths. Client-side filtering alone would be decoration — a direct link or API
+call would bypass it. Content with an unknown or missing rating is **blocked** for kids
+profiles: failing closed is the correct default for a content ceiling.
+
+**Known limitation:** IPTV output (M3U/XMLTV) is not filtered by any profile's ceiling — those
+feeds are fetched by URL with no profile context attached, so there is nothing to enforce a
+ceiling against. See [FEATURES.md](../../FEATURES.md#profiles).
 
 Unrestricted profiles (`max_rating IS NULL`) are unaffected by every part of this path.
 
@@ -232,8 +238,9 @@ deliberate departure from the current convention.
 - Prefs: merge-patch semantics; unknown-key passthrough; malformed stored JSON tolerated
 - Lineup: hidden and reordered channels applied to `/api/channels`; a profile with no
   overrides receives the global lineup unchanged
-- Kids: rating ceiling filters channels, schedule programs, and IPTV output; unrestricted
-  profiles unaffected; unknown or missing rating blocked for kids
+- Kids: rating ceiling filters channels, schedule programs, and the playback/stream paths
+  (IPTV output is a known, documented exception); unrestricted profiles unaffected; unknown
+  or missing rating blocked for kids
 - Migration: empty database seeds exactly one "Default"; repeated boots are idempotent
 - `X-Profile-Id`: missing, invalid, and deleted ids fall back to the first profile and
   never return 500

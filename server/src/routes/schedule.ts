@@ -120,13 +120,31 @@ scheduleRoutes.get('/item/:itemId', async (req: Request, res: Response) => {
 // GET /api/schedule - Get full schedule for all channels
 scheduleRoutes.get('/', (req: Request, res: Response) => {
   try {
-    const { db, iconicSceneService, hiddenGemsService } = req.app.locals;
+    const { db, iconicSceneService, hiddenGemsService, scheduleEngine } = req.app.locals;
     const now = new Date().toISOString();
-    const channels = queries.getAllChannels(db);
-    const ceiling = req.activeProfile?.max_rating ?? null;
+    const allChannels = queries.getAllChannels(db);
+
+    // Apply the caller's lineup overrides (hide/reorder), exactly like GET /api/channels —
+    // this is the endpoint the guide actually renders from, so the two must agree.
+    const profile = req.activeProfile;
+    const channels = profile
+      ? queries.applyLineup(allChannels, queries.getProfileLineup(db, profile.id))
+      : allChannels;
+
+    const ceiling = profile?.max_rating ?? null;
 
     const schedule: Record<number, unknown> = {};
     for (const ch of channels) {
+      // Match GET /api/channels: a channel whose current program is above the
+      // ceiling is dropped entirely, not just emptied of that one program.
+      if (ceiling !== null) {
+        const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(ch.id);
+        const currentProgram = current?.program ?? null;
+        if (currentProgram !== null && !isRatingWithinCeiling(currentProgram.rating, ceiling)) {
+          continue;
+        }
+      }
+
       const blocks = queries.getCurrentAndNextBlocks(db, ch.id, now);
       if (iconicSceneService) enrichBlocksWithIconicScenes(blocks, iconicSceneService as IconicSceneService);
       if (hiddenGemsService) enrichBlocksWithHiddenGems(blocks, hiddenGemsService as HiddenGemsService);

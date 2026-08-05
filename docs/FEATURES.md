@@ -68,8 +68,10 @@ personal guides instead of one shared set of preferences. Switch profiles from t
 ### Kids profiles
 
 A profile can be marked `is_kids` with a `max_rating` ceiling (e.g. `PG`). The ceiling is
-enforced **server-side** in the channel list, schedule, ticker, and auto-tune recommendation
-— not just hidden client-side — so a direct API call or deep link can't bypass it.
+enforced **server-side** in the channel list (`/api/channels`), the schedule the guide actually
+renders from (`/api/schedule`), the ticker, the auto-tune recommendation, and on the playback
+path itself — `/api/playback/:channelId` and `/api/stream/:itemId` both re-check the ceiling
+before handing back a stream — so a direct API call or deep link can't bypass it.
 
 It fails closed: content with a missing or unrecognized rating is **blocked**, not allowed
 through. Rating codes with no defined minimum age (`NR`, `Unrated`) count as unknown and are

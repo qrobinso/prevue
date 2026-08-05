@@ -208,7 +208,7 @@ export const openApiSpec = {
       get: {
         tags: ['Channels'],
         summary: 'List all channels',
-        description: 'Returns all channels with their currently airing and next program.',
+        description: 'Returns all channels with their currently airing and next program. Applies the caller\'s active profile lineup overrides and rating ceiling (via X-Profile-Id / profile_id): hidden channels are omitted, and a channel whose current program is above the ceiling is dropped.',
         responses: { 200: { description: 'Channel list', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/ChannelWithProgram' } } } } } },
       },
       post: {
@@ -457,7 +457,7 @@ export const openApiSpec = {
       get: {
         tags: ['Schedule'],
         summary: 'Get full schedule',
-        description: 'Returns the schedule for all channels, keyed by channel ID.',
+        description: 'Returns the schedule for all channels, keyed by channel ID. Applies the caller\'s active profile lineup overrides and rating ceiling (via X-Profile-Id / profile_id), matching GET /channels: hidden channels are omitted, and a channel whose current program is above the ceiling is dropped entirely.',
         responses: { 200: { description: 'Full schedule', content: { 'application/json': { schema: { type: 'object', additionalProperties: { type: 'object', properties: { channel: { $ref: '#/components/schemas/Channel' }, blocks: { type: 'array', items: { $ref: '#/components/schemas/ScheduleBlock' } } } } } } } } },
       },
     },
@@ -502,7 +502,7 @@ export const openApiSpec = {
       get: {
         tags: ['Playback'],
         summary: 'Get streaming info',
-        description: 'Primary endpoint for the player. Returns the HLS stream URL, seek position, current/next program info, audio/subtitle tracks, and outro detection data.',
+        description: 'Primary endpoint for the player. Returns the HLS stream URL, seek position, current/next program info, audio/subtitle tracks, and outro detection data. Re-checks the caller\'s active profile rating ceiling against the current program; returns 404 (same as "no program currently airing") if it is above the ceiling.',
         parameters: [
           { name: 'channelId', in: 'path', required: true, schema: { type: 'integer' } },
           { name: 'bitrate', in: 'query', schema: { type: 'integer' }, description: 'Target video bitrate (bps)' },
@@ -519,7 +519,7 @@ export const openApiSpec = {
       get: {
         tags: ['Stream'],
         summary: 'Get HLS master playlist',
-        description: 'Initiates an HLS stream for a Jellyfin item. All playlist URLs are rewritten to proxy through this server.',
+        description: 'Initiates an HLS stream for a Jellyfin item. All playlist URLs are rewritten to proxy through this server. Re-checks the caller\'s active profile rating ceiling against the item\'s library rating before transcoding; fails closed (404) if a ceiling is set and the rating can\'t be determined.',
         parameters: [
           { name: 'itemId', in: 'path', required: true, schema: { type: 'string' } },
           { name: 'bitrate', in: 'query', schema: { type: 'integer' }, description: 'Max bitrate (default: 120 Mbps)' },

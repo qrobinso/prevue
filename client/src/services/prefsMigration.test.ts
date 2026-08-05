@@ -79,7 +79,7 @@ describe('migrateLocalPrefs', () => {
 
   it('skips malformed values instead of writing garbage', async () => {
     localStorage.setItem('prevue_guide_hours', 'not-a-number');
-    localStorage.setItem('prevue_guide_dividers', '{not valid json');
+    localStorage.setItem('prevue_guide_filter', '{not valid json');
     localStorage.setItem('prevue_color_theme', 'amber');
 
     await migrateLocalPrefs(1);
@@ -87,7 +87,7 @@ describe('migrateLocalPrefs', () => {
     const call = (api.patchProfilePrefs as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
     const patch = call[1] as Record<string, unknown>;
     expect(patch).not.toHaveProperty('guide_hours');
-    expect(patch).not.toHaveProperty('guide_dividers');
+    expect(patch).not.toHaveProperty('guide_filter');
     expect(patch.color_theme).toBe('amber');
   });
 

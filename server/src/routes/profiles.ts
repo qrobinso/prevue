@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
+import { getRatingMinAge } from '../utils/ratingCeiling.js';
 
 export const profileRoutes = Router();
 
@@ -9,6 +10,16 @@ function parseId(raw: string | string[] | undefined): number | null {
   if (typeof raw !== 'string') return null;
   const id = Number(raw);
   return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * A ceiling must be a recognized rating code with a defined minimum age.
+ * A code like "NR" (no minAge) would make isRatingWithinCeiling reject
+ * everything, silently producing an empty guide with no error. `null` (no
+ * ceiling / unrestricted) is always valid and bypasses this check.
+ */
+function isValidCeiling(maxRating: string): boolean {
+  return getRatingMinAge(maxRating) !== null;
 }
 
 // GET /api/profiles - List all profiles
@@ -29,6 +40,11 @@ profileRoutes.post('/', (req: Request, res: Response) => {
 
     if (typeof name !== 'string' || name.trim() === '') {
       res.status(400).json({ error: 'name is required' });
+      return;
+    }
+
+    if (typeof max_rating === 'string' && !isValidCeiling(max_rating)) {
+      res.status(400).json({ error: `Unknown or age-less rating code: ${max_rating}` });
       return;
     }
 
@@ -59,6 +75,11 @@ profileRoutes.put('/:id', (req: Request, res: Response) => {
     const { name, avatar_glyph, avatar_color, is_kids, max_rating } = req.body;
     if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
       res.status(400).json({ error: 'name must be a non-empty string' });
+      return;
+    }
+
+    if (typeof max_rating === 'string' && !isValidCeiling(max_rating)) {
+      res.status(400).json({ error: `Unknown or age-less rating code: ${max_rating}` });
       return;
     }
 

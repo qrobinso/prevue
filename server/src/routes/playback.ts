@@ -4,6 +4,7 @@ import * as queries from '../db/queries.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
 import { activeSessions, trackSession, lastActivityByItemId } from './stream.js';
+import { isRatingWithinCeiling } from '../utils/ratingCeiling.js';
 
 export const playbackRoutes = Router();
 
@@ -87,6 +88,15 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     }
 
     const { program, next, seekMs } = current;
+
+    // Enforce the caller's rating ceiling. A direct/deep-link request to this
+    // channel must not surface a stream URL for content above the profile's
+    // ceiling — the guide already hides it, but this is the actual gate.
+    const ceiling = req.activeProfile?.max_rating ?? null;
+    if (!isRatingWithinCeiling(program.rating, ceiling)) {
+      res.status(404).json({ error: 'No program currently airing' });
+      return;
+    }
 
     if (program.type === 'interstitial') {
       res.json({

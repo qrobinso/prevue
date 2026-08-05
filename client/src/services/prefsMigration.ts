@@ -46,13 +46,10 @@ const MIGRATED_KEYS: readonly { key: string; type: 'string' | 'number' | 'boolea
   { key: 'prevue_sleep_winddown_min', type: 'number' },
   { key: 'prevue_sleep_dim_sec', type: 'number' },
   { key: 'prevue_guide_filter', type: 'json' },
-  { key: 'prevue_guide_dividers', type: 'json' },
-  { key: 'prevue_channel_colors', type: 'json' },
   { key: 'prevue_preset_multipliers', type: 'json' },
   { key: 'prevue_audio_language', type: 'string' },
   { key: 'prevue_auto_tune', type: 'boolean' },
   { key: 'prevue_last_channel_number', type: 'number' },
-  { key: 'prevue_last_channel_color', type: 'string' },
 ];
 
 function parseStored(raw: string, type: 'string' | 'number' | 'boolean' | 'json'): unknown {
