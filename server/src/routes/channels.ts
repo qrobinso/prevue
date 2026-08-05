@@ -7,6 +7,7 @@ import { AIService, DEFAULT_AI_MODEL } from '../services/AIService.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
 import { broadcast } from '../websocket/index.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
+import { isRatingWithinCeiling } from '../utils/ratingCeiling.js';
 
 export const channelRoutes = Router();
 const aiService = new AIService();
@@ -124,17 +125,31 @@ channelRoutes.get('/', (req: Request, res: Response) => {
       ? queries.applyLineup(allChannels, queries.getProfileLineup(db, profile.id))
       : allChannels;
 
-    const result = channels.map(ch => {
-      const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(ch.id);
-      const meta = scheduleMeta.get(ch.id);
-      return {
-        ...ch,
-        current_program: current?.program || null,
-        next_program: current?.next || null,
-        schedule_generated_at: meta?.schedule_generated_at || null,
-        schedule_updated_at: meta?.schedule_updated_at || null,
-      };
-    });
+    const ceiling = profile?.max_rating ?? null;
+
+    const result = channels
+      .map(ch => {
+        const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(ch.id);
+        const meta = scheduleMeta.get(ch.id);
+
+        const currentProgram = current?.program ?? null;
+        const nextProgram = current?.next ?? null;
+        const currentAllowed =
+          currentProgram === null || isRatingWithinCeiling(currentProgram.rating, ceiling);
+        const nextAllowed =
+          nextProgram === null || isRatingWithinCeiling(nextProgram.rating, ceiling);
+
+        return {
+          ...ch,
+          current_program: currentAllowed ? currentProgram : null,
+          next_program: nextAllowed ? nextProgram : null,
+          schedule_generated_at: meta?.schedule_generated_at || null,
+          schedule_updated_at: meta?.schedule_updated_at || null,
+          _blocked: ceiling !== null && !currentAllowed,
+        };
+      })
+      .filter(ch => !ch._blocked)
+      .map(({ _blocked, ...ch }) => ch);
 
     res.json(result);
   } catch (err) {

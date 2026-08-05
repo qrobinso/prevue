@@ -9,6 +9,7 @@ import { AIService } from '../services/AIService.js';
 import type { ScheduleBlockParsed } from '../types/index.js';
 import { broadcast } from '../websocket/index.js';
 import { decrypt } from '../utils/crypto.js';
+import { isRatingWithinCeiling } from '../utils/ratingCeiling.js';
 
 const aiService = new AIService();
 
@@ -40,6 +41,14 @@ function enrichBlocksWithIconicScenes(blocks: ScheduleBlockParsed[], iconicScene
         }
       }
     }
+  }
+}
+
+/** Drop programs above a profile's rating ceiling from every block (in place). */
+function applyCeilingToBlocks(blocks: ScheduleBlockParsed[], ceiling: string | null): void {
+  if (ceiling === null) return;
+  for (const block of blocks) {
+    block.programs = block.programs.filter(p => isRatingWithinCeiling(p.rating, ceiling));
   }
 }
 
@@ -114,12 +123,14 @@ scheduleRoutes.get('/', (req: Request, res: Response) => {
     const { db, iconicSceneService, hiddenGemsService } = req.app.locals;
     const now = new Date().toISOString();
     const channels = queries.getAllChannels(db);
+    const ceiling = req.activeProfile?.max_rating ?? null;
 
     const schedule: Record<number, unknown> = {};
     for (const ch of channels) {
       const blocks = queries.getCurrentAndNextBlocks(db, ch.id, now);
       if (iconicSceneService) enrichBlocksWithIconicScenes(blocks, iconicSceneService as IconicSceneService);
       if (hiddenGemsService) enrichBlocksWithHiddenGems(blocks, hiddenGemsService as HiddenGemsService);
+      applyCeilingToBlocks(blocks, ceiling);
       schedule[ch.id] = {
         channel: ch,
         blocks,
@@ -143,6 +154,7 @@ scheduleRoutes.get('/:channelId', (req: Request, res: Response) => {
     const blocks = queries.getCurrentAndNextBlocks(db, channelId, now);
     if (iconicSceneService) enrichBlocksWithIconicScenes(blocks, iconicSceneService as IconicSceneService);
     if (hiddenGemsService) enrichBlocksWithHiddenGems(blocks, hiddenGemsService as HiddenGemsService);
+    applyCeilingToBlocks(blocks, req.activeProfile?.max_rating ?? null);
     res.json(blocks);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -158,6 +170,12 @@ scheduleRoutes.get('/:channelId/now', (req: Request, res: Response) => {
 
     const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(channelId);
     if (!current) {
+      res.status(404).json({ error: 'No program currently airing' });
+      return;
+    }
+
+    const ceiling = req.activeProfile?.max_rating ?? null;
+    if (!isRatingWithinCeiling(current.program.rating, ceiling)) {
       res.status(404).json({ error: 'No program currently airing' });
       return;
     }
