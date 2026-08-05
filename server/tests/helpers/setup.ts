@@ -16,17 +16,23 @@ export function createTestDb(): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       url TEXT NOT NULL,
-      api_key TEXT NOT NULL,
+      username TEXT NOT NULL DEFAULT '',
+      access_token TEXT,
+      user_id TEXT,
       is_active INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      server_type TEXT NOT NULL DEFAULT 'jellyfin',
+      plex_client_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS channels (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       number INTEGER NOT NULL,
       name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('auto', 'custom')),
+      type TEXT NOT NULL CHECK(type IN ('auto', 'custom', 'preset')),
       genre TEXT,
+      preset_id TEXT,
+      filter TEXT,
       item_ids TEXT NOT NULL DEFAULT '[]',
       ai_prompt TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -58,12 +64,102 @@ export function createTestDb(): Database.Database {
       FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
     );
 
+    -- Metrics: watch sessions
+    CREATE TABLE IF NOT EXISTS watch_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id TEXT NOT NULL,
+      channel_id INTEGER,
+      channel_name TEXT,
+      item_id TEXT,
+      title TEXT,
+      series_name TEXT,
+      content_type TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      ended_at TEXT,
+      duration_seconds REAL DEFAULT 0,
+      user_agent TEXT
+    );
+
+    -- Metrics: watch events (granular log)
+    CREATE TABLE IF NOT EXISTS watch_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      channel_id INTEGER,
+      channel_name TEXT,
+      item_id TEXT,
+      title TEXT,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Metrics: client registry
+    CREATE TABLE IF NOT EXISTS client_registry (
+      client_id TEXT PRIMARY KEY,
+      display_name TEXT,
+      platform TEXT,
+      user_agent TEXT,
+      first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- AI: iconic scene cache per movie
+    CREATE TABLE IF NOT EXISTS iconic_scenes (
+      media_item_id TEXT PRIMARY KEY,
+      scenes TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- AI: program facts cache (movies by media_item_id, series by series:Name)
+    CREATE TABLE IF NOT EXISTS program_facts (
+      fact_key TEXT PRIMARY KEY,
+      facts TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- AI: catch-up summary cache (keyed by movie + 10-min time bucket)
+    CREATE TABLE IF NOT EXISTS catch_up_summaries (
+      media_item_id TEXT NOT NULL,
+      time_bucket INTEGER NOT NULL,
+      summary TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (media_item_id, time_bucket)
+    );
+
+    -- AI: hidden gems (AI-recommended underwatched items)
+    CREATE TABLE IF NOT EXISTS hidden_gems (
+      media_item_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      content_type TEXT,
+      reason TEXT NOT NULL,
+      score INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Indexes
     CREATE INDEX IF NOT EXISTS idx_schedule_channel
       ON schedule_blocks(channel_id, block_start);
+
     CREATE INDEX IF NOT EXISTS idx_channels_number
       ON channels(number);
+
     CREATE INDEX IF NOT EXISTS idx_library_server
       ON library_cache(server_id);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_sessions_client
+      ON watch_sessions(client_id);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_sessions_started
+      ON watch_sessions(started_at);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_sessions_channel
+      ON watch_sessions(channel_id);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_events_created
+      ON watch_events(created_at);
+
+    CREATE INDEX IF NOT EXISTS idx_watch_events_client
+      ON watch_events(client_id);
   `);
 
   // Insert default settings
@@ -73,6 +169,10 @@ export function createTestDb(): Database.Database {
   insertSetting.run('genre_filter', JSON.stringify({ mode: 'allow', genres: [] }));
   insertSetting.run('content_types', JSON.stringify({ movies: true, tv_shows: true }));
   insertSetting.run('schedule_block_hours', JSON.stringify(8));
+  insertSetting.run('schedule_auto_update_enabled', JSON.stringify(true));
+  insertSetting.run('schedule_auto_update_hours', JSON.stringify(4));
+  insertSetting.run('share_playback_progress', JSON.stringify(false));
+  insertSetting.run('metrics_enabled', JSON.stringify(true));
 
   return db;
 }
