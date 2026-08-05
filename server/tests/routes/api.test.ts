@@ -29,6 +29,12 @@ function createApiApp(mockItems: MediaItem[] = []) {
     getItem: (id: string) => itemMap.get(id),
     getItemsByGenre: (genre: string) =>
       mockItems.filter(i => i.Genres?.some(g => g.toLowerCase() === genre.toLowerCase())),
+    getItemsWithGenre: (canonicalGenre: string, alternateNames: string[] = []) => {
+      const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
+      return mockItems.filter(item =>
+        (item.Genres || []).some(g => matchNames.includes(g.toLowerCase()))
+      );
+    },
     getGenres: () => {
       const genres = new Map<string, MediaItem[]>();
       for (const item of mockItems) {
@@ -44,6 +50,8 @@ function createApiApp(mockItems: MediaItem[] = []) {
       item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : 0,
     getBaseUrl: () => 'http://mock:8096',
     getProxyHeaders: () => ({ 'X-Emby-Token': 'mock' }),
+    resetApi: () => {},
+    clearLibrary: () => {},
   } as any;
 
   const scheduleEngine = new ScheduleEngine(db, mockJellyfin);
@@ -141,12 +149,17 @@ describe('API Routes', () => {
       expect(res.body.success).toBe(true);
     });
 
-    it('DELETE /api/channels/:id should reject deleting auto channels', async () => {
+    it('DELETE /api/channels/:id should allow deleting auto channels', async () => {
+      // The route explicitly supports deleting a channel of any type — see the
+      // "Delete a channel (any type: auto, preset, or custom)" comment on the
+      // handler in src/routes/channels.ts, present since the route was introduced.
       const { app, db } = createApiApp();
       const ch = queries.createChannel(db, { name: 'Auto', type: 'auto', item_ids: [] });
 
       const res = await request(app).delete(`/api/channels/${ch.id}`);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(queries.getChannelById(db, ch.id)).toBeUndefined();
     });
 
     it('POST /api/channels/regenerate should regenerate auto channels', async () => {
@@ -213,19 +226,29 @@ describe('API Routes', () => {
     });
 
     it('PUT /api/settings should update settings', async () => {
+      // settings.ts enforces an ALLOWED_SETTINGS_KEYS allowlist ("Reject anything
+      // not in this set"), so arbitrary keys like `theme`/`custom_key` are rejected.
+      // Use real allowed keys instead.
       const { app } = createApiApp();
       const res = await request(app)
         .put('/api/settings')
-        .send({ theme: 'dark', custom_key: 42 });
+        .send({ channel_count: 42, unwatched_only: true });
 
       expect(res.status).toBe(200);
-      expect(res.body.theme).toBe('dark');
-      expect(res.body.custom_key).toBe(42);
+      expect(res.body.channel_count).toBe(42);
+      expect(res.body.unwatched_only).toBe(true);
     });
 
     it('PUT /api/settings should reject non-object body', async () => {
+      // supertest's .send() with a plain string sets Content-Type: text/plain,
+      // which express.json() ignores — req.body ends up as {} (still an object),
+      // not the string. To exercise the "body must be an object" branch we need
+      // to send a JSON-encoded non-object value (e.g. a JSON string literal).
       const { app } = createApiApp();
-      const res = await request(app).put('/api/settings').send('not-object');
+      const res = await request(app)
+        .put('/api/settings')
+        .set('Content-Type', 'application/json')
+        .send('"not-object"');
       expect(res.status).toBe(400);
     });
 
@@ -237,8 +260,11 @@ describe('API Routes', () => {
     });
 
     it('GET /api/settings/:key should return 404 for missing key', async () => {
+      // The route 400s for keys outside ALLOWED_SETTINGS_KEYS, and only 404s for an
+      // allowed key that has no value stored. `channel_count` is allowed but isn't
+      // one of the defaults createTestDb()/production boot pre-populates.
       const { app } = createApiApp();
-      const res = await request(app).get('/api/settings/nonexistent');
+      const res = await request(app).get('/api/settings/channel_count');
       expect(res.status).toBe(404);
     });
   });
@@ -257,19 +283,24 @@ describe('API Routes', () => {
       expect(res.status).toBe(400);
     });
 
-    it('GET /api/servers should mask API keys', async () => {
+    it('GET /api/servers should not expose the access token', async () => {
+      // GET /api/servers (src/routes/servers.ts) no longer returns a masked api_key
+      // field at all — it maps each server to a safe subset of fields and exposes
+      // only a boolean `is_authenticated` flag, never the token itself (masked or not).
       const { app, db } = createApiApp();
-      queries.createServer(db, 'Test', 'http://test:8096', 'my-secret-key-123');
+      queries.createServer(db, 'Test', 'http://test:8096', 'testuser', 'my-secret-token-123', 'user-id');
 
       const res = await request(app).get('/api/servers');
       expect(res.status).toBe(200);
-      expect(res.body[0].api_key).not.toContain('my-secret');
-      expect(res.body[0].api_key).toMatch(/^\*{4}/);
+      expect(res.body[0]).not.toHaveProperty('access_token');
+      expect(res.body[0]).not.toHaveProperty('api_key');
+      expect(JSON.stringify(res.body[0])).not.toContain('my-secret-token-123');
+      expect(res.body[0].is_authenticated).toBe(true);
     });
 
     it('DELETE /api/servers/:id should delete a server', async () => {
       const { app, db } = createApiApp();
-      const server = queries.createServer(db, 'Test', 'http://test:8096', 'key');
+      const server = queries.createServer(db, 'Test', 'http://test:8096', 'testuser', 'token', 'user-id');
 
       const res = await request(app).delete(`/api/servers/${server.id}`);
       expect(res.status).toBe(200);

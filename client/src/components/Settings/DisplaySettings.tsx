@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
 import { getSettings, updateSettings } from '../../services/api';
+import { usePref } from '../../hooks/usePref';
 import './Settings.css';
 
 const PREVIEW_BG_KEY = 'preview_bg';
 
-const VISIBLE_CHANNELS_KEY = 'prevue_visible_channels';
-const CHANNEL_COUNT_KEY = 'prevue_channel_count';
-const GUIDE_HOURS_KEY = 'prevue_guide_hours';
 const CHANNEL_OPTIONS = [3, 5, 7, 10, 15];
 const DEFAULT_VISIBLE_CHANNELS = 5;
 const MIN_CHANNEL_COUNT = 3;
@@ -16,27 +14,8 @@ const DEFAULT_GUIDE_HOURS = 1;
 const MIN_GUIDE_HOURS = 1;
 const MAX_GUIDE_HOURS = 4;
 
-const VIDEO_QUALITY_KEY = 'prevue_video_quality';
-const COLOR_THEME_KEY = 'prevue_color_theme';
-const AUTO_SCROLL_KEY = 'prevue_auto_scroll';
-const AUTO_SCROLL_SPEED_KEY = 'prevue_auto_scroll_speed';
-const GUIDE_COLORS_ENABLED_KEY = 'prevue_guide_colors_enabled';
-const GUIDE_COLOR_MOVIE_KEY = 'prevue_guide_color_movie';
-const GUIDE_COLOR_EPISODE_KEY = 'prevue_guide_color_episode';
-const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
-const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
-const GUIDE_RATINGS_KEY = 'prevue_guide_ratings';
-const GUIDE_YEAR_KEY = 'prevue_guide_year';
-const GUIDE_RESOLUTION_KEY = 'prevue_guide_resolution';
-const GUIDE_HDR_KEY = 'prevue_guide_hdr';
-const GUIDE_ARTWORK_KEY = 'prevue_guide_artwork';
-const GUIDE_TOMATO_KEY = 'prevue_guide_tomato';
-const PREVIEW_STYLE_KEY = 'prevue_preview_style';
-const CLOCK_FORMAT_KEY = 'prevue_clock_format';
-const PROMO_OVERLAY_KEY = 'prevue_promo_overlay';
-const STARTING_SOON_KEY = 'prevue_starting_soon';
-const TICKER_KEY = 'prevue_ticker_enabled';
-const TICKER_SPEED_KEY = 'prevue_ticker_speed';
+export const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
+export const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
 
 export type TickerSpeedId = 'slow' | 'standard' | 'fast';
 
@@ -52,48 +31,14 @@ export const TICKER_SPEED_PRESETS: TickerSpeedPreset[] = [
   { id: 'fast', label: 'Fast', multiplier: 0.5 },
 ];
 
+const DEFAULT_TICKER_SPEED_ID: TickerSpeedId = 'standard';
+
 export type PreviewBgOption = 'theme' | 'black' | 'white';
 export type PreviewStyle = 'modern' | 'classic-left' | 'classic-right';
 export type ClockFormat = '12h' | '24h';
 
-export function getClockFormat(): ClockFormat {
-  try {
-    const stored = localStorage.getItem(CLOCK_FORMAT_KEY);
-    if (stored === '12h' || stored === '24h') return stored;
-  } catch {}
-  return '12h';
-}
-
-export function setClockFormat(format: ClockFormat): void {
-  localStorage.setItem(CLOCK_FORMAT_KEY, format);
-  window.dispatchEvent(new CustomEvent('clockformatchange', { detail: { format } }));
-}
-
-export function getPromoOverlayEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(PROMO_OVERLAY_KEY);
-    if (stored !== null) return stored === 'true';
-  } catch {}
-  return true; // default: enabled
-}
-
-export function setPromoOverlayEnabled(enabled: boolean): void {
-  localStorage.setItem(PROMO_OVERLAY_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('promooverlaychange', { detail: { enabled } }));
-}
-
-export function getStartingSoonEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(STARTING_SOON_KEY);
-    if (stored !== null) return stored === 'true';
-  } catch {}
-  return true; // default: enabled
-}
-
-export function setStartingSoonEnabled(enabled: boolean): void {
-  localStorage.setItem(STARTING_SOON_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('startingsoonchange', { detail: { enabled } }));
-}
+const DEFAULT_CLOCK_FORMAT: ClockFormat = '12h';
+const DEFAULT_PREVIEW_STYLE: PreviewStyle = 'modern';
 
 export function applyPreviewBg(value: PreviewBgOption): void {
   document.documentElement.setAttribute('data-preview-bg', value);
@@ -113,206 +58,14 @@ export const SCROLL_SPEED_PRESETS: ScrollSpeedPreset[] = [
   { id: 'fast', label: 'Fast', seconds: 5, description: '5 seconds per page' },
 ];
 
-const DEFAULT_SCROLL_SPEED = 'normal';
+const DEFAULT_SCROLL_SPEED_ID = 'normal';
 
-export function getAutoScroll(): boolean {
-  try {
-    const stored = localStorage.getItem(AUTO_SCROLL_KEY);
-    if (stored !== null) {
-      return stored === 'true';
-    }
-  } catch {}
-  return false; // Default off
+function findScrollSpeedPreset(id: string): ScrollSpeedPreset {
+  return SCROLL_SPEED_PRESETS.find(p => p.id === id) ?? SCROLL_SPEED_PRESETS.find(p => p.id === DEFAULT_SCROLL_SPEED_ID)!;
 }
 
-export function setAutoScroll(enabled: boolean): void {
-  localStorage.setItem(AUTO_SCROLL_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('autoscrollchange', { detail: { enabled } }));
-}
-
-export function getAutoScrollSpeed(): ScrollSpeedPreset {
-  try {
-    const stored = localStorage.getItem(AUTO_SCROLL_SPEED_KEY);
-    if (stored) {
-      const preset = SCROLL_SPEED_PRESETS.find(p => p.id === stored);
-      if (preset) return preset;
-    }
-  } catch {}
-  return SCROLL_SPEED_PRESETS.find(p => p.id === DEFAULT_SCROLL_SPEED)!;
-}
-
-export function setAutoScrollSpeed(speedId: string): void {
-  localStorage.setItem(AUTO_SCROLL_SPEED_KEY, speedId);
-  window.dispatchEvent(new CustomEvent('autoscrollspeedchange', { detail: { speedId } }));
-}
-
-// Channel ticker helpers
-export function getTickerEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(TICKER_KEY);
-    if (stored !== null) return stored === 'true';
-  } catch {}
-  return true; // Default on
-}
-
-export function setTickerEnabled(enabled: boolean): void {
-  localStorage.setItem(TICKER_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('tickerchange', { detail: { enabled } }));
-}
-
-export function getTickerSpeed(): TickerSpeedPreset {
-  try {
-    const stored = localStorage.getItem(TICKER_SPEED_KEY);
-    if (stored) {
-      const preset = TICKER_SPEED_PRESETS.find(p => p.id === stored);
-      if (preset) return preset;
-    }
-  } catch {}
-  return TICKER_SPEED_PRESETS.find(p => p.id === 'standard')!;
-}
-
-export function setTickerSpeed(speedId: TickerSpeedId): void {
-  localStorage.setItem(TICKER_SPEED_KEY, speedId);
-  window.dispatchEvent(new CustomEvent('tickerspeedchange', { detail: { speedId } }));
-}
-
-// Guide color-coding helpers
-export function getGuideColorsEnabled(): boolean {
-  try {
-    return localStorage.getItem(GUIDE_COLORS_ENABLED_KEY) === 'true';
-  } catch {}
-  return false;
-}
-
-export function setGuideColorsEnabled(enabled: boolean): void {
-  localStorage.setItem(GUIDE_COLORS_ENABLED_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('guidecolorschange'));
-}
-
-export function getGuideColorMovie(): string {
-  try {
-    const stored = localStorage.getItem(GUIDE_COLOR_MOVIE_KEY);
-    if (stored && /^#[0-9a-fA-F]{6}$/.test(stored)) return stored;
-  } catch {}
-  return DEFAULT_GUIDE_COLOR_MOVIE;
-}
-
-export function setGuideColorMovie(color: string): void {
-  localStorage.setItem(GUIDE_COLOR_MOVIE_KEY, color);
-  window.dispatchEvent(new CustomEvent('guidecolorschange'));
-}
-
-export function getGuideColorEpisode(): string {
-  try {
-    const stored = localStorage.getItem(GUIDE_COLOR_EPISODE_KEY);
-    if (stored && /^#[0-9a-fA-F]{6}$/.test(stored)) return stored;
-  } catch {}
-  return DEFAULT_GUIDE_COLOR_EPISODE;
-}
-
-export function setGuideColorEpisode(color: string): void {
-  localStorage.setItem(GUIDE_COLOR_EPISODE_KEY, color);
-  window.dispatchEvent(new CustomEvent('guidecolorschange'));
-}
-
-export function resetGuideColors(): void {
-  localStorage.removeItem(GUIDE_COLOR_MOVIE_KEY);
-  localStorage.removeItem(GUIDE_COLOR_EPISODE_KEY);
-  window.dispatchEvent(new CustomEvent('guidecolorschange'));
-}
-
-// Guide ratings badge helpers
-export function getGuideRatings(): boolean {
-  try {
-    return localStorage.getItem(GUIDE_RATINGS_KEY) === 'true';
-  } catch {}
-  return false;
-}
-
-export function setGuideRatings(enabled: boolean): void {
-  localStorage.setItem(GUIDE_RATINGS_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
-}
-
-// Guide year badge helpers
-export function getGuideYear(): boolean {
-  try {
-    return localStorage.getItem(GUIDE_YEAR_KEY) === 'true';
-  } catch {}
-  return false;
-}
-
-export function setGuideYear(enabled: boolean): void {
-  localStorage.setItem(GUIDE_YEAR_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
-}
-
-// Guide resolution badge helpers
-export function getGuideResolution(): boolean {
-  try {
-    return localStorage.getItem(GUIDE_RESOLUTION_KEY) === 'true';
-  } catch {}
-  return false;
-}
-
-export function setGuideResolution(enabled: boolean): void {
-  localStorage.setItem(GUIDE_RESOLUTION_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
-}
-
-// Guide HDR badge helpers
-export function getGuideHdr(): boolean {
-  try {
-    return localStorage.getItem(GUIDE_HDR_KEY) === 'true';
-  } catch {}
-  return false;
-}
-
-export function setGuideHdr(enabled: boolean): void {
-  localStorage.setItem(GUIDE_HDR_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
-}
-
-// Guide artwork thumbnail helpers
-export function getGuideArtwork(): boolean {
-  try {
-    return localStorage.getItem(GUIDE_ARTWORK_KEY) === 'true';
-  } catch {}
-  return false;
-}
-
-export function setGuideArtwork(enabled: boolean): void {
-  localStorage.setItem(GUIDE_ARTWORK_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('guideartworkchange'));
-}
-
-// Guide tomato rating badge helpers
-export function getGuideTomato(): boolean {
-  try {
-    return localStorage.getItem(GUIDE_TOMATO_KEY) === 'true';
-  } catch {}
-  return false;
-}
-
-export function setGuideTomato(enabled: boolean): void {
-  localStorage.setItem(GUIDE_TOMATO_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('guidebadgeschange'));
-}
-
-// Preview style helpers
-export function getPreviewStyle(): PreviewStyle {
-  try {
-    const stored = localStorage.getItem(PREVIEW_STYLE_KEY);
-    if (stored === 'modern' || stored === 'classic-left' || stored === 'classic-right') return stored;
-    // Migrate legacy 'classic' value to 'classic-right'
-    if (stored === 'classic') return 'classic-right';
-  } catch {}
-  return 'modern';
-}
-
-export function setPreviewStyle(style: PreviewStyle): void {
-  localStorage.setItem(PREVIEW_STYLE_KEY, style);
-  window.dispatchEvent(new CustomEvent('previewstylechange', { detail: { style } }));
+function findTickerSpeedPreset(id: string): TickerSpeedPreset {
+  return TICKER_SPEED_PRESETS.find(p => p.id === id) ?? TICKER_SPEED_PRESETS.find(p => p.id === DEFAULT_TICKER_SPEED_ID)!;
 }
 
 // Color theme presets
@@ -403,26 +156,22 @@ export const THEME_PRESETS: ThemePreset[] = [
 
 const DEFAULT_THEME = 'classic';
 
-export function getColorTheme(): string {
+// Bootstrap the theme attribute before the ProfileProvider has loaded prefs, to avoid a
+// flash of the wrong theme on first paint. This is the one legitimate raw-localStorage
+// read left in this file: it runs at module-eval time, before any component (and
+// therefore before any hook context) exists. DisplaySettings itself re-applies the
+// profile's `color_theme` pref via usePref once the profile has loaded, superseding
+// this guess.
+function getBootstrapColorTheme(): string {
   try {
-    const stored = localStorage.getItem(COLOR_THEME_KEY);
-    if (stored && THEME_PRESETS.some(t => t.id === stored)) {
-      return stored;
-    }
+    const stored = localStorage.getItem('prevue_color_theme');
+    if (stored && THEME_PRESETS.some(t => t.id === stored)) return stored;
   } catch {}
   return DEFAULT_THEME;
 }
 
-export function setColorTheme(themeId: string): void {
-  localStorage.setItem(COLOR_THEME_KEY, themeId);
-  document.documentElement.setAttribute('data-theme', themeId);
-  window.dispatchEvent(new CustomEvent('themechange', { detail: { themeId } }));
-}
-
-// Initialize theme on module load
 if (typeof window !== 'undefined') {
-  const savedTheme = getColorTheme();
-  document.documentElement.setAttribute('data-theme', savedTheme);
+  document.documentElement.setAttribute('data-theme', getBootstrapColorTheme());
 }
 
 // Quality presets with bitrate (in bits per second) and max resolution
@@ -443,67 +192,10 @@ export const QUALITY_PRESETS: QualityPreset[] = [
   { id: '360p', label: '360p', bitrate: 1500000, maxWidth: 640, description: '360p, ~1.5 Mbps' },
 ];
 
-const DEFAULT_QUALITY = 'auto';
+const DEFAULT_QUALITY_ID = 'auto';
 
-export function getVideoQuality(): QualityPreset {
-  try {
-    const stored = localStorage.getItem(VIDEO_QUALITY_KEY);
-    if (stored) {
-      const preset = QUALITY_PRESETS.find(p => p.id === stored);
-      if (preset) return preset;
-    }
-  } catch {}
-  return QUALITY_PRESETS.find(p => p.id === DEFAULT_QUALITY)!;
-}
-
-export function setVideoQuality(qualityId: string): void {
-  localStorage.setItem(VIDEO_QUALITY_KEY, qualityId);
-  // Dispatch a custom event so the Player can react to quality changes
-  window.dispatchEvent(new CustomEvent('qualitychange', { detail: { qualityId } }));
-}
-
-export function getVisibleChannels(): number {
-  try {
-    const stored = localStorage.getItem(VISIBLE_CHANNELS_KEY);
-    if (stored) {
-      const val = parseInt(stored, 10);
-      if (CHANNEL_OPTIONS.includes(val)) return val;
-    }
-  } catch {}
-  return DEFAULT_VISIBLE_CHANNELS;
-}
-
-export function getChannelCount(): number {
-  try {
-    const stored = localStorage.getItem(CHANNEL_COUNT_KEY);
-    if (stored) {
-      const val = parseInt(stored, 10);
-      if (val >= MIN_CHANNEL_COUNT && val <= MAX_CHANNEL_COUNT) return val;
-    }
-  } catch {}
-  return DEFAULT_CHANNEL_COUNT;
-}
-
-export function setChannelCount(count: number): void {
-  localStorage.setItem(CHANNEL_COUNT_KEY, String(count));
-  window.dispatchEvent(new CustomEvent('channelcountchange', { detail: { count } }));
-}
-
-export function getGuideHours(): number {
-  try {
-    const stored = localStorage.getItem(GUIDE_HOURS_KEY);
-    if (stored) {
-      const val = parseInt(stored, 10);
-      if (val >= MIN_GUIDE_HOURS && val <= MAX_GUIDE_HOURS) return val;
-    }
-  } catch {}
-  return DEFAULT_GUIDE_HOURS;
-}
-
-export function setGuideHours(hours: number): void {
-  const clamped = Math.max(MIN_GUIDE_HOURS, Math.min(MAX_GUIDE_HOURS, hours));
-  localStorage.setItem(GUIDE_HOURS_KEY, String(clamped));
-  window.dispatchEvent(new CustomEvent('guidehourschange', { detail: { hours: clamped } }));
+function findQualityPreset(id: string): QualityPreset {
+  return QUALITY_PRESETS.find(p => p.id === id) ?? QUALITY_PRESETS.find(p => p.id === DEFAULT_QUALITY_ID)!;
 }
 
 export type DisplayPanel = 'player' | 'theme' | 'guide' | 'channels';
@@ -514,29 +206,34 @@ interface DisplaySettingsProps {
 
 export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
   const show = (p: DisplayPanel) => !panel || panel === p;
-  const [visibleChannels, setVisibleChannels] = useState(getVisibleChannels);
-  const [channelCount, setChannelCountState] = useState(getChannelCount);
-  const [guideHours, setGuideHoursState] = useState(getGuideHours);
-  const [videoQuality, setVideoQualityState] = useState(getVideoQuality);
-  const [colorTheme, setColorThemeState] = useState(getColorTheme);
+
+  const [visibleChannels, setVisibleChannels] = usePref('visible_channels', DEFAULT_VISIBLE_CHANNELS);
+  const [channelCount, setChannelCount] = usePref('channel_count', DEFAULT_CHANNEL_COUNT);
+  const [guideHours, setGuideHours] = usePref('guide_hours', DEFAULT_GUIDE_HOURS);
+  const [videoQualityId, setVideoQualityId] = usePref('video_quality', DEFAULT_QUALITY_ID);
+  const videoQuality = findQualityPreset(videoQualityId);
+  const [colorTheme, setColorThemeId] = usePref('color_theme', DEFAULT_THEME);
   const [previewBg, setPreviewBgState] = useState<PreviewBgOption>('theme');
-  const [previewStyle, setPreviewStyleState] = useState<PreviewStyle>(getPreviewStyle);
-  const [autoScrollEnabled, setAutoScrollEnabled] = useState(getAutoScroll);
-  const [autoScrollSpeed, setAutoScrollSpeedState] = useState(getAutoScrollSpeed);
-  const [promoOverlay, setPromoOverlay] = useState(getPromoOverlayEnabled);
-  const [startingSoon, setStartingSoon] = useState(getStartingSoonEnabled);
-  const [guideColorsEnabled, setGuideColorsEnabledState] = useState(getGuideColorsEnabled);
-  const [guideColorMovie, setGuideColorMovieState] = useState(getGuideColorMovie);
-  const [guideColorEpisode, setGuideColorEpisodeState] = useState(getGuideColorEpisode);
-  const [guideRatingsEnabled, setGuideRatingsEnabledState] = useState(getGuideRatings);
-  const [guideYearEnabled, setGuideYearEnabledState] = useState(getGuideYear);
-  const [guideResolutionEnabled, setGuideResolutionEnabledState] = useState(getGuideResolution);
-  const [guideHdrEnabled, setGuideHdrEnabledState] = useState(getGuideHdr);
-  const [guideArtworkEnabled, setGuideArtworkEnabledState] = useState(getGuideArtwork);
-  const [guideTomatoEnabled, setGuideTomatoEnabledState] = useState(getGuideTomato);
-  const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
-  const [tickerEnabled, setTickerEnabledState] = useState(getTickerEnabled);
-  const [tickerSpeed, setTickerSpeedState] = useState(getTickerSpeed);
+  const [previewStyle, setPreviewStyle] = usePref<PreviewStyle>('preview_style', DEFAULT_PREVIEW_STYLE);
+  const [autoScrollEnabled, setAutoScrollEnabled] = usePref('auto_scroll', false);
+  const [autoScrollSpeedId, setAutoScrollSpeedId] = usePref('auto_scroll_speed', DEFAULT_SCROLL_SPEED_ID);
+  const autoScrollSpeed = findScrollSpeedPreset(autoScrollSpeedId);
+  const [promoOverlay, setPromoOverlay] = usePref('promo_overlay', true);
+  const [startingSoon, setStartingSoon] = usePref('starting_soon', true);
+  const [guideColorsEnabled, setGuideColorsEnabled] = usePref('guide_colors_enabled', false);
+  const [guideColorMovie, setGuideColorMovie] = usePref('guide_color_movie', DEFAULT_GUIDE_COLOR_MOVIE);
+  const [guideColorEpisode, setGuideColorEpisode] = usePref('guide_color_episode', DEFAULT_GUIDE_COLOR_EPISODE);
+  const [guideRatingsEnabled, setGuideRatingsEnabled] = usePref('guide_ratings', false);
+  const [guideYearEnabled, setGuideYearEnabled] = usePref('guide_year', false);
+  const [guideResolutionEnabled, setGuideResolutionEnabled] = usePref('guide_resolution', false);
+  const [guideHdrEnabled, setGuideHdrEnabled] = usePref('guide_hdr', false);
+  const [guideArtworkEnabled, setGuideArtworkEnabled] = usePref('guide_artwork', false);
+  const [guideTomatoEnabled, setGuideTomatoEnabled] = usePref('guide_tomato', false);
+  const [clockFormat, setClockFormat] = usePref<ClockFormat>('clock_format', DEFAULT_CLOCK_FORMAT);
+  const [tickerEnabled, setTickerEnabled] = usePref('ticker_enabled', true);
+  const [tickerSpeedId, setTickerSpeedId] = usePref('ticker_speed', DEFAULT_TICKER_SPEED_ID);
+  const tickerSpeed = findTickerSpeedPreset(tickerSpeedId);
+
   // Ensure theme is applied on mount
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', colorTheme);
@@ -556,8 +253,8 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
   }, []);
 
   const handleThemeChange = (themeId: string) => {
-    setColorThemeState(themeId);
-    setColorTheme(themeId);
+    setColorThemeId(themeId);
+    document.documentElement.setAttribute('data-theme', themeId);
   };
 
   const handlePreviewBgChange = async (value: PreviewBgOption) => {
@@ -571,7 +268,6 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
   };
 
   const handlePreviewStyleChange = (style: PreviewStyle) => {
-    setPreviewStyleState(style);
     setPreviewStyle(style);
   };
 
@@ -579,116 +275,98 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
   const handleAutoScrollToggle = () => {
     const newValue = !autoScrollEnabled;
     setAutoScrollEnabled(newValue);
-    setAutoScroll(newValue);
   };
 
   const handleTickerToggle = () => {
     const newValue = !tickerEnabled;
-    setTickerEnabledState(newValue);
     setTickerEnabled(newValue);
   };
 
   const handleTickerSpeedChange = (speedId: string) => {
     const preset = TICKER_SPEED_PRESETS.find(p => p.id === speedId);
     if (preset) {
-      setTickerSpeedState(preset);
-      setTickerSpeed(preset.id);
+      setTickerSpeedId(preset.id);
     }
   };
 
   const handleScrollSpeedChange = (speedId: string) => {
     const preset = SCROLL_SPEED_PRESETS.find(p => p.id === speedId);
     if (preset) {
-      setAutoScrollSpeedState(preset);
-      setAutoScrollSpeed(speedId);
+      setAutoScrollSpeedId(speedId);
     }
   };
 
   const handleGuideColorsToggle = () => {
     const newValue = !guideColorsEnabled;
-    setGuideColorsEnabledState(newValue);
     setGuideColorsEnabled(newValue);
   };
 
   const handleGuideColorMovieChange = (color: string) => {
-    setGuideColorMovieState(color);
     setGuideColorMovie(color);
   };
 
   const handleGuideColorEpisodeChange = (color: string) => {
-    setGuideColorEpisodeState(color);
     setGuideColorEpisode(color);
   };
 
   const handleResetGuideColors = () => {
-    setGuideColorMovieState(DEFAULT_GUIDE_COLOR_MOVIE);
-    setGuideColorEpisodeState(DEFAULT_GUIDE_COLOR_EPISODE);
-    resetGuideColors();
+    setGuideColorMovie(DEFAULT_GUIDE_COLOR_MOVIE);
+    setGuideColorEpisode(DEFAULT_GUIDE_COLOR_EPISODE);
   };
 
   const handleGuideRatingsToggle = () => {
     const newValue = !guideRatingsEnabled;
-    setGuideRatingsEnabledState(newValue);
-    setGuideRatings(newValue);
+    setGuideRatingsEnabled(newValue);
   };
 
   const handleGuideYearToggle = () => {
     const newValue = !guideYearEnabled;
-    setGuideYearEnabledState(newValue);
-    setGuideYear(newValue);
+    setGuideYearEnabled(newValue);
   };
 
   const handleGuideResolutionToggle = () => {
     const newValue = !guideResolutionEnabled;
-    setGuideResolutionEnabledState(newValue);
-    setGuideResolution(newValue);
+    setGuideResolutionEnabled(newValue);
   };
 
   const handleGuideHdrToggle = () => {
     const newValue = !guideHdrEnabled;
-    setGuideHdrEnabledState(newValue);
-    setGuideHdr(newValue);
+    setGuideHdrEnabled(newValue);
   };
 
   const handleGuideArtworkToggle = () => {
     const newValue = !guideArtworkEnabled;
-    setGuideArtworkEnabledState(newValue);
-    setGuideArtwork(newValue);
+    setGuideArtworkEnabled(newValue);
   };
 
   const handleGuideTomatoToggle = () => {
     const newValue = !guideTomatoEnabled;
-    setGuideTomatoEnabledState(newValue);
-    setGuideTomato(newValue);
+    setGuideTomatoEnabled(newValue);
   };
 
   const handleClockFormatChange = (format: ClockFormat) => {
-    setClockFormatState(format);
     setClockFormat(format);
   };
 
 
   const handleVisibleChannelsChange = (value: number) => {
     setVisibleChannels(value);
-    localStorage.setItem(VISIBLE_CHANNELS_KEY, String(value));
   };
 
   const handleChannelCountChange = (value: number) => {
     const clamped = Math.max(MIN_CHANNEL_COUNT, Math.min(MAX_CHANNEL_COUNT, value));
-    setChannelCountState(clamped);
     setChannelCount(clamped);
   };
 
   const handleGuideHoursChange = (value: number) => {
-    setGuideHoursState(value);
-    setGuideHours(value);
+    const clamped = Math.max(MIN_GUIDE_HOURS, Math.min(MAX_GUIDE_HOURS, value));
+    setGuideHours(clamped);
   };
 
   const handleQualityChange = (qualityId: string) => {
     const preset = QUALITY_PRESETS.find(p => p.id === qualityId);
     if (preset) {
-      setVideoQualityState(preset);
-      setVideoQuality(qualityId);
+      setVideoQualityId(qualityId);
     }
   };
 
@@ -817,7 +495,7 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
         <p className="settings-field-hint">
           Channels visible at once in the guide grid. Fewer channels means larger rows.
         </p>
-        <div className="settings-channel-count-options">
+        <div className="settings-channel-count-options" role="group" aria-label="Visible channels">
           {CHANNEL_OPTIONS.map((count) => (
             <button
               key={count}
@@ -842,12 +520,14 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
         <p className="settings-field-hint">
           Hours visible on screen at once. Lower values zoom in for more detail.
         </p>
-        <div className="settings-channel-count-options">
+        <div className="settings-channel-count-options" role="group" aria-label="Guide hours">
           {[1, 2, 3, 4].map((hours) => (
             <button
               key={hours}
               className={`settings-channel-count-btn ${guideHours === hours ? 'active' : ''}`}
               onClick={() => handleGuideHoursChange(hours)}
+              aria-label={`Guide hours: ${hours}`}
+              aria-pressed={guideHours === hours}
             >
               {hours}h
             </button>
@@ -860,7 +540,7 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
         <p className="settings-field-hint">
           Display times in 12-hour (AM/PM) or 24-hour format.
         </p>
-        <div className="settings-channel-count-options">
+        <div className="settings-channel-count-options" role="group" aria-label="Clock format">
           {(['12h', '24h'] as const).map((fmt) => (
             <button
               key={fmt}
@@ -1096,7 +776,6 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
               checked={promoOverlay}
               onChange={(e) => {
                 setPromoOverlay(e.target.checked);
-                setPromoOverlayEnabled(e.target.checked);
               }}
             />
             <span className="settings-toggle-slider" />
@@ -1112,7 +791,6 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
               checked={startingSoon}
               onChange={(e) => {
                 setStartingSoon(e.target.checked);
-                setStartingSoonEnabled(e.target.checked);
               }}
             />
             <span className="settings-toggle-slider" />

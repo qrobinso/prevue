@@ -3,6 +3,7 @@ import { getSchedule, type ChannelWithProgram } from '../services/api';
 import type { ScheduleProgram, ScheduleBlock, WSEvent } from '../types';
 import { useWebSocket } from './useWebSocket';
 import { usePageVisibility } from './usePageVisibility';
+import { useProfile } from '../contexts/ProfileContext';
 
 /** Minimum gap between schedule reloads (ms). */
 const RELOAD_DEBOUNCE_MS = 2000;
@@ -22,6 +23,7 @@ export function useSchedule(): ScheduleData {
   const [error, setError] = useState<string | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setInterval>>();
   const pageVisible = usePageVisibility();
+  const { activeProfile, loading: profileLoading } = useProfile();
 
   const hasLoadedOnce = useRef(false);
   const loadingRef = useRef(false);
@@ -127,6 +129,26 @@ export function useSchedule(): ScheduleData {
       if (debouncedTimer.current) clearTimeout(debouncedTimer.current);
     };
   }, [loadData, pageVisible]);
+
+  // Refetch when the active profile changes (lineup/ceiling differ per profile) —
+  // otherwise the previous profile's guide stays on screen until the next 60s tick.
+  // Skip the run that merely observes the initial profile resolution: the mount
+  // effect above already issued that first load.
+  // Wait for the ProfileProvider's own initial resolution to settle before
+  // tracking changes — otherwise the async transition from "no profile yet"
+  // to "resolved profile" on first mount would itself look like a switch.
+  const profileIdRef = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (profileLoading) return;
+    const id = activeProfile?.id ?? null;
+    if (profileIdRef.current === undefined) {
+      profileIdRef.current = id;
+      return;
+    }
+    if (profileIdRef.current === id) return;
+    profileIdRef.current = id;
+    loadData();
+  }, [activeProfile?.id, profileLoading, loadData]);
 
   return { channels, scheduleByChannel, loading, error, refresh: loadData };
 }

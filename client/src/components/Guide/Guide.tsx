@@ -8,10 +8,9 @@ import ChannelSearch from './ChannelSearch';
 import GuideFilterDropdown from './GuideFilter';
 import AIFilterModal from './AIFilterModal';
 import Ticker from './Ticker';
-import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle, getTickerEnabled } from '../Settings/DisplaySettings';
-import type { PreviewStyle } from '../Settings/DisplaySettings';
-import Settings from '../Settings/Settings';
-import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, GearSix, Sparkle, X } from '@phosphor-icons/react';
+import { SCROLL_SPEED_PRESETS, type PreviewStyle, type ScrollSpeedPreset } from '../Settings/DisplaySettings';
+import { usePref } from '../../hooks/usePref';
+import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, Sparkle, X } from '@phosphor-icons/react';
 import { isIOSPWA } from '../../utils/platform';
 import {
   getFullscreenElement,
@@ -20,7 +19,7 @@ import {
   exitFullscreen,
   type FullscreenMode,
 } from '../../utils/fullscreen';
-import { getGuideFilters, setGuideFilters, applyGuideFilter, type GuideFilterId } from './guideFilterUtils';
+import { applyGuideFilter, type GuideFilterId } from './guideFilterUtils';
 import type { Channel, ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
 import { getAIStatus, getAIChannelFilter, type AIFilterChannelInput } from '../../services/api';
@@ -28,37 +27,31 @@ import { useNotifications } from '../../notifications';
 import { requestPlaybackHandoff } from '../../services/playbackHandoff';
 import './Guide.css';
 
+const EMPTY_FILTERS: GuideFilterId[] = [];
+
 interface GuideProps {
   onTune: (channel: Channel, program: ScheduleProgram, opts?: { fromFullscreen?: boolean }) => void;
   onOpenSettings: () => void;
-  settingsOpen?: boolean;
-  onCloseSettings?: () => void;
   streamingPaused?: boolean;
   initialChannelId?: number | null;
   keyboardDisabled?: boolean;
   onFocusedChannelChange?: (channelId: number | null) => void;
   onLastChannel?: () => void;
-  sleepState?: import('../../hooks/useSleepTimer').SleepTimerState;
-  sleepActions?: import('../../hooks/useSleepTimer').SleepTimerActions;
 }
 
 export default function Guide({
   onTune,
   onOpenSettings,
-  settingsOpen = false,
-  onCloseSettings,
   streamingPaused = false,
   initialChannelId,
   keyboardDisabled = false,
   onFocusedChannelChange,
   onLastChannel,
-  sleepState,
-  sleepActions,
 }: GuideProps) {
   const { channels, scheduleByChannel, loading, error, refresh } = useSchedule();
-  const visibleChannels = getVisibleChannels();
-  const [guideHours, setGuideHoursState] = useState(getGuideHours);
-  const [previewStyle, setPreviewStyleState] = useState<PreviewStyle>(getPreviewStyle);
+  const [visibleChannels] = usePref('visible_channels', 5);
+  const [guideHours] = usePref('guide_hours', 1);
+  const [previewStyle] = usePref<PreviewStyle>('preview_style', 'modern');
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0);
   const [focusedProgramIdx, setFocusedProgramIdx] = useState(0);
   const [previewTime, setPreviewTime] = useState(new Date());
@@ -77,18 +70,20 @@ export default function Guide({
   }, [initialChannelId]);
   
   // Ticker state
-  const [tickerEnabled, setTickerEnabledState] = useState(getTickerEnabled);
+  const [tickerEnabled] = usePref('ticker_enabled', true);
 
   // Auto-scroll state
-  const [autoScrollEnabled, setAutoScrollEnabled] = useState(getAutoScroll);
-  const [autoScrollSpeed, setAutoScrollSpeed] = useState(getAutoScrollSpeed);
+  const [autoScrollEnabled] = usePref('auto_scroll', false);
+  const [autoScrollSpeedId] = usePref('auto_scroll_speed', 'normal');
+  const autoScrollSpeed: ScrollSpeedPreset =
+    SCROLL_SPEED_PRESETS.find(p => p.id === autoScrollSpeedId) ?? SCROLL_SPEED_PRESETS.find(p => p.id === 'normal')!;
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const autoScrollPauseTimeoutRef = useRef<number | null>(null);
   const mouseOverGuideRef = useRef(false);
 
   // Guide filter state
   const [filterOpen, setFilterOpen] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<GuideFilterId[]>(getGuideFilters);
+  const [activeFilters, setActiveFilters] = usePref<GuideFilterId[]>('guide_filter', EMPTY_FILTERS);
 
   // AI natural-language filter state (session-only, not persisted)
   interface AIFilterState {
@@ -114,44 +109,11 @@ export default function Guide({
     return () => clearInterval(timer);
   }, []);
 
-  // Listen for auto-scroll and guide hours setting changes
-  useEffect(() => {
-    const handleAutoScrollChange = (e: CustomEvent<{ enabled: boolean }>) => {
-      setAutoScrollEnabled(e.detail.enabled);
-    };
-    const handleSpeedChange = (e: CustomEvent<{ speedId: string }>) => {
-      setAutoScrollSpeed(getAutoScrollSpeed());
-    };
-    const handleGuideHoursChange = (e: CustomEvent<{ hours: number }>) => {
-      setGuideHoursState(e.detail.hours);
-    };
-    const handlePreviewStyleChange = (e: CustomEvent<{ style: PreviewStyle }>) => {
-      setPreviewStyleState(e.detail.style);
-    };
-
-    const handleFilterChange = (e: CustomEvent<{ filterIds: GuideFilterId[] }>) => {
-      setActiveFilters(e.detail.filterIds);
-    };
-    const handleTickerChange = (e: CustomEvent<{ enabled: boolean }>) => {
-      setTickerEnabledState(e.detail.enabled);
-    };
-
-    window.addEventListener('autoscrollchange', handleAutoScrollChange as EventListener);
-    window.addEventListener('autoscrollspeedchange', handleSpeedChange as EventListener);
-    window.addEventListener('guidehourschange', handleGuideHoursChange as EventListener);
-    window.addEventListener('previewstylechange', handlePreviewStyleChange as EventListener);
-    window.addEventListener('guidefilterchange', handleFilterChange as EventListener);
-    window.addEventListener('tickerchange', handleTickerChange as EventListener);
-
-    return () => {
-      window.removeEventListener('autoscrollchange', handleAutoScrollChange as EventListener);
-      window.removeEventListener('autoscrollspeedchange', handleSpeedChange as EventListener);
-      window.removeEventListener('guidehourschange', handleGuideHoursChange as EventListener);
-      window.removeEventListener('previewstylechange', handlePreviewStyleChange as EventListener);
-      window.removeEventListener('guidefilterchange', handleFilterChange as EventListener);
-      window.removeEventListener('tickerchange', handleTickerChange as EventListener);
-    };
-  }, []);
+  // Auto-scroll, guide hours, preview style, ticker, and guide filters now come from the
+  // profile's prefs via usePref, which re-renders this component on change through
+  // ProfileContext. The window CustomEvents that used to sync these (autoscrollchange,
+  // guidehourschange, etc.) have been removed — no listener anywhere in the client
+  // consumed them once every reader switched to usePref (task 16).
 
   // Helper to find the index of the currently airing program (defined early for auto-scroll)
   const findCurrentProgramIdx = useCallback((channelId: number): number => {
@@ -653,6 +615,7 @@ export default function Guide({
     },
     getAdjacentZone: (dir) => {
       if (dir === 'down') return 'guide-grid';
+      if (dir === 'up') return 'navbar';
       return null;
     },
   });
@@ -761,9 +724,6 @@ export default function Guide({
             </button>
           </div>
         </div>
-        {settingsOpen && onCloseSettings && (
-          <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
-        )}
       </div>
     );
   }
@@ -778,9 +738,6 @@ export default function Guide({
             SETUP
           </button>
         </div>
-        {settingsOpen && onCloseSettings && (
-          <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
-        )}
       </div>
     );
   }
@@ -848,13 +805,6 @@ export default function Guide({
         >
           {isFullscreen ? <CornersIn size={18} weight="bold" /> : <FrameCorners size={18} weight="bold" />}
         </button>
-        <button
-          className={`guide-settings-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
-          onClick={onOpenSettings}
-          title="Settings"
-        >
-          <GearSix size={18} weight="bold" />
-        </button>
       </div>
       <PreviewPanel
         channel={focusedChannel}
@@ -907,7 +857,6 @@ export default function Guide({
             const next = activeFilters.includes(filterId)
               ? activeFilters.filter(id => id !== filterId)
               : [...activeFilters, filterId];
-            setGuideFilters(next);
             setActiveFilters(next);
             // Preserve current channel position in the new filtered list
             const newFiltered = applyGuideFilter(channels, scheduleByChannel, next);
@@ -925,8 +874,7 @@ export default function Guide({
           }}
           onClearFilters={() => {
             const currentChannelId = focusedChannel?.id;
-            setGuideFilters([]);
-            setActiveFilters([]);
+            setActiveFilters(EMPTY_FILTERS);
             // Preserve current channel position in the unfiltered list
             const newFiltered = applyGuideFilter(channels, scheduleByChannel, []);
             if (currentChannelId != null) {
@@ -967,9 +915,6 @@ export default function Guide({
           hideDividers={activeFilters.length > 0}
         />
       </div>
-      {settingsOpen && onCloseSettings && (
-        <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
-      )}
     </div>
   );
 }

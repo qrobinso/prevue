@@ -236,14 +236,6 @@ export function isAdultRating(systemId: string, code: string): boolean {
 }
 
 /**
- * Get the minimum age for a rating in a system
- */
-export function getMinimumAge(systemId: string, code: string): number {
-  const rating = getRatingInfo(systemId, code);
-  return rating?.minAge ?? 0;
-}
-
-/**
  * Map common rating variations to standard codes
  * This helps match ratings that Jellyfin might report in different formats
  */

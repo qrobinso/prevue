@@ -1,4 +1,5 @@
-import type { Channel, ScheduleBlock, PlaybackInfo, Settings } from '../types';
+import type { Channel, ScheduleBlock, PlaybackInfo, Settings, Profile, LineupOverride } from '../types';
+import { getActiveProfileId } from './activeProfile';
 
 const API_BASE = '/api';
 const REQUEST_TIMEOUT_MS = 20000; // 20s - default timeout
@@ -74,6 +75,10 @@ async function requestOnce<T>(url: string, options?: RequestInit, timeoutMs: num
     if (apiKey) {
       headers['X-API-Key'] = apiKey;
     }
+    const profileId = getActiveProfileId();
+    if (profileId !== null) {
+      headers['X-Profile-Id'] = String(profileId);
+    }
 
     const response = await fetch(`${API_BASE}${url}`, {
       ...options,
@@ -117,10 +122,15 @@ async function requestOnce<T>(url: string, options?: RequestInit, timeoutMs: num
 
 async function request<T>(url: string, options?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const method = (options?.method ?? 'GET').toUpperCase();
+  // Include the active profile id in the dedup key so an in-flight GET made
+  // under one profile is never cross-served to a request made after switching
+  // to a different profile (the request carries X-Profile-Id per-call, but the
+  // shared promise would otherwise resolve with the first profile's data).
+  const dedupKey = `${getActiveProfileId() ?? 'none'}::${url}`;
 
-  // Deduplicate concurrent GET requests to the same URL
+  // Deduplicate concurrent GET requests to the same URL (scoped per profile)
   if (method === 'GET') {
-    const existing = inflightGets.get(url);
+    const existing = inflightGets.get(dedupKey);
     if (existing) return existing as Promise<T>;
   }
 
@@ -143,8 +153,8 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs: number 
   };
 
   if (method === 'GET') {
-    const promise = execute().finally(() => inflightGets.delete(url));
-    inflightGets.set(url, promise);
+    const promise = execute().finally(() => inflightGets.delete(dedupKey));
+    inflightGets.set(dedupKey, promise);
     return promise;
   }
 
@@ -817,4 +827,59 @@ export async function getBatchProgramFacts(programs: BatchFactsProgram[]): Promi
 
 export async function healthCheck(): Promise<{ status: string }> {
   return request('/health');
+}
+
+// ─── Profiles ─────────────────────────────────────────
+
+export async function getProfiles(): Promise<Profile[]> {
+  return request('/profiles');
+}
+
+export async function createProfile(data: {
+  name: string;
+  avatar_glyph?: string;
+  avatar_color?: string;
+  is_kids?: boolean;
+  max_rating?: string | null;
+}): Promise<Profile> {
+  return request('/profiles', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateProfile(
+  id: number,
+  data: {
+    name?: string;
+    avatar_glyph?: string;
+    avatar_color?: string;
+    is_kids?: boolean;
+    max_rating?: string | null;
+  }
+): Promise<Profile> {
+  return request(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteProfile(id: number): Promise<{ success: boolean }> {
+  return request(`/profiles/${id}`, { method: 'DELETE' });
+}
+
+export async function getProfilePrefs(id: number): Promise<Record<string, unknown>> {
+  return request(`/profiles/${id}/prefs`);
+}
+
+export async function patchProfilePrefs(
+  id: number,
+  patch: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  return request(`/profiles/${id}/prefs`, { method: 'PUT', body: JSON.stringify(patch) });
+}
+
+export async function getProfileLineup(id: number): Promise<LineupOverride[]> {
+  return request(`/profiles/${id}/lineup`);
+}
+
+export async function setProfileLineup(
+  id: number,
+  entries: LineupOverride[]
+): Promise<LineupOverride[]> {
+  return request(`/profiles/${id}/lineup`, { method: 'PUT', body: JSON.stringify(entries) });
 }

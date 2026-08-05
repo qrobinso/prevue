@@ -28,7 +28,7 @@ import PromoOverlay from '../Player/PromoOverlay';
 import IconicSceneOverlay from '../Player/IconicSceneOverlay';
 import CatchUpOverlay from '../Player/CatchUpOverlay';
 import { NotificationScope } from '../../notifications';
-import { getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
+import { usePref } from '../../hooks/usePref';
 import { ClosedCaptioningIcon, ArrowsInSimpleIcon, ArrowsOutSimpleIcon, SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react';
 import './Guide.css';
 
@@ -37,24 +37,10 @@ const PREVIEW_STREAM_DELAY_MS = 300;
 /** Reveal video after enough frames are decoded for smooth playback. */
 const PREVIEW_REVEAL_DELAY_MS = 200;
 
-const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
-const VIDEO_FIT_KEY = 'prevue_video_fit';
 const OVERLAY_VISIBLE_MS = 5000;
 const DOUBLE_TAP_MS = 300;
 const PREVIEW_STARTUP_MAX_BUFFER_LENGTH = 3;
 const PREVIEW_STARTUP_MAX_MAX_BUFFER_LENGTH = 8;
-
-function getStoredVideoFit(): 'contain' | 'cover' {
-  const stored = localStorage.getItem(VIDEO_FIT_KEY);
-  return stored === 'cover' ? 'cover' : 'contain';
-}
-
-function getStoredSubtitleIndex(): number | null {
-  const stored = localStorage.getItem(SUBTITLE_INDEX_KEY);
-  if (stored === '' || stored === null) return null;
-  const n = parseInt(stored, 10);
-  return Number.isNaN(n) ? null : n;
-}
 
 interface PreviewPanelProps {
   channel: ChannelWithProgram | null;
@@ -104,12 +90,21 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
     time: Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale * (mobile ? 0.75 : 1)),
   };
 
+  const [subtitleIndexPref, setSubtitleIndexPref] = usePref<number | null>('subtitle_index', null);
+  const [videoFit, setVideoFitPref] = usePref<'contain' | 'cover'>('video_fit', 'contain');
+  // Mirrored into refs so imperative HLS callbacks always see the current pref
+  // value instead of a value captured when the callback closure was created.
+  const subtitleIndexPrefRef = useRef<number | null>(subtitleIndexPref);
+  const videoFitRef = useRef<'contain' | 'cover'>(videoFit);
+  useEffect(() => { subtitleIndexPrefRef.current = subtitleIndexPref; }, [subtitleIndexPref]);
+  useEffect(() => { videoFitRef.current = videoFit; }, [videoFit]);
+
   const videoRef = useRef<HTMLVideoElement>(getVideoElement());
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const currentItemIdRef = useRef<string | null>(null);
   const currentChannelIdRef = useRef<number | null>(null);
-  const selectedSubtitleIndexRef = useRef<number | null>(getStoredSubtitleIndex());
+  const selectedSubtitleIndexRef = useRef<number | null>(subtitleIndexPref);
   const overlayHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapTimeRef = useRef<number>(0);
@@ -129,26 +124,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [retryCount, setRetryCount] = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
 
-  const [promoOverlayEnabled, setPromoOverlayEnabledState] = useState(getPromoOverlayEnabled);
-  const [startingSoonEnabled, setStartingSoonEnabledState] = useState(getStartingSoonEnabled);
-
-  // Listen for promo overlay setting changes
-  useEffect(() => {
-    const handler = (e: Event) => {
-      setPromoOverlayEnabledState((e as CustomEvent).detail.enabled);
-    };
-    window.addEventListener('promooverlaychange', handler);
-    return () => window.removeEventListener('promooverlaychange', handler);
-  }, []);
-
-  // Listen for starting soon setting changes
-  useEffect(() => {
-    const handler = (e: Event) => {
-      setStartingSoonEnabledState((e as CustomEvent).detail.enabled);
-    };
-    window.addEventListener('startingsoonchange', handler);
-    return () => window.removeEventListener('startingsoonchange', handler);
-  }, []);
+  const [promoOverlayEnabled] = usePref('promo_overlay', true);
+  const [startingSoonEnabled] = usePref('starting_soon', true);
 
   // Compute upcoming programs for promo overlay
   const upcomingPrograms = (() => {
@@ -179,19 +156,14 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [serverAudioTracks, setServerAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [selectedAudioStreamIndex, setSelectedAudioStreamIndex] = useState<number | null>(null);
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
-  const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
-  const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getStoredVideoFit);
+  const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(subtitleIndexPref);
   const [activeCueText, setActiveCueText] = useState('');
   const activeCueRef = useRef('');
   currentChannelIdRef.current = channel?.id ?? null;
 
   const toggleVideoFit = useCallback(() => {
-    setVideoFit(prev => {
-      const next = prev === 'contain' ? 'cover' : 'contain';
-      localStorage.setItem(VIDEO_FIT_KEY, next);
-      return next;
-    });
-  }, []);
+    setVideoFitPref(videoFitRef.current === 'contain' ? 'cover' : 'contain');
+  }, [setVideoFitPref]);
 
   // Apply volume to video (using global volume state)
   useVideoVolume(videoRef, volume, muted);
@@ -541,7 +513,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
           setServerSubtitleTracks(handoff.info.subtitle_tracks ?? []);
           const subtitleTracks = handoff.info.subtitle_tracks ?? [];
           const preferredSub =
-            handoff.info.subtitle_index !== undefined ? handoff.info.subtitle_index : getStoredSubtitleIndex();
+            handoff.info.subtitle_index !== undefined ? handoff.info.subtitle_index : subtitleIndexPrefRef.current;
           const initialSub =
             preferredSub !== null && preferredSub >= 0 && preferredSub < subtitleTracks.length
               ? preferredSub
@@ -577,7 +549,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         setServerSubtitleTracks(info.subtitle_tracks ?? []);
         const subtitleTracks = info.subtitle_tracks ?? [];
         const preferredSub =
-          info.subtitle_index !== undefined ? info.subtitle_index : getStoredSubtitleIndex();
+          info.subtitle_index !== undefined ? info.subtitle_index : subtitleIndexPrefRef.current;
         const initialSub =
           preferredSub !== null && preferredSub >= 0 && preferredSub < subtitleTracks.length
             ? preferredSub
@@ -585,7 +557,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
         setSelectedSubtitleIndex(initialSub);
         selectedSubtitleIndexRef.current = initialSub;
         if (info.subtitle_index !== undefined) {
-          localStorage.setItem(SUBTITLE_INDEX_KEY, initialSub === null ? '' : String(initialSub));
+          setSubtitleIndexPref(initialSub);
         }
         loadStreamWithInfo(info, cancelled);
         loadingItemIdRef.current = null;
@@ -742,7 +714,7 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
       activeCueRef.current = '';
       setActiveCueText('');
     }
-    localStorage.setItem(SUBTITLE_INDEX_KEY, positionIndex === null ? '' : String(positionIndex));
+    setSubtitleIndexPref(positionIndex);
     setShowAudioMoreMenu(false);
     cleanup();
     try {

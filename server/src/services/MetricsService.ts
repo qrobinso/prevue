@@ -67,6 +67,7 @@ export class MetricsService {
    */
   startSession(data: {
     client_id: string;
+    profile_id?: number;
     channel_id?: number;
     channel_name?: string;
     item_id?: string;

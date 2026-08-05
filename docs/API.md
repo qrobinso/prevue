@@ -152,7 +152,10 @@ Health check.
 
 ### `GET /api/channels`
 
-List all channels with currently airing and next program info.
+List all channels with currently airing and next program info. Applies the caller's active
+profile lineup overrides and `max_rating` ceiling (see [Profiles](#profiles) and
+[FEATURES.md](FEATURES.md#profiles)) — a channel whose current program is above the ceiling
+is dropped from the response.
 
 **Response:** Array of `ChannelWithProgram` objects:
 
@@ -422,11 +425,170 @@ Update channel generation settings.
 
 ---
 
+## Profiles
+
+Every profile owns its own preferences, channel lineup overrides, kids rating ceiling, and
+watch history. Media servers, channel definitions, schedule generation, and IPTV output stay
+global and are shared by every profile — see [FEATURES.md](FEATURES.md#profiles) for the
+full split.
+
+### Active profile resolution
+
+Requests that need to know "who is asking" (channels, schedule, ticker, auto-tune) resolve
+an active profile via, in order:
+
+1. `X-Profile-Id` request header
+2. `profile_id` query param
+3. The first profile by `sort_order`
+
+Resolution never fails — a missing, malformed, or deleted id silently falls through to the
+next option, and the server never 500s because a profile couldn't be resolved. Clients set
+`X-Profile-Id` centrally in `client/src/services/api.ts`, mirroring the `X-API-Key` pattern.
+
+### `GET /api/profiles`
+
+List all profiles, ordered by `sort_order`.
+
+**Response:** Array of `ProfileParsed` objects:
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Default",
+    "avatar_glyph": "",
+    "avatar_color": "#7c5cff",
+    "is_kids": false,
+    "max_rating": null,
+    "prefs": { "color_theme": "dark", "guide_hours": 3 },
+    "sort_order": 0,
+    "created_at": "2026-02-23T00:00:00.000Z"
+  }
+]
+```
+
+### `POST /api/profiles`
+
+Create a profile.
+
+**Body:**
+
+```json
+{
+  "name": "Joey",
+  "avatar_glyph": "star",
+  "avatar_color": "#ff5c8a",
+  "is_kids": true,
+  "max_rating": "PG"
+}
+```
+
+Only `name` is required; the rest fall back to their column defaults (`is_kids` defaults to
+`false`, `max_rating` to `null`/unrestricted).
+
+**Response:** `201` with the created `ProfileParsed` object.
+
+**Errors:** `400` if `name` is missing or empty after trimming, or if `max_rating` is a string
+that isn't a recognized rating code with a defined minimum age (e.g. `"NR"` or `"Unrated"` are
+rejected — they have no minimum age, so a ceiling set to them would block everything). `null`
+is always valid.
+
+### `PUT /api/profiles/:id`
+
+Update a profile's name, avatar, kids flag, or rating ceiling. Only supplied fields change.
+
+**Path Params:** `id` — profile ID
+
+**Body:** Same shape as `POST`, all fields optional.
+
+**Response:** Updated `ProfileParsed` object.
+
+**Errors:** `400` invalid id, empty `name`, or an invalid `max_rating` (same rule as `POST`);
+`404` profile not found.
+
+### `DELETE /api/profiles/:id`
+
+Delete a profile. Cascades to its `profile_channels` overrides and leaves any
+`watch_sessions` rows in place with `profile_id` still pointing at the deleted row (they
+are not scrubbed).
+
+**Path Params:** `id` — profile ID
+
+**Response:** `{ "success": true }`
+
+**Errors:** `400` if this is the last remaining profile — **at least one profile must always
+exist**; `404` profile not found.
+
+### `GET /api/profiles/:id/prefs`
+
+Read a profile's preference blob.
+
+**Path Params:** `id` — profile ID
+
+**Response:** The raw `prefs` object, e.g. `{ "color_theme": "dark", "guide_hours": 3 }`. A
+malformed stored blob is treated as `{}` rather than erroring.
+
+**Errors:** `400` invalid id; `404` profile not found.
+
+### `PUT /api/profiles/:id/prefs`
+
+Merge-patch a profile's preference blob: supplied keys overwrite, omitted keys are
+preserved, and unrecognized keys pass through unvalidated so new client-side preferences
+don't need a server change.
+
+**Path Params:** `id` — profile ID
+
+**Body:** Any JSON object, e.g. `{ "guide_hours": 4, "video_quality": "1080p" }`
+
+**Response:** The full merged `prefs` object.
+
+**Errors:** `400` invalid id or non-object body; `404` profile not found.
+
+### `GET /api/profiles/:id/lineup`
+
+Read a profile's channel lineup overrides (hidden/reordered channels).
+
+**Path Params:** `id` — profile ID
+
+**Response:** Array of `{ channel_id, hidden, sort_order }`. A profile with no overrides
+returns an empty array, and `/api/channels`/`/api/schedule` fall back to the global lineup
+unchanged.
+
+**Errors:** `400` invalid id; `404` profile not found.
+
+### `PUT /api/profiles/:id/lineup`
+
+Replace a profile's channel lineup overrides wholesale.
+
+**Path Params:** `id` — profile ID
+
+**Body:** Array of entries:
+
+```json
+[
+  { "channel_id": 3, "hidden": true },
+  { "channel_id": 5, "hidden": false, "sort_order": 1 }
+]
+```
+
+**Response:** The saved array of overrides.
+
+**Errors:** `400` invalid id, non-array body, or an entry missing an integer `channel_id`;
+`404` profile not found.
+
+---
+
 ## Schedule
 
 ### `GET /api/schedule`
 
-Get the full schedule for all channels.
+Get the full schedule for all channels. This is the endpoint the guide actually renders
+from, so it applies the caller's active profile the same way `GET /api/channels` does: the
+profile's channel lineup overrides (hide/reorder) are applied, and any channel whose
+currently-airing program is above the profile's `max_rating` ceiling is dropped from the
+response entirely. Individual future programs above the ceiling are stripped from
+`blocks` rather than dropping the whole channel. A profile with no overrides and no
+ceiling — or no resolvable profile at all — gets the unfiltered global schedule.
 
 **Response:** Keyed by channel ID:
 
@@ -536,6 +698,11 @@ Get streaming info for the current program on a channel. This is the primary end
 - `outro_start_ms` is the media position (ms) where ending credits begin, from the Jellyfin MediaSegments API. `null` if the server doesn't support it.
 - `seek_position_ms` is calculated from the schedule — how far into the media file the current wall-clock time maps to.
 - Applies preferred audio language and subtitle settings from the database if the client doesn't specify them.
+- Re-checks the caller's active profile `max_rating` ceiling against the current program before
+  returning a stream URL — a deep link to a blocked channel gets the same `404` as "no program
+  currently airing" rather than a working stream.
+
+**Errors:** `404` if no program is currently airing, or if the current program is above the caller's active profile ceiling.
 
 ---
 
@@ -546,6 +713,12 @@ Get streaming info for the current program on a channel. This is the primary end
 Get the HLS master playlist for a Jellyfin item. All URLs in the playlist are rewritten to proxy through this server.
 
 **Path Params:** `itemId` — Jellyfin item ID
+
+**Notes:**
+- Re-checks the caller's active profile `max_rating` ceiling against the item's library rating
+  (`provider.getItem(itemId)`) before starting a transcode. Fails closed: if a ceiling is set
+  and the item isn't in the library cache (rating can't be determined), the request is
+  blocked. Returns `404` when blocked.
 
 **Query Params:**
 

@@ -230,3 +230,29 @@ export interface WSMessage {
 
 // Backwards-compat alias — prefer MediaItem in new code
 export type JellyfinItem = MediaItem;
+
+/** A profile row as stored in SQLite. */
+export interface Profile {
+  id: number;
+  name: string;
+  avatar_glyph: string;
+  avatar_color: string;
+  is_kids: number;
+  max_rating: string | null;
+  prefs: string;
+  sort_order: number;
+  created_at: string;
+}
+
+/** A profile with JSON/boolean columns deserialized. */
+export interface ProfileParsed {
+  id: number;
+  name: string;
+  avatar_glyph: string;
+  avatar_color: string;
+  is_kids: boolean;
+  max_rating: string | null;
+  prefs: Record<string, unknown>;
+  sort_order: number;
+  created_at: string;
+}

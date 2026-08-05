@@ -1,23 +1,29 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import Guide from './components/Guide/Guide';
 import Player from './components/Player/Player';
 import AuthGate from './components/AuthGate';
+import NavBar from './components/NavBar/NavBar';
+import Settings from './components/Settings/Settings';
+import ProfilePage from './components/Profile/ProfilePage';
 import { useWebSocket } from './hooks/useWebSocket';
 import { NavigationProvider } from './navigation';
 import { NotificationProvider } from './notifications';
+import { ProfileProvider, useProfile } from './contexts/ProfileContext';
 import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, getServers, regenerateSchedule, type ChannelWithProgram } from './services/api';
 import { getClientId, getMetricsClientFields } from './services/clientIdentity';
 import { useClientRegistration } from './hooks/useClientRegistration';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
-import { getGuideFilters, applyGuideFilterSimple, type GuideFilterId } from './components/Guide/guideFilterUtils';
-import { isAutoTuneEnabled, getPersistedChannelNumber, setPersistedChannelNumber } from './services/autoTune';
+import { applyGuideFilterSimple, type GuideFilterId } from './components/Guide/guideFilterUtils';
+import { usePref } from './hooks/usePref';
 import { useSleepTimer } from './hooks/useSleepTimer';
 import GoodnightScreen from './components/Player/GoodnightScreen';
 import { isIOS } from './utils/platform';
 import type { Channel, ScheduleProgram, WSEvent } from './types';
 
 export type AppView = 'guide' | 'player';
+
+const EMPTY_FILTERS: GuideFilterId[] = [];
 
 // Auth wrapper: checks if API key auth is required and gates the app
 function AuthWrapper({ children }: { children: React.ReactNode }) {
@@ -55,27 +61,22 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { activeProfile, loading: profileLoading } = useProfile();
 
   // Derive active channel from URL
   const channelMatch = location.pathname.match(/^\/channel\/(\d+)$/);
   const activeChannelNumber = channelMatch ? parseInt(channelMatch[1], 10) : null;
   const playerActive = activeChannelNumber !== null;
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
   const [lastChannelId, setLastChannelId] = useState<number | null>(null);
   const [guideFocusedChannelId, setGuideFocusedChannelId] = useState<number | null>(null);
   const enterFullscreenRef = useRef(false);
-  const [activeFilters, setActiveFilters] = useState<GuideFilterId[]>(getGuideFilters);
-
-  // Listen for guide filter changes
-  useEffect(() => {
-    const handleFilterChange = (e: CustomEvent<{ filterIds: GuideFilterId[] }>) => {
-      setActiveFilters(e.detail.filterIds);
-    };
-    window.addEventListener('guidefilterchange', handleFilterChange as EventListener);
-    return () => window.removeEventListener('guidefilterchange', handleFilterChange as EventListener);
-  }, []);
+  // guide_filter is shared with Guide.tsx via ProfileContext, so this component re-renders
+  // automatically when the filter changes there — no event listener needed here.
+  const [activeFilters] = usePref<GuideFilterId[]>('guide_filter', EMPTY_FILTERS);
+  const [autoTuneEnabled] = usePref('auto_tune', false);
+  const [lastChannelNumber, setLastChannelNumber] = usePref<number | null>('last_channel_number', null);
 
   // iOS interaction detection (required for video autoplay)
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
@@ -139,16 +140,32 @@ function AppContent() {
       .catch(() => {});
   }, []);
 
+  // Refetch channels when the active profile changes (lineup/ceiling differ per
+  // profile) — otherwise the previous profile's channel list lingers until a
+  // WebSocket event or reload. Skip the run that merely observes the initial
+  // profile resolution: the mount effect above already fetched once.
+  const channelsProfileIdRef = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (profileLoading) return;
+    const id = activeProfile?.id ?? null;
+    if (channelsProfileIdRef.current === undefined) {
+      channelsProfileIdRef.current = id;
+      return;
+    }
+    if (channelsProfileIdRef.current === id) return;
+    channelsProfileIdRef.current = id;
+    getChannels().then(setChannels).catch(() => {});
+  }, [activeProfile?.id, profileLoading]);
+
   // Auto-tune: skip guide and navigate directly to a channel on mount
   const autoTuneAttemptedRef = useRef(false);
   useEffect(() => {
-    if (autoTuneAttemptedRef.current || !isAutoTuneEnabled() || channels.length === 0 || playerActive) return;
+    if (autoTuneAttemptedRef.current || !autoTuneEnabled || channels.length === 0 || playerActive) return;
     autoTuneAttemptedRef.current = true;
 
     // Try persisted channel first
-    const persisted = getPersistedChannelNumber();
-    if (persisted !== null) {
-      const ch = channels.find(c => c.number === persisted);
+    if (lastChannelNumber !== null) {
+      const ch = channels.find(c => c.number === lastChannelNumber);
       if (ch) {
         navigate(`/channel/${ch.number}`, { replace: true });
         return;
@@ -163,7 +180,7 @@ function AppContent() {
         }
       })
       .catch(() => {}); // Fail silently - user sees guide as normal
-  }, [channels, playerActive, navigate]);
+  }, [channels, playerActive, navigate, autoTuneEnabled, lastChannelNumber]);
 
   // Apply display settings from DB on load (preview background, etc.)
   useEffect(() => {
@@ -195,7 +212,7 @@ function AppContent() {
     const prevChannelId = lastChannelId;
     const prevChannel = prevChannelId ? channels.find(ch => ch.id === prevChannelId) : null;
     setLastChannelId(channel.id);
-    setPersistedChannelNumber(channel.number);
+    setLastChannelNumber(channel.number);
     enterFullscreenRef.current = opts?.fromFullscreen === true;
     navigate(`/channel/${channel.number}`);
     metricsChannelSwitch({
@@ -213,12 +230,12 @@ function AppContent() {
   }, [navigate]);
 
   const handleOpenSettings = useCallback(() => {
-    setSettingsOpen(true);
-  }, []);
+    navigate('/settings');
+  }, [navigate]);
 
   const handleCloseSettings = useCallback(() => {
-    setSettingsOpen(false);
-  }, []);
+    navigate('/');
+  }, [navigate]);
 
   // Jump back to the last-tuned channel
   const handleLastChannel = useCallback(() => {
@@ -237,7 +254,7 @@ function AppContent() {
       to_channel_id: target.id,
       to_channel_name: target.name,
     }).catch(() => {});
-  }, [lastChannelId, channels, currentChannel, navigate]);
+  }, [lastChannelId, channels, currentChannel, navigate, setLastChannelNumber]);
 
   // Player channel navigation
   const handleChannelUp = useCallback(() => {
@@ -317,20 +334,17 @@ function AppContent() {
 
   return (
     <div className="app">
+      <NavBar />
       <div className="app-content">
         {/* Guide - always mounted as base layer */}
         <Guide
           onTune={handleTune}
           onOpenSettings={handleOpenSettings}
-          settingsOpen={settingsOpen && !playerActive}
-          onCloseSettings={handleCloseSettings}
           streamingPaused={guideStreamingPaused}
           initialChannelId={lastChannelId}
           keyboardDisabled={playerActive}
           onFocusedChannelChange={setGuideFocusedChannelId}
           onLastChannel={handleLastChannel}
-          sleepState={sleepState}
-          sleepActions={sleepActions}
         />
 
         {/* Player overlay - shown when a channel URL is active */}
@@ -363,6 +377,16 @@ function AppContent() {
         )}
       </div>
 
+      {/* Settings / Profile render over the always-mounted guide */}
+      <Routes>
+        <Route
+          path="/settings"
+          element={<Settings onClose={handleCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />}
+        />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="*" element={null} />
+      </Routes>
+
       {/* Goodnight screen - shown when sleep timer expires */}
       {sleepState.isExpired && (
         <GoodnightScreen onDismiss={handleGoodnightDismiss} />
@@ -378,7 +402,9 @@ export default function App() {
       <NavigationProvider>
         <NotificationProvider>
           <AuthWrapper>
-            <AppContent />
+            <ProfileProvider>
+              <AppContent />
+            </ProfileProvider>
           </AuthWrapper>
         </NotificationProvider>
       </NavigationProvider>

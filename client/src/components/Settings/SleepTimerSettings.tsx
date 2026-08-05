@@ -1,15 +1,11 @@
-import { useState, useEffect } from 'react';
 import { Moon } from '@phosphor-icons/react';
 import {
-  getSleepEnabled, setSleepEnabled,
-  getStoredPreset,
-  getWindDownMinutes, setWindDownMinutes,
-  getDimSeconds, setDimSeconds,
   SLEEP_PRESETS, WINDDOWN_OPTIONS, DIM_OPTIONS,
   formatSleepRemaining,
   type SleepTimerState,
   type SleepTimerActions,
 } from '../../hooks/useSleepTimer';
+import { usePref } from '../../hooks/usePref';
 import './Settings.css';
 
 interface SleepTimerSettingsProps {
@@ -18,36 +14,21 @@ interface SleepTimerSettingsProps {
 }
 
 export default function SleepTimerSettings({ sleepState, sleepActions }: SleepTimerSettingsProps) {
-  const [enabled, setEnabledLocal] = useState(getSleepEnabled);
-  const [windDown, setWindDownLocal] = useState(getWindDownMinutes);
-  const [dim, setDimLocal] = useState(getDimSeconds);
-  const [lastPreset] = useState(getStoredPreset);
-
-  // Keep in sync with external changes
-  useEffect(() => {
-    const handler = () => {
-      setEnabledLocal(getSleepEnabled());
-      setWindDownLocal(getWindDownMinutes());
-      setDimLocal(getDimSeconds());
-    };
-    window.addEventListener('prevue_sleep_settings_change', handler);
-    return () => window.removeEventListener('prevue_sleep_settings_change', handler);
-  }, []);
+  const [enabled, setEnabled] = usePref('sleep_enabled', true);
+  const [windDown, setWindDown] = usePref('sleep_winddown_min', 5);
+  const [dim, setDim] = usePref('sleep_dim_sec', 60);
+  const [lastPreset] = usePref('sleep_preset', 30);
 
   const handleEnabledToggle = () => {
-    const next = !enabled;
-    setEnabledLocal(next);
-    setSleepEnabled(next);
+    setEnabled(!enabled);
   };
 
   const handleWindDownChange = (min: number) => {
-    setWindDownLocal(min);
-    setWindDownMinutes(min);
+    setWindDown(min);
   };
 
   const handleDimChange = (sec: number) => {
-    setDimLocal(sec);
-    setDimSeconds(sec);
+    setDim(sec);
   };
 
   const formatDimLabel = (sec: number) => {

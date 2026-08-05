@@ -58,6 +58,7 @@ metricsRoutes.post('/start', (req: Request, res: Response) => {
     const userAgent = req.headers['user-agent'];
     const session = svc.startSession({
       client_id,
+      profile_id: req.activeProfile?.id,
       channel_id,
       channel_name,
       item_id,

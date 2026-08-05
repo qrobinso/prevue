@@ -1163,7 +1163,6 @@ html[data-preview-bg="white"] .preview-video-container {
 }
 
 .guide-fullscreen-btn,
-.guide-settings-btn,
 .guide-search-btn,
 .guide-filter-btn,
 .guide-ai-filter-btn {
@@ -1312,27 +1311,6 @@ html[data-preview-bg="white"] .preview-video-container {
 }
 
 .guide-fullscreen-btn:hover {
-  background: var(--bg-cell-hover);
-  color: var(--text-gold);
-}
-
-.guide-settings-btn {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 30;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid var(--border-grid);
-  color: var(--text-secondary);
-  font-size: 24px;
-  cursor: pointer;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.guide-settings-btn:hover {
   background: var(--bg-cell-hover);
   color: var(--text-gold);
 }
@@ -1895,7 +1873,6 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn,
   .guide-search-btn,
   .guide-filter-btn,
   .guide-ai-filter-btn {
@@ -1917,10 +1894,6 @@ html[data-preview-bg="white"] .preview-video-container {
 
   .guide-fullscreen-btn {
     right: 72px; /* 16 + 48 + 8 */
-  }
-
-  .guide-settings-btn {
-    right: 16px;
   }
 
   /* Auto-scroll indicator - touch-friendly */
@@ -2124,7 +2097,6 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn,
   .guide-search-btn,
   .guide-filter-btn,
   .guide-ai-filter-btn {
@@ -2148,10 +2120,6 @@ html[data-preview-bg="white"] .preview-video-container {
 
   .guide-fullscreen-btn {
     right: 52px; /* 8 + 36 + 8 */
-  }
-
-  .guide-settings-btn {
-    right: 8px;
   }
 
   /* Time header - taller for better touch targets */
@@ -2266,7 +2234,6 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn,
   .guide-search-btn,
   .guide-filter-btn,
   .guide-ai-filter-btn {
@@ -2290,10 +2257,6 @@ html[data-preview-bg="white"] .preview-video-container {
 
   .guide-fullscreen-btn {
     right: 46px; /* 6 + 32 + 8 */
-  }
-
-  .guide-settings-btn {
-    right: 6px;
   }
 
   .guide-time-header {
@@ -2406,7 +2369,6 @@ html[data-preview-bg="white"] .preview-video-container {
     background: var(--bg-cell-hover);
   }
 
-  .guide-settings-btn:hover,
   .guide-search-btn:hover,
   .guide-filter-btn:hover {
     background: rgba(0, 0, 0, 0.6);
@@ -2490,7 +2452,6 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn,
   .guide-search-btn,
   .guide-filter-btn,
   .guide-ai-filter-btn {
@@ -2514,10 +2475,6 @@ html[data-preview-bg="white"] .preview-video-container {
 
   .guide-fullscreen-btn {
     right: 48px; /* 6 + 34 + 8 */
-  }
-
-  .guide-settings-btn {
-    right: 6px;
   }
 
   /* Time header - minimal */
@@ -2690,7 +2647,6 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-fullscreen-btn,
-  .guide-settings-btn,
   .guide-search-btn,
   .guide-filter-btn,
   .guide-ai-filter-btn {
@@ -2712,10 +2668,6 @@ html[data-preview-bg="white"] .preview-video-container {
 
   .guide-fullscreen-btn {
     right: 72px; /* 16 + 48 + 8 */
-  }
-
-  .guide-settings-btn {
-    right: 16px;
   }
 
   /* Auto-scroll indicator */

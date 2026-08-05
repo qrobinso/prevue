@@ -6,6 +6,7 @@ import type { MediaProvider } from '../services/MediaProvider.js';
 import type { MediaItem, ScheduleProgram } from '../types/index.js';
 import { AIService } from '../services/AIService.js';
 import { decrypt } from '../utils/crypto.js';
+import { isRatingWithinCeiling } from '../utils/ratingCeiling.js';
 
 export const tickerRoutes = Router();
 const aiService = new AIService();
@@ -67,7 +68,8 @@ tickerRoutes.get('/', (req: Request, res: Response) => {
       hdr: req.query.hdr === '1',
     };
 
-    const cacheKey = `${tzOffset}:${badges.year}:${badges.rating}:${badges.resolution}:${badges.hdr}`;
+    const ceiling = req.activeProfile?.max_rating ?? null;
+    const cacheKey = `${tzOffset}:${badges.year}:${badges.rating}:${badges.resolution}:${badges.hdr}:${ceiling ?? ''}`;
     const now = Date.now();
     if (cache && (now - cacheTime) < CACHE_TTL_MS && cache.cacheKey === cacheKey) {
       return res.json({ items: cache.items, generated_at: cache.generated_at });
@@ -77,19 +79,19 @@ tickerRoutes.get('/', (req: Request, res: Response) => {
     const seen = new Set<string>(); // shared across sections to avoid duplicates
 
     // 1. Currently airing across all channels
-    const nowItems = getCurrentlyAiring(db, tzOffset, badges, seen);
+    const nowItems = getCurrentlyAiring(db, tzOffset, badges, seen, ceiling);
     items.push(...nowItems);
 
     // 2. Coming up next (within 2 hours)
-    const upcomingItems = getUpcoming(db, tzOffset, badges, seen);
+    const upcomingItems = getUpcoming(db, tzOffset, badges, seen, ceiling);
     items.push(...upcomingItems);
 
     // 3. Primetime highlights — programs airing between 7PM and 11PM tonight
-    const primetimeItems = getPrimetimeHighlights(db, scheduleEngine as ScheduleEngine, tzOffset, badges, seen);
+    const primetimeItems = getPrimetimeHighlights(db, scheduleEngine as ScheduleEngine, tzOffset, badges, seen, ceiling);
     items.push(...primetimeItems);
 
     // 4. Recently added to library
-    const recentItems = getRecentlyAdded(mediaProvider as MediaProvider, badges);
+    const recentItems = getRecentlyAdded(mediaProvider as MediaProvider, badges, ceiling);
     items.push(...recentItems);
 
     // Fallback if nothing is scheduled
@@ -200,7 +202,8 @@ function getPrimetimeHighlights(
   scheduleEngine: ScheduleEngine,
   tzOffset: number,
   badges: BadgeOptions,
-  seen: Set<string>
+  seen: Set<string>,
+  ceiling: string | null
 ): TickerItem[] {
   const items: TickerItem[] = [];
   try {
@@ -235,6 +238,7 @@ function getPrimetimeHighlights(
       for (const prog of block.programs) {
         if (prog.type === 'interstitial') continue;
         if (seen.has(prog.media_item_id)) continue;
+        if (!isRatingWithinCeiling(prog.rating, ceiling)) continue;
 
         const startTime = new Date(prog.start_time);
         const startUTC = startTime.getTime();
@@ -270,7 +274,7 @@ function getPrimetimeHighlights(
   return items;
 }
 
-function getRecentlyAdded(mediaProvider: MediaProvider, badges: BadgeOptions): TickerItem[] {
+function getRecentlyAdded(mediaProvider: MediaProvider, badges: BadgeOptions, ceiling: string | null): TickerItem[] {
   const items: TickerItem[] = [];
   try {
     const allItems = mediaProvider.getLibraryItems();
@@ -278,7 +282,8 @@ function getRecentlyAdded(mediaProvider: MediaProvider, badges: BadgeOptions): T
 
     const recent = allItems.filter((item: MediaItem) => {
       if (!item.DateCreated) return false;
-      return new Date(item.DateCreated).getTime() > sevenDaysAgo;
+      if (new Date(item.DateCreated).getTime() <= sevenDaysAgo) return false;
+      return isRatingWithinCeiling(item.OfficialRating, ceiling);
     });
 
     if (recent.length > 0) {
@@ -308,7 +313,8 @@ function getCurrentlyAiring(
   db: import('better-sqlite3').Database,
   tzOffset: number,
   badges: BadgeOptions,
-  seen: Set<string>
+  seen: Set<string>,
+  ceiling: string | null
 ): TickerItem[] {
   const items: TickerItem[] = [];
   try {
@@ -329,6 +335,7 @@ function getCurrentlyAiring(
       for (const prog of block.programs) {
         if (prog.type === 'interstitial') continue;
         if (seen.has(prog.media_item_id)) continue;
+        if (!isRatingWithinCeiling(prog.rating, ceiling)) continue;
 
         const startMs = new Date(prog.start_time).getTime();
         const endMs = new Date(prog.end_time).getTime();
@@ -363,7 +370,8 @@ function getUpcoming(
   db: import('better-sqlite3').Database,
   tzOffset: number,
   badges: BadgeOptions,
-  seen: Set<string>
+  seen: Set<string>,
+  ceiling: string | null
 ): TickerItem[] {
   const items: TickerItem[] = [];
   try {
@@ -383,6 +391,7 @@ function getUpcoming(
       for (const prog of block.programs) {
         if (prog.type === 'interstitial') continue;
         if (seen.has(prog.media_item_id)) continue;
+        if (!isRatingWithinCeiling(prog.rating, ceiling)) continue;
 
         const startMs = new Date(prog.start_time).getTime();
         const nowMs = now.getTime();

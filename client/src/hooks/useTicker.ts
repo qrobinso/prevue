@@ -2,8 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getTickerItems, getBatchProgramFacts, getHiddenGems } from '../services/api';
 import type { TickerItem, BatchFactsProgram } from '../services/api';
 import type { ScheduleProgram } from '../types';
-import { getGuideYear, getGuideRatings, getGuideResolution, getGuideHdr } from '../components/Settings/DisplaySettings';
-import { getProgramFactsEnabled, getHiddenGemsEnabled } from '../components/Settings/GeneralSettings';
+import { usePref } from './usePref';
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const FACTS_DELAY_MS = 10 * 1000; // wait 10s after schedule loads before requesting facts
@@ -22,6 +21,12 @@ export function useTicker(
   const factsIndex = useRef(0);
   const gemsPool = useRef<string[]>([]);
   const gemsIndex = useRef(0);
+  const [showYear] = usePref('guide_year', false);
+  const [showRatings] = usePref('guide_ratings', false);
+  const [showResolution] = usePref('guide_resolution', false);
+  const [showHdr] = usePref('guide_hdr', false);
+  const [programFactsEnabled] = usePref('program_facts_enabled', false);
+  const [hiddenGemsEnabled] = usePref('hidden_gems_enabled', false);
 
   // Pick the next fact from the pool (round-robin so each fact gets shown)
   const rotateFact = useCallback(() => {
@@ -57,7 +62,7 @@ export function useTicker(
 
   // Fetch hidden gems for ticker display
   useEffect(() => {
-    if (!enabled || !getHiddenGemsEnabled()) {
+    if (!enabled || !hiddenGemsEnabled) {
       setActiveGem(null);
       return;
     }
@@ -86,7 +91,7 @@ export function useTicker(
 
     const timer = setTimeout(fetchGems, FACTS_DELAY_MS);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [enabled, rotateGem]);
+  }, [enabled, rotateGem, hiddenGemsEnabled]);
 
   // Fetch base ticker items (primetime, new, stats) + rotate fact/gem each cycle
   useEffect(() => {
@@ -102,10 +107,10 @@ export function useTicker(
       try {
         setLoading(true);
         const badges = {
-          year: getGuideYear(),
-          rating: getGuideRatings(),
-          resolution: getGuideResolution(),
-          hdr: getGuideHdr(),
+          year: showYear,
+          rating: showRatings,
+          resolution: showResolution,
+          hdr: showHdr,
         };
         const data = await getTickerItems(undefined, badges);
         if (cancelled) return;
@@ -134,11 +139,11 @@ export function useTicker(
       cancelled = true;
       clearInterval(interval);
     };
-  }, [enabled, rotateFact, rotateGem]);
+  }, [enabled, rotateFact, rotateGem, showYear, showRatings, showResolution, showHdr]);
 
   // Batch-fetch program facts for all currently airing programs
   useEffect(() => {
-    if (!enabled || !getProgramFactsEnabled() || !scheduleByChannel || scheduleByChannel.size === 0) {
+    if (!enabled || !programFactsEnabled || !scheduleByChannel || scheduleByChannel.size === 0) {
       return;
     }
 
@@ -215,7 +220,7 @@ export function useTicker(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [enabled, scheduleByChannel, rotateFact]);
+  }, [enabled, scheduleByChannel, rotateFact, programFactsEnabled]);
 
   // Merge: gem and fact placed before base items
   const items = [

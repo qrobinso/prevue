@@ -34,6 +34,7 @@ import {
   hydrateChannelColorsFromServer,
   getLastUsedColor,
 } from '../../utils/guideCustomization';
+import { usePref } from '../../hooks/usePref';
 import { CaretDown, Check, Minus } from '@phosphor-icons/react';
 
 type ViewMode = 'presets' | 'list' | 'ai';
@@ -52,29 +53,7 @@ function formatRelativeTime(isoDate: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-const PRESET_MULTIPLIER_STORAGE_KEY = 'prevue_preset_multipliers';
 const MULTIPLIER_OPTIONS = [1, 2, 3, 4] as const;
-
-function loadSavedMultipliers(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(PRESET_MULTIPLIER_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, number>;
-      return typeof parsed === 'object' && parsed !== null ? parsed : {};
-    }
-  } catch {
-    // ignore
-  }
-  return {};
-}
-
-function saveMultipliers(m: Record<string, number>) {
-  try {
-    localStorage.setItem(PRESET_MULTIPLIER_STORAGE_KEY, JSON.stringify(m));
-  } catch {
-    // ignore
-  }
-}
 
 interface GenerationProgress {
   step: string;
@@ -93,7 +72,7 @@ export default function ChannelSettings() {
   const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
   const [presetData, setPresetData] = useState<ChannelPresetData | null>(null);
   const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
-  const [presetMultipliers, setPresetMultipliers] = useState<Record<string, number>>({});
+  const [presetMultipliers, setPresetMultipliers] = usePref<Record<string, number>>('preset_multipliers', {});
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
@@ -186,13 +165,14 @@ export default function ChannelSettings() {
       }
       const savedSet = new Set(savedPresets);
       setSelectedPresets(savedSet);
-      // Derive multipliers from saved list when expanded (duplicates present); else use saved/localStorage
+      // Derive multipliers from saved list when expanded (duplicates present); else use the
+      // profile's saved multipliers (presetMultipliers, via usePref)
       const fromServer: Record<string, number> = {};
       for (const id of savedPresets) {
         fromServer[id] = (fromServer[id] ?? 0) + 1;
       }
       const hasExpanded = savedPresets.length > savedSet.size;
-      const savedMultipliers = loadSavedMultipliers();
+      const savedMultipliers = presetMultipliers;
       const multipliers = hasExpanded
         ? fromServer
         : { ...savedMultipliers, ...Object.fromEntries([...savedSet].map(id => [id, savedMultipliers[id] ?? 1])) };
@@ -519,22 +499,16 @@ export default function ChannelSettings() {
         newSet.delete(presetId);
       } else {
         newSet.add(presetId);
-        setPresetMultipliers(m => {
-          const next = { ...m };
-          if (next[presetId] == null) next[presetId] = 1;
-          return next;
-        });
+        if (presetMultipliers[presetId] == null) {
+          setPresetMultipliers({ ...presetMultipliers, [presetId]: 1 });
+        }
       }
       return newSet;
     });
   };
 
   const setMultiplier = (presetId: string, value: number) => {
-    setPresetMultipliers(prev => {
-      const next = { ...prev, [presetId]: value };
-      saveMultipliers(next);
-      return next;
-    });
+    setPresetMultipliers({ ...presetMultipliers, [presetId]: value });
   };
 
   const getMultiplier = (presetId: string): number =>

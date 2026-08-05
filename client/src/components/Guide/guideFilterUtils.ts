@@ -1,6 +1,5 @@
 import type { ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
-import { getIconicScenesEnabled, getHiddenGemsEnabled } from '../Settings/GeneralSettings';
 
 export type GuideFilterId =
   | 'movies'
@@ -23,9 +22,6 @@ export interface GuideFilterPreset {
   label: string;
 }
 
-const STORAGE_KEY = 'prevue_guide_filter';
-const EVENT_NAME = 'guidefilterchange';
-
 const FIFTEEN_MIN = 15 * 60 * 1000;
 
 const KIDS_RATINGS = new Set(['G', 'PG', 'TV-Y', 'TV-Y7', 'TV-Y7-FV', 'TV-G', 'TV-PG']);
@@ -47,13 +43,16 @@ const BASE_FILTER_PRESETS: GuideFilterPreset[] = [
   { id: 'sci-fi', label: 'Sci-Fi & Fantasy' },
 ];
 
-/** Returns available filter presets, conditionally including AI filters. */
-export function getAvailableFilters(): GuideFilterPreset[] {
+/** Returns available filter presets, conditionally including AI filters.
+ *  `iconicScenesEnabled`/`hiddenGemsEnabled` come from the caller's `usePref` values —
+ *  this module is plain (non-hook) code shared outside component context, so it can't
+ *  read the profile's prefs itself. */
+export function getAvailableFilters(iconicScenesEnabled: boolean, hiddenGemsEnabled: boolean): GuideFilterPreset[] {
   const filters = [...BASE_FILTER_PRESETS];
-  if (getIconicScenesEnabled()) {
+  if (iconicScenesEnabled) {
     filters.push({ id: 'iconic-scene', label: 'Iconic Scene Now' });
   }
-  if (getHiddenGemsEnabled()) {
+  if (hiddenGemsEnabled) {
     filters.push({ id: 'hidden-gem', label: 'Hidden Gems' });
   }
   return filters;
@@ -71,26 +70,6 @@ export function isIconicSceneActive(program: ScheduleProgram, nowMs: number): bo
     const effectiveEnd = scene.end_minutes ?? scene.timestamp_minutes + 3; // fallback for legacy data
     return elapsedMinutes >= scene.timestamp_minutes - ICONIC_EARLY_START && elapsedMinutes <= effectiveEnd;
   });
-}
-
-export function getGuideFilters(): GuideFilterId[] {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [parsed]; // migrate single-value format
-  } catch {
-    return raw ? [raw as GuideFilterId] : []; // migrate single-value format
-  }
-}
-
-export function setGuideFilters(filterIds: GuideFilterId[]): void {
-  if (filterIds.length > 0) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filterIds));
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
-  window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: { filterIds } }));
 }
 
 function findCurrentProgram(programs: ScheduleProgram[], now: number): ScheduleProgram | null {
@@ -222,10 +201,12 @@ export function applyGuideFilterSimple(
 export function countFilterMatches(
   channels: ChannelWithProgram[],
   scheduleByChannel: Map<number, ScheduleProgram[]>,
+  iconicScenesEnabled: boolean,
+  hiddenGemsEnabled: boolean,
 ): Record<GuideFilterId, number> {
   const counts = {} as Record<GuideFilterId, number>;
   const now = Date.now();
-  for (const preset of getAvailableFilters()) {
+  for (const preset of getAvailableFilters(iconicScenesEnabled, hiddenGemsEnabled)) {
     counts[preset.id] = channels.filter(ch => {
       const schedule = scheduleByChannel.get(ch.id) ?? [];
       const current = findCurrentProgram(schedule, now) ?? ch.current_program;

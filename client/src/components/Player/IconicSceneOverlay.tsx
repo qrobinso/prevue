@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ScheduleProgram } from '../../types';
-import { getIconicScenesEnabled } from '../Settings/GeneralSettings';
 import { useNotifications, type OverlayData } from '../../notifications';
+import { usePref } from '../../hooks/usePref';
 
 interface IconicSceneOverlayProps {
   program: ScheduleProgram;
@@ -73,10 +73,11 @@ export default function IconicSceneOverlay({ program, hidden }: IconicSceneOverl
   const lastSceneName = useRef<string | null>(null);
   const { overlay } = useNotifications();
   const { show, hide } = overlay;
+  const [iconicScenesEnabled] = usePref('iconic_scenes_enabled', false);
 
   // Poll for active iconic scenes
   useEffect(() => {
-    if (!getIconicScenesEnabled()) return;
+    if (!iconicScenesEnabled) return;
 
     function check() {
       const active = findActiveScene(program);
@@ -92,7 +93,7 @@ export default function IconicSceneOverlay({ program, hidden }: IconicSceneOverl
     check();
     const id = setInterval(check, POLL_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [program.media_item_id]);
+  }, [program.media_item_id, iconicScenesEnabled]);
 
   // Register / unregister with the notification manager
   useEffect(() => {

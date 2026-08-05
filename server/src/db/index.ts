@@ -73,6 +73,28 @@ function runMigrations(db: Database.Database): void {
       value TEXT NOT NULL DEFAULT '{}'
     );
 
+    CREATE TABLE IF NOT EXISTS profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      avatar_glyph TEXT NOT NULL DEFAULT '',
+      avatar_color TEXT NOT NULL DEFAULT '#7c5cff',
+      is_kids INTEGER NOT NULL DEFAULT 0,
+      max_rating TEXT,
+      prefs TEXT NOT NULL DEFAULT '{}',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS profile_channels (
+      profile_id INTEGER NOT NULL,
+      channel_id INTEGER NOT NULL,
+      hidden INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER,
+      PRIMARY KEY (profile_id, channel_id),
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+      FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS library_cache (
       id TEXT PRIMARY KEY,
       server_id INTEGER NOT NULL,
@@ -342,6 +364,13 @@ function migrateWatchSessionsTable(db: Database.Database): void {
     try {
       db.exec("ALTER TABLE watch_sessions ADD COLUMN series_name TEXT");
       console.log('[Database] Added series_name column to watch_sessions');
+    } catch { /* column may already exist */ }
+  }
+  // Additive: attribute watch sessions to a profile. Nullable so existing rows survive.
+  if (tableInfo.length > 0 && !columnNames.includes('profile_id')) {
+    try {
+      db.exec('ALTER TABLE watch_sessions ADD COLUMN profile_id INTEGER');
+      console.log('[Database] Added profile_id column to watch_sessions');
     } catch { /* column may already exist */ }
   }
 }
