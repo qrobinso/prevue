@@ -204,7 +204,10 @@ describe('ProfileContext', () => {
   });
 
   it('runs the localStorage migration once on boot', async () => {
-    localStorage.setItem('prevue_guide_hours', '3');
+    // guide_hours is already present in the mocked profile prefs (see
+    // beforeEach), so use a key the profile doesn't have yet -- otherwise
+    // first-migration-wins filters it out and no PATCH is sent.
+    localStorage.setItem('prevue_color_theme', 'amber');
     const patch = vi.spyOn(api, 'patchProfilePrefs').mockResolvedValue({});
 
     const { unmount } = render(<ProfileProvider><Probe /></ProfileProvider>);

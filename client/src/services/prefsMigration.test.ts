@@ -4,6 +4,7 @@ import * as api from './api';
 
 describe('migrateLocalPrefs', () => {
   beforeEach(() => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({});
     vi.spyOn(api, 'patchProfilePrefs').mockResolvedValue({});
   });
 
@@ -64,6 +65,18 @@ describe('migrateLocalPrefs', () => {
     expect(localStorage.getItem('prevue_prefs_migrated')).toBeNull();
   });
 
+  it('does not set the guard flag when fetching existing prefs fails', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockRejectedValue(new Error('offline'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    localStorage.setItem('prevue_guide_hours', '3');
+
+    const ran = await migrateLocalPrefs(1);
+
+    expect(ran).toBe(false);
+    expect(api.patchProfilePrefs).not.toHaveBeenCalled();
+    expect(localStorage.getItem('prevue_prefs_migrated')).toBeNull();
+  });
+
   it('skips malformed values instead of writing garbage', async () => {
     localStorage.setItem('prevue_guide_hours', 'not-a-number');
     localStorage.setItem('prevue_guide_dividers', '{not valid json');
@@ -76,5 +89,49 @@ describe('migrateLocalPrefs', () => {
     expect(patch).not.toHaveProperty('guide_hours');
     expect(patch).not.toHaveProperty('guide_dividers');
     expect(patch.color_theme).toBe('amber');
+  });
+
+  it('does not overwrite a key already present on the profile', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ color_theme: 'graphite' });
+    localStorage.setItem('prevue_color_theme', 'amber');
+
+    const ran = await migrateLocalPrefs(1);
+
+    expect(ran).toBe(false);
+    expect(api.patchProfilePrefs).not.toHaveBeenCalled();
+    expect(localStorage.getItem('prevue_prefs_migrated')).toBe('1');
+  });
+
+  it('migrates a key absent server-side', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({});
+    localStorage.setItem('prevue_color_theme', 'amber');
+
+    const ran = await migrateLocalPrefs(1);
+
+    expect(ran).toBe(true);
+    expect(api.patchProfilePrefs).toHaveBeenCalledWith(1, { color_theme: 'amber' });
+  });
+
+  it('patches only the keys absent server-side out of a mix', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ color_theme: 'graphite' });
+    localStorage.setItem('prevue_color_theme', 'amber');
+    localStorage.setItem('prevue_guide_hours', '3');
+
+    const ran = await migrateLocalPrefs(1);
+
+    expect(ran).toBe(true);
+    expect(api.patchProfilePrefs).toHaveBeenCalledWith(1, { guide_hours: 3 });
+  });
+
+  it('sets the flag without a PATCH when everything is already present server-side', async () => {
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({ color_theme: 'graphite', guide_hours: 5 });
+    localStorage.setItem('prevue_color_theme', 'amber');
+    localStorage.setItem('prevue_guide_hours', '3');
+
+    const ran = await migrateLocalPrefs(1);
+
+    expect(ran).toBe(false);
+    expect(api.patchProfilePrefs).not.toHaveBeenCalled();
+    expect(localStorage.getItem('prevue_prefs_migrated')).toBe('1');
   });
 });

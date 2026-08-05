@@ -1,4 +1,4 @@
-import { patchProfilePrefs } from './api';
+import { getProfilePrefs, patchProfilePrefs } from './api';
 
 const MIGRATED_FLAG = 'prevue_prefs_migrated';
 
@@ -10,8 +10,7 @@ const MIGRATED_FLAG = 'prevue_prefs_migrated';
  * This list was verified against every `localStorage.getItem`/`setItem` call
  * in the client (see task-14-report.md for the full audit). Keys that are
  * inherently device-local (client id, active profile id, this migration
- * flag, playback volume/mute, last-tuned channel, audio track) are
- * intentionally excluded.
+ * flag, playback volume/mute) are intentionally excluded.
  */
 const MIGRATED_KEYS: readonly { key: string; type: 'string' | 'number' | 'boolean' | 'json' }[] = [
   { key: 'prevue_guide_hours', type: 'number' },
@@ -50,6 +49,10 @@ const MIGRATED_KEYS: readonly { key: string; type: 'string' | 'number' | 'boolea
   { key: 'prevue_guide_dividers', type: 'json' },
   { key: 'prevue_channel_colors', type: 'json' },
   { key: 'prevue_preset_multipliers', type: 'json' },
+  { key: 'prevue_audio_language', type: 'string' },
+  { key: 'prevue_auto_tune', type: 'boolean' },
+  { key: 'prevue_last_channel_number', type: 'number' },
+  { key: 'prevue_last_channel_color', type: 'string' },
 ];
 
 function parseStored(raw: string, type: 'string' | 'number' | 'boolean' | 'json'): unknown {
@@ -74,9 +77,11 @@ function parseStored(raw: string, type: 'string' | 'number' | 'boolean' | 'json'
 /**
  * Copy this device's existing localStorage preferences into a profile once.
  *
- * Guarded by a flag so it never runs twice and never overwrites preferences the
- * user has since changed on another device. Returns true only when a patch was
- * actually sent.
+ * Guarded by a flag so it never runs twice. First-migration-wins: a key
+ * already present on the profile (set by an earlier migration on another
+ * device, or by the user directly) is never overwritten by this device's
+ * local value -- only keys the profile doesn't have yet are patched in.
+ * Returns true only when a patch was actually sent.
  */
 export async function migrateLocalPrefs(profileId: number): Promise<boolean> {
   try {
@@ -85,7 +90,7 @@ export async function migrateLocalPrefs(profileId: number): Promise<boolean> {
     return false;
   }
 
-  const patch: Record<string, unknown> = {};
+  const local: Record<string, unknown> = {};
   for (const { key, type } of MIGRATED_KEYS) {
     let raw: string | null = null;
     try {
@@ -96,7 +101,28 @@ export async function migrateLocalPrefs(profileId: number): Promise<boolean> {
     if (raw === null) continue;
 
     const value = parseStored(raw, type);
-    if (value !== undefined) patch[key.replace(/^prevue_/, '')] = value;
+    if (value !== undefined) local[key.replace(/^prevue_/, '')] = value;
+  }
+
+  if (Object.keys(local).length === 0) {
+    try {
+      localStorage.setItem(MIGRATED_FLAG, '1');
+    } catch { /* storage unavailable */ }
+    return false;
+  }
+
+  let existing: Record<string, unknown>;
+  try {
+    existing = await getProfilePrefs(profileId);
+  } catch (err) {
+    // Leave the flag unset so the migration retries on the next launch.
+    console.error('[Prevue] Preference migration failed:', err);
+    return false;
+  }
+
+  const patch: Record<string, unknown> = {};
+  for (const [prefKey, value] of Object.entries(local)) {
+    if (!(prefKey in existing)) patch[prefKey] = value;
   }
 
   if (Object.keys(patch).length === 0) {
