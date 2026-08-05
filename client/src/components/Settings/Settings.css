@@ -80,34 +80,33 @@
   transition: width 0.3s ease;
 }
 
-/* ── Settings Overlay ─────────────────────────────── */
+/* ── Settings Page ─────────────────────────────────
+   Full-screen routed page, not a modal: fills the viewport below the
+   fixed nav bar, no backdrop/centering/card chrome. z-index stays below
+   NavBar's so the pills remain visible and clickable while this is open. */
 .settings-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 100;
-  padding: 24px;
+  background: var(--bg-primary);
+  padding: 96px 24px 24px;
 }
 
 .settings-panel {
   width: 100%;
-  max-width: 700px;
-  height: 600px;
-  max-height: 90vh;
+  height: 100%;
+  max-width: none;
+  max-height: none;
   background: var(--bg-secondary);
   border: 1px solid var(--border-grid);
-  border-radius: 8px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .settings-panel-sidebar {
-  max-width: 920px;
-  height: 640px;
+  max-width: none;
+  height: 100%;
 }
 
 /* ── Body: sidebar + content ──────────────────────── */
@@ -292,7 +291,6 @@
 .settings-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-grid);
 }
@@ -301,25 +299,6 @@
   font-family: var(--font-retro);
   font-size: 14px;
   color: var(--text-gold);
-}
-
-.settings-close-btn {
-  width: 32px;
-  height: 32px;
-  background: transparent;
-  border: 1px solid var(--border-grid);
-  color: var(--text-secondary);
-  font-size: 16px;
-  cursor: pointer;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.settings-close-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
 }
 
 /* ── Tabs ────────────────────────────────────────── */
@@ -2707,16 +2686,6 @@
 
 /* ── Responsive - Tablet (iPad, etc.) ────────────── */
 @media (max-width: 1023px) {
-  .settings-panel {
-    max-width: 600px;
-  }
-
-  .settings-close-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 20px;
-  }
-
   .settings-tab {
     padding: 14px 16px;
     min-height: 48px;
@@ -2813,18 +2782,13 @@
 /* ── Responsive - Mobile (iPhone, small tablets) ─── */
 @media (max-width: 767px) {
   .settings-overlay {
-    padding: 0;
-    align-items: stretch;
-    justify-content: stretch;
+    /* Clear the fixed nav bar up top; edge-to-edge on the other sides. */
+    padding: 72px 0 0;
   }
 
   .settings-panel {
     width: 100%;
-    max-width: none;
     height: 100%;
-    min-height: 100dvh;
-    max-height: none;
-    border-radius: 0;
     border: none;
   }
 
@@ -2836,13 +2800,6 @@
 
   .settings-title {
     font-size: 12px;
-  }
-
-  /* Close button - touch-friendly (min 44px) */
-  .settings-close-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 20px;
   }
 
   .settings-tabs {
@@ -3260,10 +3217,6 @@
 
 /* ── Small Mobile ────────────────────────────────── */
 @media (max-width: 480px) {
-  .settings-panel {
-    min-height: 70vh;
-  }
-
   .settings-title {
     font-size: 10px;
   }
@@ -3331,11 +3284,6 @@
   .settings-genre-item,
   .settings-list-item,
   .server-action-btn {
-    min-height: 48px;
-  }
-
-  .settings-close-btn {
-    min-width: 48px;
     min-height: 48px;
   }
 
