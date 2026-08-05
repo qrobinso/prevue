@@ -16,7 +16,7 @@
     "kill-dev-ports": "node scripts/kill-dev-ports.js",
     "build": "npm run build -w client && npm run build -w server",
     "start": "npm run start -w server",
-    "test": "npm run test -w server && npm run test -w client",
+    "test": "npm run test -w server; s=$?; npm run test -w client; c=$?; exit $((s>c?s:c))",
     "test:watch": "npm run test:watch -w server",
     "test:coverage": "npm run test:coverage -w server",
     "clean": "rimraf client/dist server/dist"
