@@ -15,6 +15,12 @@ function createMockJellyfin(items: MediaItem[]) {
     getItemDurationMs: (item: MediaItem) =>
       item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : 0,
     getLibraryItems: () => items,
+    getItemsWithGenre: (canonicalGenre: string, alternateNames: string[] = []) => {
+      const matchNames = [canonicalGenre, ...alternateNames].map(n => n.toLowerCase());
+      return items.filter(item =>
+        (item.Genres || []).some(g => matchNames.includes(g.toLowerCase()))
+      );
+    },
     getGenres: () => {
       const genres = new Map<string, MediaItem[]>();
       for (const item of items) {
@@ -114,12 +120,15 @@ describe('ChannelManager', () => {
       const engine = new ScheduleEngine(db, mockJf);
       const manager = new ChannelManager(db, mockJf, engine);
 
-      // Set genre filter to deny Action
+      // 'deny' mode is legacy: per ChannelManager.isGenreAllowed, in 'deny' mode the
+      // `genres` list is treated as the allow-list ("block all except selected"), unlike
+      // the simplified 'allow' mode where the list is the blocked set. So genres:['Action']
+      // here means only Action survives and Comedy is excluded.
       queries.setSetting(db, 'genre_filter', { mode: 'deny', genres: ['Action'] });
 
       const channels = await manager.autoGenerateChannels();
       expect(channels.length).toBe(1);
-      expect(channels[0].name).toBe('Comedy');
+      expect(channels[0].name).toBe('Action');
     });
 
     it('should respect content type filter', async () => {

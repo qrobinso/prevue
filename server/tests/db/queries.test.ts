@@ -14,49 +14,50 @@ describe('database queries', () => {
 
   describe('servers', () => {
     it('should create the first server as active', () => {
-      const server = queries.createServer(db, 'Test', 'http://localhost:8096', 'key123');
+      const server = queries.createServer(db, 'Test', 'http://localhost:8096', 'user', 'token123', 'user-id');
       expect(server.name).toBe('Test');
       expect(server.is_active).toBeTruthy();
     });
 
     it('should create subsequent servers as inactive', () => {
-      queries.createServer(db, 'First', 'http://first:8096', 'key1');
-      const second = queries.createServer(db, 'Second', 'http://second:8096', 'key2');
+      queries.createServer(db, 'First', 'http://first:8096', 'user1', 'token1', 'user-id-1');
+      const second = queries.createServer(db, 'Second', 'http://second:8096', 'user2', 'token2', 'user-id-2');
       expect(second.is_active).toBeFalsy();
     });
 
     it('should list all servers', () => {
-      queries.createServer(db, 'A', 'http://a:8096', 'key1');
-      queries.createServer(db, 'B', 'http://b:8096', 'key2');
+      queries.createServer(db, 'A', 'http://a:8096', 'user1', 'token1', 'user-id-1');
+      queries.createServer(db, 'B', 'http://b:8096', 'user2', 'token2', 'user-id-2');
       const servers = queries.getAllServers(db);
       expect(servers).toHaveLength(2);
     });
 
     it('should get active server', () => {
-      queries.createServer(db, 'Active', 'http://active:8096', 'key1');
-      queries.createServer(db, 'Inactive', 'http://inactive:8096', 'key2');
+      queries.createServer(db, 'Active', 'http://active:8096', 'user1', 'token1', 'user-id-1');
+      queries.createServer(db, 'Inactive', 'http://inactive:8096', 'user2', 'token2', 'user-id-2');
       const active = queries.getActiveServer(db);
       expect(active?.name).toBe('Active');
     });
 
     it('should set a different server as active', () => {
-      const s1 = queries.createServer(db, 'First', 'http://first:8096', 'key1');
-      const s2 = queries.createServer(db, 'Second', 'http://second:8096', 'key2');
+      const s1 = queries.createServer(db, 'First', 'http://first:8096', 'user1', 'token1', 'user-id-1');
+      const s2 = queries.createServer(db, 'Second', 'http://second:8096', 'user2', 'token2', 'user-id-2');
       queries.setActiveServer(db, s2.id);
       const active = queries.getActiveServer(db);
       expect(active?.name).toBe('Second');
     });
 
     it('should update server fields', () => {
-      const server = queries.createServer(db, 'Old', 'http://old:8096', 'key');
+      const server = queries.createServer(db, 'Old', 'http://old:8096', 'user', 'token', 'user-id');
       const updated = queries.updateServer(db, server.id, { name: 'New', url: 'http://new:8096' });
       expect(updated?.name).toBe('New');
       expect(updated?.url).toBe('http://new:8096');
-      expect(updated?.api_key).toBe('key'); // unchanged
+      expect(updated?.username).toBe('user'); // unchanged
+      expect(updated?.access_token).toBe('token'); // unchanged
     });
 
     it('should delete a server', () => {
-      const server = queries.createServer(db, 'ToDelete', 'http://del:8096', 'key');
+      const server = queries.createServer(db, 'ToDelete', 'http://del:8096', 'user', 'token', 'user-id');
       const deleted = queries.deleteServer(db, server.id);
       expect(deleted).toBe(true);
       expect(queries.getServerById(db, server.id)).toBeUndefined();
