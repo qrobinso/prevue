@@ -27,6 +27,7 @@ import { AIService } from './services/AIService.js';
 import { IconicSceneService } from './services/IconicSceneService.js';
 import { HiddenGemsService } from './services/HiddenGemsService.js';
 import { authMiddleware, isAuthEnabled } from './middleware/auth.js';
+import { profileResolver } from './middleware/profileResolver.js';
 import { decrypt } from './utils/crypto.js';
 import * as queries from './db/queries.js';
 import { buildPrevueTxt } from './utils/mdns.js';
@@ -96,6 +97,7 @@ app.use('/api/settings/restart', strictLimiter);
 // When PREVUE_API_KEY is set, all /api/* routes require it
 // (except /api/health and /api/auth/status which are public)
 app.use('/api', authMiddleware);
+app.use('/api', profileResolver);
 
 // Initialize database
 const db = initDatabase();
