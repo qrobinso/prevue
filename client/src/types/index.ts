@@ -114,3 +114,21 @@ export type WSEvent =
   | { type: 'channels:regenerated'; payload: { count: number } }
   | { type: 'library:synced'; payload: { item_count: number } }
   | { type: 'generation:progress'; payload: { step: string; message: string; current?: number; total?: number } };
+
+export interface Profile {
+  id: number;
+  name: string;
+  avatar_glyph: string;
+  avatar_color: string;
+  is_kids: boolean;
+  max_rating: string | null;
+  prefs: Record<string, unknown>;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface LineupOverride {
+  channel_id: number;
+  hidden: boolean;
+  sort_order: number | null;
+}

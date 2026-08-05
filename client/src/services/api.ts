@@ -1,4 +1,5 @@
-import type { Channel, ScheduleBlock, PlaybackInfo, Settings } from '../types';
+import type { Channel, ScheduleBlock, PlaybackInfo, Settings, Profile, LineupOverride } from '../types';
+import { getActiveProfileId } from './activeProfile';
 
 const API_BASE = '/api';
 const REQUEST_TIMEOUT_MS = 20000; // 20s - default timeout
@@ -73,6 +74,10 @@ async function requestOnce<T>(url: string, options?: RequestInit, timeoutMs: num
     };
     if (apiKey) {
       headers['X-API-Key'] = apiKey;
+    }
+    const profileId = getActiveProfileId();
+    if (profileId !== null) {
+      headers['X-Profile-Id'] = String(profileId);
     }
 
     const response = await fetch(`${API_BASE}${url}`, {
@@ -817,4 +822,59 @@ export async function getBatchProgramFacts(programs: BatchFactsProgram[]): Promi
 
 export async function healthCheck(): Promise<{ status: string }> {
   return request('/health');
+}
+
+// ─── Profiles ─────────────────────────────────────────
+
+export async function getProfiles(): Promise<Profile[]> {
+  return request('/profiles');
+}
+
+export async function createProfile(data: {
+  name: string;
+  avatar_glyph?: string;
+  avatar_color?: string;
+  is_kids?: boolean;
+  max_rating?: string | null;
+}): Promise<Profile> {
+  return request('/profiles', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateProfile(
+  id: number,
+  data: {
+    name?: string;
+    avatar_glyph?: string;
+    avatar_color?: string;
+    is_kids?: boolean;
+    max_rating?: string | null;
+  }
+): Promise<Profile> {
+  return request(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteProfile(id: number): Promise<{ success: boolean }> {
+  return request(`/profiles/${id}`, { method: 'DELETE' });
+}
+
+export async function getProfilePrefs(id: number): Promise<Record<string, unknown>> {
+  return request(`/profiles/${id}/prefs`);
+}
+
+export async function patchProfilePrefs(
+  id: number,
+  patch: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  return request(`/profiles/${id}/prefs`, { method: 'PUT', body: JSON.stringify(patch) });
+}
+
+export async function getProfileLineup(id: number): Promise<LineupOverride[]> {
+  return request(`/profiles/${id}/lineup`);
+}
+
+export async function setProfileLineup(
+  id: number,
+  entries: LineupOverride[]
+): Promise<LineupOverride[]> {
+  return request(`/profiles/${id}/lineup`, { method: 'PUT', body: JSON.stringify(entries) });
 }
