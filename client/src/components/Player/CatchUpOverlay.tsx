@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import type { ScheduleProgram } from '../../types';
-import { getCatchUpEnabled } from '../Settings/GeneralSettings';
 import { getCatchUpSummary } from '../../services/api';
 import { useNotifications } from '../../notifications';
+import { usePref } from '../../hooks/usePref';
 
 interface CatchUpOverlayProps {
   program: ScheduleProgram;
@@ -45,6 +45,11 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
   const fetchingRef = useRef(false);
   const autoTriggeredRef = useRef<Set<string>>(new Set()); // tracks auto-trigger per program
   const cachedRef = useRef<CachedResult | null>(null);
+  const [catchUpEnabled] = usePref('catch_up_enabled', false);
+  // Mirrored so the delayed setTimeout callback below sees the current value
+  // rather than the value captured when the timer was scheduled.
+  const catchUpEnabledRef = useRef(catchUpEnabled);
+  useEffect(() => { catchUpEnabledRef.current = catchUpEnabled; }, [catchUpEnabled]);
 
   // Called by NotificationScope when user explicitly dismisses (X, swipe, auto-dismiss)
   const handleUserDismiss = useCallback(() => {
@@ -120,7 +125,7 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
     if (!manualTrigger) return;
     onManualTriggerConsumed?.();
 
-    if (!getCatchUpEnabled()) {
+    if (!catchUpEnabled) {
       activeRef.current = true;
       show(NOTIFICATION_ID, NOTIFICATION_PRIORITY, {
         label: 'WHAT DID I MISS',
@@ -152,7 +157,7 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
       // Past cooldown or no cache — fetch fresh
       doFetchAndShow(program);
     }
-  }, [manualTrigger, program, doFetchAndShow, showNotification, show, onManualTriggerConsumed]);
+  }, [manualTrigger, program, doFetchAndShow, showNotification, show, onManualTriggerConsumed, catchUpEnabled]);
 
   // On program/channel change: always dismiss any active notification and clear timer
   useEffect(() => {
@@ -165,7 +170,7 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
       activeRef.current = false;
     }
 
-    if (!getCatchUpEnabled()) return;
+    if (!catchUpEnabled) return;
     if (program.content_type !== 'movie') return;
     if (autoTriggeredRef.current.has(program.media_item_id)) return;
 
@@ -177,7 +182,7 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
     console.log(`[CatchUp] Eligible: "${program.title}" (${Math.round(elapsedMin)}min in). Starting ${TRIGGER_DELAY_MS / 1000}s timer...`);
 
     timerRef.current = setTimeout(() => {
-      if (!getCatchUpEnabled()) return;
+      if (!catchUpEnabledRef.current) return;
       if (autoTriggeredRef.current.has(program.media_item_id)) return;
       autoTriggeredRef.current.add(program.media_item_id);
       doFetchAndShow(program);
@@ -193,7 +198,7 @@ export default function CatchUpOverlay({ program, channelId, manualTrigger, onMa
         activeRef.current = false;
       }
     };
-  }, [program.media_item_id, channelId, doFetchAndShow, hide]);
+  }, [program.media_item_id, channelId, doFetchAndShow, hide, catchUpEnabled]);
 
   // Hide based on hidden prop
   useEffect(() => {

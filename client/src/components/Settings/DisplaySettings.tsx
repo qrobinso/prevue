@@ -14,8 +14,8 @@ const DEFAULT_GUIDE_HOURS = 1;
 const MIN_GUIDE_HOURS = 1;
 const MAX_GUIDE_HOURS = 4;
 
-const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
-const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
+export const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
+export const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
 
 export type TickerSpeedId = 'slow' | 'standard' | 'fast';
 
@@ -255,7 +255,6 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
   const handleThemeChange = (themeId: string) => {
     setColorThemeId(themeId);
     document.documentElement.setAttribute('data-theme', themeId);
-    window.dispatchEvent(new CustomEvent('themechange', { detail: { themeId } }));
   };
 
   const handlePreviewBgChange = async (value: PreviewBgOption) => {
@@ -270,27 +269,23 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
 
   const handlePreviewStyleChange = (style: PreviewStyle) => {
     setPreviewStyle(style);
-    window.dispatchEvent(new CustomEvent('previewstylechange', { detail: { style } }));
   };
 
 
   const handleAutoScrollToggle = () => {
     const newValue = !autoScrollEnabled;
     setAutoScrollEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('autoscrollchange', { detail: { enabled: newValue } }));
   };
 
   const handleTickerToggle = () => {
     const newValue = !tickerEnabled;
     setTickerEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('tickerchange', { detail: { enabled: newValue } }));
   };
 
   const handleTickerSpeedChange = (speedId: string) => {
     const preset = TICKER_SPEED_PRESETS.find(p => p.id === speedId);
     if (preset) {
       setTickerSpeedId(preset.id);
-      window.dispatchEvent(new CustomEvent('tickerspeedchange', { detail: { speedId: preset.id } }));
     }
   };
 
@@ -298,71 +293,59 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
     const preset = SCROLL_SPEED_PRESETS.find(p => p.id === speedId);
     if (preset) {
       setAutoScrollSpeedId(speedId);
-      window.dispatchEvent(new CustomEvent('autoscrollspeedchange', { detail: { speedId } }));
     }
   };
 
   const handleGuideColorsToggle = () => {
     const newValue = !guideColorsEnabled;
     setGuideColorsEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('guidecolorschange'));
   };
 
   const handleGuideColorMovieChange = (color: string) => {
     setGuideColorMovie(color);
-    window.dispatchEvent(new CustomEvent('guidecolorschange'));
   };
 
   const handleGuideColorEpisodeChange = (color: string) => {
     setGuideColorEpisode(color);
-    window.dispatchEvent(new CustomEvent('guidecolorschange'));
   };
 
   const handleResetGuideColors = () => {
     setGuideColorMovie(DEFAULT_GUIDE_COLOR_MOVIE);
     setGuideColorEpisode(DEFAULT_GUIDE_COLOR_EPISODE);
-    window.dispatchEvent(new CustomEvent('guidecolorschange'));
   };
 
   const handleGuideRatingsToggle = () => {
     const newValue = !guideRatingsEnabled;
     setGuideRatingsEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('guidebadgeschange'));
   };
 
   const handleGuideYearToggle = () => {
     const newValue = !guideYearEnabled;
     setGuideYearEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('guidebadgeschange'));
   };
 
   const handleGuideResolutionToggle = () => {
     const newValue = !guideResolutionEnabled;
     setGuideResolutionEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('guidebadgeschange'));
   };
 
   const handleGuideHdrToggle = () => {
     const newValue = !guideHdrEnabled;
     setGuideHdrEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('guidebadgeschange'));
   };
 
   const handleGuideArtworkToggle = () => {
     const newValue = !guideArtworkEnabled;
     setGuideArtworkEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('guideartworkchange'));
   };
 
   const handleGuideTomatoToggle = () => {
     const newValue = !guideTomatoEnabled;
     setGuideTomatoEnabled(newValue);
-    window.dispatchEvent(new CustomEvent('guidebadgeschange'));
   };
 
   const handleClockFormatChange = (format: ClockFormat) => {
     setClockFormat(format);
-    window.dispatchEvent(new CustomEvent('clockformatchange', { detail: { format } }));
   };
 
 
@@ -373,21 +356,17 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
   const handleChannelCountChange = (value: number) => {
     const clamped = Math.max(MIN_CHANNEL_COUNT, Math.min(MAX_CHANNEL_COUNT, value));
     setChannelCount(clamped);
-    window.dispatchEvent(new CustomEvent('channelcountchange', { detail: { count: clamped } }));
   };
 
   const handleGuideHoursChange = (value: number) => {
     const clamped = Math.max(MIN_GUIDE_HOURS, Math.min(MAX_GUIDE_HOURS, value));
     setGuideHours(clamped);
-    window.dispatchEvent(new CustomEvent('guidehourschange', { detail: { hours: clamped } }));
   };
 
   const handleQualityChange = (qualityId: string) => {
     const preset = QUALITY_PRESETS.find(p => p.id === qualityId);
     if (preset) {
       setVideoQualityId(qualityId);
-      // Dispatch a custom event so the Player can react to quality changes
-      window.dispatchEvent(new CustomEvent('qualitychange', { detail: { qualityId } }));
     }
   };
 
@@ -797,7 +776,6 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
               checked={promoOverlay}
               onChange={(e) => {
                 setPromoOverlay(e.target.checked);
-                window.dispatchEvent(new CustomEvent('promooverlaychange', { detail: { enabled: e.target.checked } }));
               }}
             />
             <span className="settings-toggle-slider" />
@@ -813,7 +791,6 @@ export default function DisplaySettings({ panel }: DisplaySettingsProps = {}) {
               checked={startingSoon}
               onChange={(e) => {
                 setStartingSoon(e.target.checked);
-                window.dispatchEvent(new CustomEvent('startingsoonchange', { detail: { enabled: e.target.checked } }));
               }}
             />
             <span className="settings-toggle-slider" />

@@ -2,6 +2,7 @@ import { memo, useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import type { ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
 import type { ClockFormat } from '../Settings/DisplaySettings';
+import { DEFAULT_GUIDE_COLOR_MOVIE, DEFAULT_GUIDE_COLOR_EPISODE } from '../Settings/DisplaySettings';
 import { usePref } from '../../hooks/usePref';
 import { getIconicScenesEnabled, getHiddenGemsEnabled } from '../Settings/GeneralSettings';
 import { isIconicSceneActive } from './guideFilterUtils';
@@ -16,10 +17,6 @@ import {
 } from '../../utils/guideCustomization';
 import { getSettings } from '../../services/api';
 import './Guide.css';
-
-// Must match the defaults in DisplaySettings.tsx (not exported from there).
-const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
-const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
 
 function isRottenTomatoes(imageKey?: string | null): boolean {
   return !!imageKey?.includes('rottentomatoes');

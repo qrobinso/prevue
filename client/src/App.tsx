@@ -16,7 +16,6 @@ import { useClientRegistration } from './hooks/useClientRegistration';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
 import { applyGuideFilterSimple, type GuideFilterId } from './components/Guide/guideFilterUtils';
 import { usePref } from './hooks/usePref';
-import { isAutoTuneEnabled, getPersistedChannelNumber, setPersistedChannelNumber } from './services/autoTune';
 import { useSleepTimer } from './hooks/useSleepTimer';
 import GoodnightScreen from './components/Player/GoodnightScreen';
 import { isIOS } from './utils/platform';
@@ -75,6 +74,8 @@ function AppContent() {
   // guide_filter is shared with Guide.tsx via ProfileContext, so this component re-renders
   // automatically when the filter changes there — no event listener needed here.
   const [activeFilters] = usePref<GuideFilterId[]>('guide_filter', EMPTY_FILTERS);
+  const [autoTuneEnabled] = usePref('auto_tune', false);
+  const [lastChannelNumber, setLastChannelNumber] = usePref<number | null>('last_channel_number', null);
 
   // iOS interaction detection (required for video autoplay)
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
@@ -141,13 +142,12 @@ function AppContent() {
   // Auto-tune: skip guide and navigate directly to a channel on mount
   const autoTuneAttemptedRef = useRef(false);
   useEffect(() => {
-    if (autoTuneAttemptedRef.current || !isAutoTuneEnabled() || channels.length === 0 || playerActive) return;
+    if (autoTuneAttemptedRef.current || !autoTuneEnabled || channels.length === 0 || playerActive) return;
     autoTuneAttemptedRef.current = true;
 
     // Try persisted channel first
-    const persisted = getPersistedChannelNumber();
-    if (persisted !== null) {
-      const ch = channels.find(c => c.number === persisted);
+    if (lastChannelNumber !== null) {
+      const ch = channels.find(c => c.number === lastChannelNumber);
       if (ch) {
         navigate(`/channel/${ch.number}`, { replace: true });
         return;
@@ -162,7 +162,7 @@ function AppContent() {
         }
       })
       .catch(() => {}); // Fail silently - user sees guide as normal
-  }, [channels, playerActive, navigate]);
+  }, [channels, playerActive, navigate, autoTuneEnabled, lastChannelNumber]);
 
   // Apply display settings from DB on load (preview background, etc.)
   useEffect(() => {
@@ -194,7 +194,7 @@ function AppContent() {
     const prevChannelId = lastChannelId;
     const prevChannel = prevChannelId ? channels.find(ch => ch.id === prevChannelId) : null;
     setLastChannelId(channel.id);
-    setPersistedChannelNumber(channel.number);
+    setLastChannelNumber(channel.number);
     enterFullscreenRef.current = opts?.fromFullscreen === true;
     navigate(`/channel/${channel.number}`);
     metricsChannelSwitch({
@@ -236,7 +236,7 @@ function AppContent() {
       to_channel_id: target.id,
       to_channel_name: target.name,
     }).catch(() => {});
-  }, [lastChannelId, channels, currentChannel, navigate]);
+  }, [lastChannelId, channels, currentChannel, navigate, setLastChannelNumber]);
 
   // Player channel navigation
   const handleChannelUp = useCallback(() => {

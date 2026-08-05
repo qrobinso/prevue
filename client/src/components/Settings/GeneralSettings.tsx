@@ -4,9 +4,9 @@ import { factoryReset, restartServer, getSettings, updateSettings, getServers, g
 import type { ServerInfo, AIConfig } from '../../services/api';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { CheckCircle, CaretDown, ArrowClockwise, Television } from '@phosphor-icons/react';
-import { isAutoTuneEnabled, setAutoTuneEnabled } from '../../services/autoTune';
 import { useNavLayer } from '../../navigation';
 import { useNotifications } from '../../notifications';
+import { usePref } from '../../hooks/usePref';
 import './Settings.css';
 
 /** Thin wrapper that pushes a nav layer for a sub-modal inside Settings */
@@ -20,21 +20,6 @@ const APP_VERSION = '1.0.0';
 const GITHUB_URL = 'https://github.com/qrobinso/prevue';
 
 const ICONIC_SCENES_KEY = 'prevue_iconic_scenes_enabled';
-const PROGRAM_FACTS_KEY = 'prevue_program_facts_enabled';
-const CATCH_UP_KEY = 'prevue_catch_up_enabled';
-
-export function getProgramFactsEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(PROGRAM_FACTS_KEY);
-    if (stored !== null) return stored === 'true';
-  } catch {}
-  return false; // default: off (opt-in AI feature)
-}
-
-export function setProgramFactsEnabled(enabled: boolean): void {
-  localStorage.setItem(PROGRAM_FACTS_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('programfactschange', { detail: { enabled } }));
-}
 
 export function getIconicScenesEnabled(): boolean {
   try {
@@ -62,19 +47,6 @@ export function getHiddenGemsEnabled(): boolean {
 export function setHiddenGemsEnabled(enabled: boolean): void {
   localStorage.setItem(HIDDEN_GEMS_KEY, String(enabled));
   window.dispatchEvent(new CustomEvent('hiddengemschange', { detail: { enabled } }));
-}
-
-export function getCatchUpEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(CATCH_UP_KEY);
-    if (stored !== null) return stored === 'true';
-  } catch {}
-  return false; // default: off (opt-in AI feature)
-}
-
-export function setCatchUpEnabled(enabled: boolean): void {
-  localStorage.setItem(CATCH_UP_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent('catchupchange', { detail: { enabled } }));
 }
 
 export type GeneralPanel = 'sources' | 'playback' | 'ai' | 'about' | 'system';
@@ -106,13 +78,13 @@ export default function GeneralSettings({ onServerAdded, panel }: GeneralSetting
   const [iconicScenesEnabled, setIconicScenesEnabledState] = useState(getIconicScenesEnabled);
   const [iconicLastRefreshed, setIconicLastRefreshed] = useState<string | null>(null);
   const [iconicRefreshing, setIconicRefreshing] = useState(false);
-  const [programFactsEnabled, setProgramFactsEnabledState] = useState(getProgramFactsEnabled);
-  const [catchUpEnabled, setCatchUpEnabledState] = useState(getCatchUpEnabled);
+  const [programFactsEnabled, setProgramFactsEnabled] = usePref('program_facts_enabled', false);
+  const [catchUpEnabled, setCatchUpEnabled] = usePref('catch_up_enabled', false);
   const [hiddenGemsEnabled, setHiddenGemsEnabledState] = useState(getHiddenGemsEnabled);
   const [gemsLastRefreshed, setGemsLastRefreshed] = useState<string | null>(null);
   const [gemsRefreshing, setGemsRefreshing] = useState(false);
   const [gemsCount, setGemsCount] = useState(0);
-  const [autoTuneOn, setAutoTuneOn] = useState(isAutoTuneEnabled);
+  const [autoTuneOn, setAutoTuneOn] = usePref('auto_tune', false);
   const { canInstall, isInstalled, isIOS, prompt } = usePWAInstall();
 
   // Sub-modal Escape handling is now provided by useNavLayer via the SubModal wrapper
@@ -241,15 +213,11 @@ export default function GeneralSettings({ onServerAdded, panel }: GeneralSetting
   };
 
   const handleProgramFactsToggle = () => {
-    const newValue = !programFactsEnabled;
-    setProgramFactsEnabledState(newValue);
-    setProgramFactsEnabled(newValue);
+    setProgramFactsEnabled(!programFactsEnabled);
   };
 
   const handleCatchUpToggle = () => {
-    const newValue = !catchUpEnabled;
-    setCatchUpEnabledState(newValue);
-    setCatchUpEnabled(newValue);
+    setCatchUpEnabled(!catchUpEnabled);
   };
 
   const handleHiddenGemsToggle = () => {
@@ -307,11 +275,7 @@ export default function GeneralSettings({ onServerAdded, panel }: GeneralSetting
             <input
               type="checkbox"
               checked={autoTuneOn}
-              onChange={() => {
-                const next = !autoTuneOn;
-                setAutoTuneOn(next);
-                setAutoTuneEnabled(next);
-              }}
+              onChange={() => setAutoTuneOn(!autoTuneOn)}
             />
             <span className="settings-toggle-slider" />
           </label>

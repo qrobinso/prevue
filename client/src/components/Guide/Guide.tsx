@@ -111,9 +111,9 @@ export default function Guide({
 
   // Auto-scroll, guide hours, preview style, ticker, and guide filters now come from the
   // profile's prefs via usePref, which re-renders this component on change through
-  // ProfileContext. The window CustomEvents (autoscrollchange, guidehourschange, etc.)
-  // are still dispatched by DisplaySettings for any other listeners, but this component
-  // no longer needs to listen for them itself.
+  // ProfileContext. The window CustomEvents that used to sync these (autoscrollchange,
+  // guidehourschange, etc.) have been removed — no listener anywhere in the client
+  // consumed them once every reader switched to usePref (task 16).
 
   // Helper to find the index of the currently airing program (defined early for auto-scroll)
   const findCurrentProgramIdx = useCallback((channelId: number): number => {
@@ -858,7 +858,6 @@ export default function Guide({
               ? activeFilters.filter(id => id !== filterId)
               : [...activeFilters, filterId];
             setActiveFilters(next);
-            window.dispatchEvent(new CustomEvent('guidefilterchange', { detail: { filterIds: next } }));
             // Preserve current channel position in the new filtered list
             const newFiltered = applyGuideFilter(channels, scheduleByChannel, next);
             if (currentChannelId != null) {
@@ -876,7 +875,6 @@ export default function Guide({
           onClearFilters={() => {
             const currentChannelId = focusedChannel?.id;
             setActiveFilters(EMPTY_FILTERS);
-            window.dispatchEvent(new CustomEvent('guidefilterchange', { detail: { filterIds: [] } }));
             // Preserve current channel position in the unfiltered list
             const newFiltered = applyGuideFilter(channels, scheduleByChannel, []);
             if (currentChannelId != null) {

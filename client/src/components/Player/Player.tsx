@@ -70,30 +70,6 @@ const PLAYER_REVEAL_DELAY_MS = 150;
 const NETWORK_RETRY_DELAY_MS = 2000;
 const NETWORK_RELOAD_DELAY_MS = 750;
 
-// Local storage keys for player preferences
-const SUBTITLE_INDEX_KEY = 'prevue_subtitle_index';
-const VIDEO_FIT_KEY = 'prevue_video_fit';
-
-function getStoredSubtitleIndex(): number | null {
-  const stored = localStorage.getItem(SUBTITLE_INDEX_KEY);
-  if (stored === '' || stored === null) return null;
-  const n = parseInt(stored, 10);
-  return Number.isNaN(n) ? null : n;
-}
-
-function setStoredSubtitleIndex(index: number | null): void {
-  localStorage.setItem(SUBTITLE_INDEX_KEY, index === null ? '' : String(index));
-}
-
-function getVideoFit(): 'contain' | 'cover' {
-  const stored = localStorage.getItem(VIDEO_FIT_KEY);
-  return stored === 'cover' ? 'cover' : 'contain';
-}
-
-function setVideoFitSetting(fit: 'contain' | 'cover'): void {
-  localStorage.setItem(VIDEO_FIT_KEY, fit);
-}
-
 // Nerd stats: video/stream info for the stats overlay
 interface NerdStatsData {
   // Video
@@ -271,9 +247,20 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [videoQualityId, setVideoQualityId] = usePref('video_quality', 'auto');
   const currentQuality: QualityPreset =
     QUALITY_PRESETS.find(p => p.id === videoQualityId) ?? QUALITY_PRESETS.find(p => p.id === 'auto')!;
+  // Persisted preference (per profile). `subtitleIndexPref` is the user's saved default;
+  // `selectedSubtitleIndex` below is the ephemeral per-stream active track (may differ,
+  // e.g. when a stream doesn't have a matching track count).
+  const [subtitleIndexPref, setSubtitleIndexPref] = usePref<number | null>('subtitle_index', null);
+  const [videoFit, setVideoFitPref] = usePref<'contain' | 'cover'>('video_fit', 'contain');
+  // Mirrored into refs so imperative/memoized callbacks (HLS event handlers, the
+  // memoized loadStream callback) always see the current pref value instead of a
+  // stale value captured when the callback was created.
+  const subtitleIndexPrefRef = useRef<number | null>(subtitleIndexPref);
+  const videoFitRef = useRef<'contain' | 'cover'>(videoFit);
+  useEffect(() => { subtitleIndexPrefRef.current = subtitleIndexPref; }, [subtitleIndexPref]);
+  useEffect(() => { videoFitRef.current = videoFit; }, [videoFit]);
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
-  const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
-  const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getVideoFit);
+  const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(subtitleIndexPref);
   const [activeCueText, setActiveCueText] = useState('');
   const activeCueRef = useRef('');
   const [autoplayMutedLock, setAutoplayMutedLock] = useState(!hasSharedStream);
@@ -291,7 +278,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const streamReloadAttemptedRef = useRef(false);
   const currentItemIdRef = useRef<string | null>(null);
   const lastTapTimeRef = useRef(0);
-  const selectedSubtitleIndexRef = useRef<number | null>(getStoredSubtitleIndex());
+  const selectedSubtitleIndexRef = useRef<number | null>(subtitleIndexPref);
   const subtitleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Hidden native track that receives HLS-delivered subtitle cues (renderTextTracksNatively
   // is false, so hls.js exposes cues via CUES_PARSED instead of creating tracks itself).
@@ -413,7 +400,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       const preferredSub =
         info.subtitle_index !== undefined
           ? info.subtitle_index
-          : getStoredSubtitleIndex();
+          : subtitleIndexPrefRef.current;
       const initialSub =
         preferredSub !== null && preferredSub >= 0 && preferredSub < subtitleTracks.length
           ? preferredSub
@@ -421,7 +408,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       setSelectedSubtitleIndex(initialSub);
       selectedSubtitleIndexRef.current = initialSub;
       if (info.subtitle_index !== undefined) {
-        setStoredSubtitleIndex(initialSub);
+        setSubtitleIndexPref(initialSub);
       }
 
       currentItemIdRef.current = info.program?.media_item_id || null;
@@ -840,7 +827,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const video = getVideoElement();
         videoRef.current = video;
         reparentVideo(container);
-        video.className = `player-video ${getVideoFit() === 'cover' ? 'player-video-fill' : ''} player-video-ready`;
+        video.className = `player-video ${videoFitRef.current === 'cover' ? 'player-video-fill' : ''} player-video-ready`;
       }
 
       reconfigureBuffers(15, 30);
@@ -872,7 +859,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
         const subtitleTracks = handoff.info.subtitle_tracks ?? [];
         setServerSubtitleTracks(subtitleTracks);
         const preferredSub =
-          handoff.info.subtitle_index !== undefined ? handoff.info.subtitle_index : getStoredSubtitleIndex();
+          handoff.info.subtitle_index !== undefined ? handoff.info.subtitle_index : subtitleIndexPrefRef.current;
         const initialSub =
           preferredSub !== null && preferredSub >= 0 && preferredSub < subtitleTracks.length
             ? preferredSub : null;
@@ -910,7 +897,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
           const subtitleTracks = info.subtitle_tracks ?? [];
           setServerSubtitleTracks(subtitleTracks);
           const preferredSub =
-            info.subtitle_index !== undefined ? info.subtitle_index : getStoredSubtitleIndex();
+            info.subtitle_index !== undefined ? info.subtitle_index : subtitleIndexPrefRef.current;
           const initialSub =
             preferredSub !== null && preferredSub >= 0 && preferredSub < subtitleTracks.length
               ? preferredSub : null;
@@ -1284,12 +1271,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
   // Toggle video fit between letterbox (contain) and fill (cover)
   const toggleVideoFit = useCallback(() => {
-    setVideoFit(prev => {
-      const newFit = prev === 'contain' ? 'cover' : 'contain';
-      setVideoFitSetting(newFit);
-      return newFit;
-    });
-  }, []);
+    setVideoFitPref(videoFitRef.current === 'contain' ? 'cover' : 'contain');
+  }, [setVideoFitPref]);
 
   // Apply volume settings to video element.
   // Skip while autoplay mute lock is held — onFirstPlaying handles the unmute
@@ -1480,7 +1463,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const handleSelectSubtitleTrack = useCallback(async (positionIndex: number | null) => {
     setSelectedSubtitleIndex(positionIndex);
     selectedSubtitleIndexRef.current = positionIndex;
-    setStoredSubtitleIndex(positionIndex);
+    setSubtitleIndexPref(positionIndex);
     setShowSettingsOpen(false);
     try {
       await updateSettings({ preferred_subtitle_index: positionIndex });
@@ -1496,7 +1479,7 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
       applySubtitleTrack(positionIndex);
     }
     showOverlayBriefly();
-  }, [showOverlayBriefly, applySubtitleTrack, loadPlayback]);
+  }, [showOverlayBriefly, applySubtitleTrack, loadPlayback, setSubtitleIndexPref]);
 
   // Keep ref in sync and apply subtitle to hls when selection changes (e.g. from guide)
   useEffect(() => {
@@ -1540,7 +1523,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   // Handle quality change
   const handleQualityChange = useCallback(async (preset: QualityPreset) => {
     setVideoQualityId(preset.id);
-    window.dispatchEvent(new CustomEvent('qualitychange', { detail: { qualityId: preset.id } }));
     setShowSettingsOpen(false);
     
     // Stop current playback and restart with new quality
@@ -1841,14 +1823,14 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
                   <button
                     type="button"
                     className={`player-settings-option ${videoFit === 'contain' ? 'active' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); setVideoFitSetting('contain'); setVideoFit('contain'); }}
+                    onClick={(e) => { e.stopPropagation(); setVideoFitPref('contain'); }}
                   >
                     Letterbox
                   </button>
                   <button
                     type="button"
                     className={`player-settings-option ${videoFit === 'cover' ? 'active' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); setVideoFitSetting('cover'); setVideoFit('cover'); }}
+                    onClick={(e) => { e.stopPropagation(); setVideoFitPref('cover'); }}
                   >
                     Fill
                   </button>

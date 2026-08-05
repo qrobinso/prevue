@@ -1,55 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-// ─── localStorage keys ───────────────────────────────
-const SLEEP_ENABLED_KEY = 'prevue_sleep_enabled';
-const SLEEP_PRESET_KEY = 'prevue_sleep_preset';
-const SLEEP_WINDDOWN_KEY = 'prevue_sleep_winddown_min';
-const SLEEP_DIM_KEY = 'prevue_sleep_dim_sec';
-
-// ─── Exported getters / setters (Settings tab reads these) ───
-
-export function getSleepEnabled(): boolean {
-  try { return localStorage.getItem(SLEEP_ENABLED_KEY) !== 'false'; } catch { return true; }
-}
-export function setSleepEnabled(v: boolean): void {
-  localStorage.setItem(SLEEP_ENABLED_KEY, String(v));
-  window.dispatchEvent(new CustomEvent('prevue_sleep_settings_change'));
-}
-
-export function getStoredPreset(): number {
-  try {
-    const n = parseInt(localStorage.getItem(SLEEP_PRESET_KEY) ?? '', 10);
-    if (!Number.isNaN(n) && n > 0) return n;
-  } catch {}
-  return 30;
-}
-export function setStoredPreset(minutes: number): void {
-  localStorage.setItem(SLEEP_PRESET_KEY, String(minutes));
-}
-
-export function getWindDownMinutes(): number {
-  try {
-    const n = parseInt(localStorage.getItem(SLEEP_WINDDOWN_KEY) ?? '', 10);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  } catch {}
-  return 5; // default 5 minutes
-}
-export function setWindDownMinutes(v: number): void {
-  localStorage.setItem(SLEEP_WINDDOWN_KEY, String(v));
-  window.dispatchEvent(new CustomEvent('prevue_sleep_settings_change'));
-}
-
-export function getDimSeconds(): number {
-  try {
-    const n = parseInt(localStorage.getItem(SLEEP_DIM_KEY) ?? '', 10);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  } catch {}
-  return 60; // default 60 seconds
-}
-export function setDimSeconds(v: number): void {
-  localStorage.setItem(SLEEP_DIM_KEY, String(v));
-  window.dispatchEvent(new CustomEvent('prevue_sleep_settings_change'));
-}
+import { usePref } from './usePref';
 
 // ─── Constants ───────────────────────────────────────
 export const SLEEP_PRESETS = [15, 30, 45, 60, 90, 120] as const;
@@ -88,29 +38,18 @@ export interface SleepTimerActions {
 
 // ─── Hook ────────────────────────────────────────────
 export function useSleepTimer(): [SleepTimerState, SleepTimerActions] {
-  const [enabled, setEnabledState] = useState(getSleepEnabled);
+  const [enabled] = usePref('sleep_enabled', true);
   const [active, setActive] = useState(false);
   const [remainingMs, setRemainingMs] = useState(0);
   const [totalMs, setTotalMs] = useState(0);
   const [isExpired, setIsExpired] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
-  const [lastPreset, setLastPreset] = useState(getStoredPreset);
-  const [windDownMin, setWindDownMin] = useState(getWindDownMinutes);
-  const [dimSec, setDimSec] = useState(getDimSeconds);
+  const [lastPreset, setLastPreset] = usePref('sleep_preset', 30);
+  const [windDownMin] = usePref('sleep_winddown_min', 5);
+  const [dimSec] = usePref('sleep_dim_sec', 60);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const snoozePromptedRef = useRef(false);
-
-  // Listen for settings changes from the Timer settings tab
-  useEffect(() => {
-    const handler = () => {
-      setEnabledState(getSleepEnabled());
-      setWindDownMin(getWindDownMinutes());
-      setDimSec(getDimSeconds());
-    };
-    window.addEventListener('prevue_sleep_settings_change', handler);
-    return () => window.removeEventListener('prevue_sleep_settings_change', handler);
-  }, []);
 
   // If feature gets disabled while timer is active, cancel it
   useEffect(() => {
@@ -149,9 +88,8 @@ export function useSleepTimer(): [SleepTimerState, SleepTimerActions] {
     setIsExpired(false);
     setShowPicker(false);
     setLastPreset(minutes);
-    setStoredPreset(minutes);
     snoozePromptedRef.current = false;
-  }, [clearTimer]);
+  }, [clearTimer, setLastPreset]);
 
   const cancel = useCallback(() => {
     clearTimer();
