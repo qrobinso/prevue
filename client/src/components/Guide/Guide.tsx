@@ -10,8 +10,7 @@ import AIFilterModal from './AIFilterModal';
 import Ticker from './Ticker';
 import { getVisibleChannels, getAutoScroll, getAutoScrollSpeed, getGuideHours, getPreviewStyle, getTickerEnabled } from '../Settings/DisplaySettings';
 import type { PreviewStyle } from '../Settings/DisplaySettings';
-import Settings from '../Settings/Settings';
-import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, GearSix, Sparkle, X } from '@phosphor-icons/react';
+import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, Sparkle, X } from '@phosphor-icons/react';
 import { isIOSPWA } from '../../utils/platform';
 import {
   getFullscreenElement,
@@ -31,29 +30,21 @@ import './Guide.css';
 interface GuideProps {
   onTune: (channel: Channel, program: ScheduleProgram, opts?: { fromFullscreen?: boolean }) => void;
   onOpenSettings: () => void;
-  settingsOpen?: boolean;
-  onCloseSettings?: () => void;
   streamingPaused?: boolean;
   initialChannelId?: number | null;
   keyboardDisabled?: boolean;
   onFocusedChannelChange?: (channelId: number | null) => void;
   onLastChannel?: () => void;
-  sleepState?: import('../../hooks/useSleepTimer').SleepTimerState;
-  sleepActions?: import('../../hooks/useSleepTimer').SleepTimerActions;
 }
 
 export default function Guide({
   onTune,
   onOpenSettings,
-  settingsOpen = false,
-  onCloseSettings,
   streamingPaused = false,
   initialChannelId,
   keyboardDisabled = false,
   onFocusedChannelChange,
   onLastChannel,
-  sleepState,
-  sleepActions,
 }: GuideProps) {
   const { channels, scheduleByChannel, loading, error, refresh } = useSchedule();
   const visibleChannels = getVisibleChannels();
@@ -761,9 +752,6 @@ export default function Guide({
             </button>
           </div>
         </div>
-        {settingsOpen && onCloseSettings && (
-          <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
-        )}
       </div>
     );
   }
@@ -778,9 +766,6 @@ export default function Guide({
             SETUP
           </button>
         </div>
-        {settingsOpen && onCloseSettings && (
-          <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
-        )}
       </div>
     );
   }
@@ -847,13 +832,6 @@ export default function Guide({
           aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
           {isFullscreen ? <CornersIn size={18} weight="bold" /> : <FrameCorners size={18} weight="bold" />}
-        </button>
-        <button
-          className={`guide-settings-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
-          onClick={onOpenSettings}
-          title="Settings"
-        >
-          <GearSix size={18} weight="bold" />
         </button>
       </div>
       <PreviewPanel
@@ -967,9 +945,6 @@ export default function Guide({
           hideDividers={activeFilters.length > 0}
         />
       </div>
-      {settingsOpen && onCloseSettings && (
-        <Settings onClose={onCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />
-      )}
     </div>
   );
 }

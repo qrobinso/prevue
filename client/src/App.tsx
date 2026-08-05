@@ -1,8 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import Guide from './components/Guide/Guide';
 import Player from './components/Player/Player';
 import AuthGate from './components/AuthGate';
+import NavBar from './components/NavBar/NavBar';
+import Settings from './components/Settings/Settings';
+import ProfilePage from './components/Profile/ProfilePage';
 import { useWebSocket } from './hooks/useWebSocket';
 import { NavigationProvider } from './navigation';
 import { NotificationProvider } from './notifications';
@@ -62,7 +65,6 @@ function AppContent() {
   const activeChannelNumber = channelMatch ? parseInt(channelMatch[1], 10) : null;
   const playerActive = activeChannelNumber !== null;
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [channels, setChannels] = useState<ChannelWithProgram[]>([]);
   const [lastChannelId, setLastChannelId] = useState<number | null>(null);
   const [guideFocusedChannelId, setGuideFocusedChannelId] = useState<number | null>(null);
@@ -214,12 +216,12 @@ function AppContent() {
   }, [navigate]);
 
   const handleOpenSettings = useCallback(() => {
-    setSettingsOpen(true);
-  }, []);
+    navigate('/settings');
+  }, [navigate]);
 
   const handleCloseSettings = useCallback(() => {
-    setSettingsOpen(false);
-  }, []);
+    navigate('/');
+  }, [navigate]);
 
   // Jump back to the last-tuned channel
   const handleLastChannel = useCallback(() => {
@@ -318,20 +320,17 @@ function AppContent() {
 
   return (
     <div className="app">
+      <NavBar />
       <div className="app-content">
         {/* Guide - always mounted as base layer */}
         <Guide
           onTune={handleTune}
           onOpenSettings={handleOpenSettings}
-          settingsOpen={settingsOpen && !playerActive}
-          onCloseSettings={handleCloseSettings}
           streamingPaused={guideStreamingPaused}
           initialChannelId={lastChannelId}
           keyboardDisabled={playerActive}
           onFocusedChannelChange={setGuideFocusedChannelId}
           onLastChannel={handleLastChannel}
-          sleepState={sleepState}
-          sleepActions={sleepActions}
         />
 
         {/* Player overlay - shown when a channel URL is active */}
@@ -363,6 +362,16 @@ function AppContent() {
           </div>
         )}
       </div>
+
+      {/* Settings / Profile render over the always-mounted guide */}
+      <Routes>
+        <Route
+          path="/settings"
+          element={<Settings onClose={handleCloseSettings} sleepState={sleepState} sleepActions={sleepActions} />}
+        />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="*" element={null} />
+      </Routes>
 
       {/* Goodnight screen - shown when sleep timer expires */}
       {sleepState.isExpired && (
