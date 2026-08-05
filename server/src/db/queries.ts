@@ -972,3 +972,24 @@ export function ensureDefaultProfile(db: Database.Database): void {
   if (countProfiles(db) > 0) return;
   createProfile(db, { name: 'Default' });
 }
+
+export function getProfilePrefs(
+  db: Database.Database,
+  id: number
+): Record<string, unknown> | undefined {
+  return getProfile(db, id)?.prefs;
+}
+
+/** Merge-patch a profile's prefs blob: supplied keys overwrite, omitted keys survive. */
+export function patchProfilePrefs(
+  db: Database.Database,
+  id: number,
+  patch: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const existing = getProfilePrefs(db, id);
+  if (existing === undefined) return undefined;
+
+  const merged = { ...existing, ...patch };
+  db.prepare('UPDATE profiles SET prefs = ? WHERE id = ?').run(JSON.stringify(merged), id);
+  return merged;
+}

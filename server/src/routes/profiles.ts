@@ -107,3 +107,53 @@ profileRoutes.delete('/:id', (req: Request, res: Response) => {
     res.status(500).json({ error: (err as Error).message });
   }
 });
+
+// GET /api/profiles/:id/prefs - Read a profile's preference blob
+profileRoutes.get('/:id/prefs', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: 'Invalid profile id' });
+      return;
+    }
+
+    const prefs = queries.getProfilePrefs(db, id);
+    if (prefs === undefined) {
+      res.status(404).json({ error: 'Profile not found' });
+      return;
+    }
+
+    res.json(prefs);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PUT /api/profiles/:id/prefs - Merge-patch a profile's preference blob
+profileRoutes.put('/:id/prefs', (req: Request, res: Response) => {
+  try {
+    const { db } = req.app.locals;
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: 'Invalid profile id' });
+      return;
+    }
+
+    const patch: unknown = req.body;
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      res.status(400).json({ error: 'Request body must be an object' });
+      return;
+    }
+
+    const merged = queries.patchProfilePrefs(db, id, patch as Record<string, unknown>);
+    if (merged === undefined) {
+      res.status(404).json({ error: 'Profile not found' });
+      return;
+    }
+
+    res.json(merged);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
