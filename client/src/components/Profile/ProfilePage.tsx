@@ -98,6 +98,7 @@ export default function ProfilePage() {
   };
 
   const remove = async (profile: Profile) => {
+    setError(null);
     try {
       await apiDeleteProfile(profile.id);
       await refreshProfiles();
@@ -107,6 +108,7 @@ export default function ProfilePage() {
   };
 
   const select = async (profile: Profile) => {
+    setError(null);
     try {
       await switchProfile(profile.id);
       navigate('/');

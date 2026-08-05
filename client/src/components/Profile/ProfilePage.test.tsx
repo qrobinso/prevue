@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import ProfilePage from './ProfilePage';
 import * as api from '../../services/api';
 import * as profileContext from '../../contexts/ProfileContext';
+import { ProfileProvider } from '../../contexts/ProfileContext';
 import type { Profile } from '../../types';
 
 const navigateMock = vi.fn();
@@ -102,5 +103,35 @@ describe('ProfilePage', () => {
     await user.click(card);
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/'));
+  });
+
+  // Exercises the real ProfileProvider (not the useProfile mock above) so this
+  // covers the actual switchProfile/refreshProfiles wiring, not just ProfilePage's
+  // local error-handling logic. Only the api.ts boundary is mocked.
+  it('clears a stale error once a later action succeeds', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'getProfiles').mockResolvedValue([JOEY, CHANDLER]);
+    vi.spyOn(api, 'getProfilePrefs').mockResolvedValue({});
+    vi.spyOn(api, 'deleteProfile').mockRejectedValue(new Error('Cannot delete the last profile'));
+
+    render(
+      <ProfileProvider>
+        <ProfilePage />
+      </ProfileProvider>
+    );
+
+    // Failing action: delete rejects, error becomes visible.
+    const deleteBtn = await screen.findByRole('button', { name: /delete chandler/i });
+    await user.click(deleteBtn);
+    expect(await screen.findByText('Cannot delete the last profile')).toBeInTheDocument();
+
+    // Succeeding action: switching profiles goes through the real switchProfile/
+    // loadProfile path (no api rejection anywhere in it) and should clear the
+    // stale error rather than leaving it displayed next to an unrelated success.
+    const card = screen.getByRole('button', { name: 'Chandler' });
+    await user.click(card);
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/'));
+    expect(screen.queryByText('Cannot delete the last profile')).not.toBeInTheDocument();
   });
 });

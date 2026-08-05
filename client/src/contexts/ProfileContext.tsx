@@ -64,14 +64,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const loadProfile = useCallback(async (profile: Profile) => {
     const gen = ++loadGenRef.current;
     setActiveProfile(profile);
-    try {
-      setActiveProfileId(profile.id);
-    } catch (err) {
-      // Persisting the active profile id (e.g. localStorage) can throw in some
-      // environments (Safari private mode quota errors, etc). Don't let that
-      // become an unhandled rejection — the in-memory switch still succeeded.
-      console.error('[Prevue] Failed to persist active profile id:', err);
-    }
+    // setActiveProfileId swallows its own storage errors and returns void —
+    // it cannot throw, so no try/catch is needed here. Do not re-add one.
+    setActiveProfileId(profile.id);
     try {
       const loadedPrefs = await apiGetProfilePrefs(profile.id);
       // Discard if a newer load has started since this one was kicked off —
