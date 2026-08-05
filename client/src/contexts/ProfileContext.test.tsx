@@ -202,4 +202,18 @@ describe('ProfileContext', () => {
     expect(screen.getByTestId('name')).toHaveTextContent('Joey');
     expect(screen.getByTestId('hours')).toHaveTextContent('2');
   });
+
+  it('runs the localStorage migration once on boot', async () => {
+    localStorage.setItem('prevue_guide_hours', '3');
+    const patch = vi.spyOn(api, 'patchProfilePrefs').mockResolvedValue({});
+
+    const { unmount } = render(<ProfileProvider><Probe /></ProfileProvider>);
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    unmount();
+
+    patch.mockClear();
+    render(<ProfileProvider><Probe /></ProfileProvider>);
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(patch).not.toHaveBeenCalled();
+  });
 });

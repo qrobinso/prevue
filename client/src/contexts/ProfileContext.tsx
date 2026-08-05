@@ -5,6 +5,7 @@ import {
   patchProfilePrefs as apiPatchProfilePrefs,
 } from '../services/api';
 import { getActiveProfileId, setActiveProfileId } from '../services/activeProfile';
+import { migrateLocalPrefs } from '../services/prefsMigration';
 import type { Profile } from '../types';
 
 const FLUSH_DEBOUNCE_MS = 400;
@@ -115,7 +116,12 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
         const storedId = getActiveProfileId();
         const target = list.find(p => p.id === storedId) ?? list[0];
-        if (target) await loadProfile(target);
+        if (target) {
+          await loadProfile(target);
+          if (await migrateLocalPrefs(target.id)) {
+            setPrefs(await apiGetProfilePrefs(target.id));
+          }
+        }
       } catch (err) {
         console.error('[Prevue] Failed to load profiles:', err);
       } finally {
