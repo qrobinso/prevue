@@ -34,6 +34,7 @@ channelRoutes.get('/recommend', (req: Request, res: Response) => {
     const { db, scheduleEngine } = req.app.locals;
     const clientId = req.query.client_id as string | undefined;
     const hour = parseInt(req.query.hour as string, 10) || new Date().getHours();
+    const ceiling = req.activeProfile?.max_rating ?? null;
 
     const channels = queries.getAllChannels(db);
     if (channels.length === 0) {
@@ -71,6 +72,7 @@ channelRoutes.get('/recommend', (req: Request, res: Response) => {
     for (const ch of channels) {
       const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(ch.id);
       if (!current?.program || current.program.type === 'interstitial') continue;
+      if (!isRatingWithinCeiling(current.program.rating, ceiling)) continue;
 
       const prog = current.program;
       const startMs = new Date(prog.start_time).getTime();
@@ -101,8 +103,14 @@ channelRoutes.get('/recommend', (req: Request, res: Response) => {
     }
 
     if (scored.length === 0) {
-      // Fallback: return first channel
-      res.json({ channel_number: channels[0].number });
+      // Fallback: return the first channel whose current program (if any) is
+      // within the active profile's ceiling. Never fall back to a channel
+      // just because scoring skipped it — that would defeat the ceiling.
+      const fallback = channels.find(ch => {
+        const current = (scheduleEngine as ScheduleEngine).getCurrentProgram(ch.id);
+        return !current?.program || isRatingWithinCeiling(current.program.rating, ceiling);
+      });
+      res.json({ channel_number: fallback ? fallback.number : null });
       return;
     }
 

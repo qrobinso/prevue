@@ -59,4 +59,27 @@ describe('isRatingWithinCeiling', () => {
   it('blocks everything when the ceiling code itself is unknown', () => {
     expect(isRatingWithinCeiling('TV-Y', 'BANANA')).toBe(false);
   });
+
+  it('blocks NR (ageless code) under a ceiling', () => {
+    expect(isRatingWithinCeiling('NR', 'TV-Y7')).toBe(false);
+  });
+
+  it('blocks Unrated (ageless code) under a ceiling', () => {
+    expect(isRatingWithinCeiling('Unrated', 'TV-Y7')).toBe(false);
+  });
+
+  it('allows NR and Unrated when the profile is unrestricted', () => {
+    expect(isRatingWithinCeiling('NR', null)).toBe(true);
+    expect(isRatingWithinCeiling('Unrated', null)).toBe(true);
+  });
+});
+
+describe('getRatingMinAge — ageless codes', () => {
+  it('returns null for NR (recognized but has no minAge)', () => {
+    expect(getRatingMinAge('NR')).toBeNull();
+  });
+
+  it('returns null for Unrated (recognized but has no minAge)', () => {
+    expect(getRatingMinAge('Unrated')).toBeNull();
+  });
 });
