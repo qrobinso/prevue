@@ -15,7 +15,8 @@ import {
   updateActivePlaybackSession,
   updatePlaybackPosition,
 } from '../../services/playbackHandoff';
-import { getVideoQuality, setVideoQuality, QUALITY_PRESETS, type QualityPreset, getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
+import { QUALITY_PRESETS, type QualityPreset } from '../Settings/DisplaySettings';
+import { usePref } from '../../hooks/usePref';
 import InfoOverlay from './InfoOverlay';
 import CreditsOverlay from './CreditsOverlay';
 import PromoOverlay from './PromoOverlay';
@@ -240,8 +241,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [nextProgram, setNextProgram] = useState<ScheduleProgram | null>(null);
   const [isInterstitial, setIsInterstitial] = useState(false);
   const [showCreditsOverlay, setShowCreditsOverlay] = useState(false);
-  const [promoOverlayEnabled, setPromoOverlayEnabled] = useState(getPromoOverlayEnabled);
-  const [startingSoonEnabled, setStartingSoonEnabledState] = useState(getStartingSoonEnabled);
+  const [promoOverlayEnabled] = usePref('promo_overlay', true);
+  const [startingSoonEnabled] = usePref('starting_soon', true);
   const promoTriggerRef = useRef<PromoOverlayHandle | null>(null);
   const [catchUpTrigger, setCatchUpTrigger] = useState(false);
   const [showProgramInfo, setShowProgramInfo] = useState(false);
@@ -267,7 +268,9 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const [loadingFadeOut, setLoadingFadeOut] = useState(false);
   const [videoReady, setVideoReady] = useState(hasSharedStream);
   const [loadingArtworkUrl, setLoadingArtworkUrl] = useState<string | null>(null);
-  const [currentQuality, setCurrentQuality] = useState<QualityPreset>(getVideoQuality);
+  const [videoQualityId, setVideoQualityId] = usePref('video_quality', 'auto');
+  const currentQuality: QualityPreset =
+    QUALITY_PRESETS.find(p => p.id === videoQualityId) ?? QUALITY_PRESETS.find(p => p.id === 'auto')!;
   const [serverSubtitleTracks, setServerSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(getStoredSubtitleIndex);
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>(getVideoFit);
@@ -309,24 +312,6 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
   const watchStartRef = useRef<number>(0);           // wall-clock when this item started playing
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressActivatedRef = useRef(false);        // whether we've passed the 5-min threshold
-
-  // Listen for promo overlay setting changes
-  useEffect(() => {
-    const handler = (e: Event) => {
-      setPromoOverlayEnabled((e as CustomEvent).detail.enabled);
-    };
-    window.addEventListener('promooverlaychange', handler);
-    return () => window.removeEventListener('promooverlaychange', handler);
-  }, []);
-
-  // Listen for starting soon setting changes
-  useEffect(() => {
-    const handler = (e: Event) => {
-      setStartingSoonEnabledState((e as CustomEvent).detail.enabled);
-    };
-    window.addEventListener('startingsoonchange', handler);
-    return () => window.removeEventListener('startingsoonchange', handler);
-  }, []);
 
   // Compute upcoming programs for promo overlay
   const upcomingPrograms = (() => {
@@ -1554,8 +1539,8 @@ export default function Player({ channel, program, onBack, onChannelUp, onChanne
 
   // Handle quality change
   const handleQualityChange = useCallback(async (preset: QualityPreset) => {
-    setCurrentQuality(preset);
-    setVideoQuality(preset.id);
+    setVideoQualityId(preset.id);
+    window.dispatchEvent(new CustomEvent('qualitychange', { detail: { qualityId: preset.id } }));
     setShowSettingsOpen(false);
     
     // Stop current playback and restart with new quality

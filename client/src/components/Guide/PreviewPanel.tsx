@@ -28,7 +28,7 @@ import PromoOverlay from '../Player/PromoOverlay';
 import IconicSceneOverlay from '../Player/IconicSceneOverlay';
 import CatchUpOverlay from '../Player/CatchUpOverlay';
 import { NotificationScope } from '../../notifications';
-import { getPromoOverlayEnabled, getStartingSoonEnabled } from '../Settings/DisplaySettings';
+import { usePref } from '../../hooks/usePref';
 import { ClosedCaptioningIcon, ArrowsInSimpleIcon, ArrowsOutSimpleIcon, SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react';
 import './Guide.css';
 
@@ -129,26 +129,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const [retryCount, setRetryCount] = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
 
-  const [promoOverlayEnabled, setPromoOverlayEnabledState] = useState(getPromoOverlayEnabled);
-  const [startingSoonEnabled, setStartingSoonEnabledState] = useState(getStartingSoonEnabled);
-
-  // Listen for promo overlay setting changes
-  useEffect(() => {
-    const handler = (e: Event) => {
-      setPromoOverlayEnabledState((e as CustomEvent).detail.enabled);
-    };
-    window.addEventListener('promooverlaychange', handler);
-    return () => window.removeEventListener('promooverlaychange', handler);
-  }, []);
-
-  // Listen for starting soon setting changes
-  useEffect(() => {
-    const handler = (e: Event) => {
-      setStartingSoonEnabledState((e as CustomEvent).detail.enabled);
-    };
-    window.addEventListener('startingsoonchange', handler);
-    return () => window.removeEventListener('startingsoonchange', handler);
-  }, []);
+  const [promoOverlayEnabled] = usePref('promo_overlay', true);
+  const [startingSoonEnabled] = usePref('starting_soon', true);
 
   // Compute upcoming programs for promo overlay
   const upcomingPrograms = (() => {

@@ -1,7 +1,7 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useTicker } from '../../hooks/useTicker';
-import { getTickerSpeed } from '../Settings/DisplaySettings';
-import type { TickerSpeedPreset } from '../Settings/DisplaySettings';
+import { TICKER_SPEED_PRESETS, type TickerSpeedId } from '../Settings/DisplaySettings';
+import { usePref } from '../../hooks/usePref';
 import type { ScheduleProgram } from '../../types';
 import './Ticker.css';
 
@@ -18,14 +18,8 @@ const MAX_DURATION = 960;
 
 export default function Ticker({ enabled, scheduleByChannel, onChannelSelect }: TickerProps) {
   const { items } = useTicker(enabled, scheduleByChannel);
-  const [speed, setSpeed] = useState<TickerSpeedPreset>(getTickerSpeed);
-
-  // Listen for speed changes from settings
-  useEffect(() => {
-    const handler = () => setSpeed(getTickerSpeed());
-    window.addEventListener('tickerspeedchange', handler);
-    return () => window.removeEventListener('tickerspeedchange', handler);
-  }, []);
+  const [speedId] = usePref<TickerSpeedId>('ticker_speed', 'standard');
+  const speed = TICKER_SPEED_PRESETS.find(p => p.id === speedId) ?? TICKER_SPEED_PRESETS.find(p => p.id === 'standard')!;
 
   const handleItemClick = useCallback((channelNumber: number) => {
     onChannelSelect?.(channelNumber);

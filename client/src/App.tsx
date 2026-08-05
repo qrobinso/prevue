@@ -14,7 +14,8 @@ import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannel
 import { getClientId, getMetricsClientFields } from './services/clientIdentity';
 import { useClientRegistration } from './hooks/useClientRegistration';
 import { applyPreviewBg, type PreviewBgOption } from './components/Settings/DisplaySettings';
-import { getGuideFilters, applyGuideFilterSimple, type GuideFilterId } from './components/Guide/guideFilterUtils';
+import { applyGuideFilterSimple, type GuideFilterId } from './components/Guide/guideFilterUtils';
+import { usePref } from './hooks/usePref';
 import { isAutoTuneEnabled, getPersistedChannelNumber, setPersistedChannelNumber } from './services/autoTune';
 import { useSleepTimer } from './hooks/useSleepTimer';
 import GoodnightScreen from './components/Player/GoodnightScreen';
@@ -22,6 +23,8 @@ import { isIOS } from './utils/platform';
 import type { Channel, ScheduleProgram, WSEvent } from './types';
 
 export type AppView = 'guide' | 'player';
+
+const EMPTY_FILTERS: GuideFilterId[] = [];
 
 // Auth wrapper: checks if API key auth is required and gates the app
 function AuthWrapper({ children }: { children: React.ReactNode }) {
@@ -69,16 +72,9 @@ function AppContent() {
   const [lastChannelId, setLastChannelId] = useState<number | null>(null);
   const [guideFocusedChannelId, setGuideFocusedChannelId] = useState<number | null>(null);
   const enterFullscreenRef = useRef(false);
-  const [activeFilters, setActiveFilters] = useState<GuideFilterId[]>(getGuideFilters);
-
-  // Listen for guide filter changes
-  useEffect(() => {
-    const handleFilterChange = (e: CustomEvent<{ filterIds: GuideFilterId[] }>) => {
-      setActiveFilters(e.detail.filterIds);
-    };
-    window.addEventListener('guidefilterchange', handleFilterChange as EventListener);
-    return () => window.removeEventListener('guidefilterchange', handleFilterChange as EventListener);
-  }, []);
+  // guide_filter is shared with Guide.tsx via ProfileContext, so this component re-renders
+  // automatically when the filter changes there — no event listener needed here.
+  const [activeFilters] = usePref<GuideFilterId[]>('guide_filter', EMPTY_FILTERS);
 
   // iOS interaction detection (required for video autoplay)
   const [hasUserInteracted, setHasUserInteracted] = useState(false);

@@ -1,19 +1,8 @@
 import { memo, useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import type { ScheduleProgram } from '../../types';
 import type { ChannelWithProgram } from '../../services/api';
-import {
-  getGuideColorsEnabled,
-  getGuideColorMovie,
-  getGuideColorEpisode,
-  getGuideRatings,
-  getGuideYear,
-  getGuideResolution,
-  getGuideHdr,
-  getGuideArtwork,
-  getGuideTomato,
-  getClockFormat,
-  type ClockFormat,
-} from '../Settings/DisplaySettings';
+import type { ClockFormat } from '../Settings/DisplaySettings';
+import { usePref } from '../../hooks/usePref';
 import { getIconicScenesEnabled, getHiddenGemsEnabled } from '../Settings/GeneralSettings';
 import { isIconicSceneActive } from './guideFilterUtils';
 import {
@@ -27,6 +16,10 @@ import {
 } from '../../utils/guideCustomization';
 import { getSettings } from '../../services/api';
 import './Guide.css';
+
+// Must match the defaults in DisplaySettings.tsx (not exported from there).
+const DEFAULT_GUIDE_COLOR_MOVIE = '#1a3a5c';
+const DEFAULT_GUIDE_COLOR_EPISODE = '#2d4a1e';
 
 function isRottenTomatoes(imageKey?: string | null): boolean {
   return !!imageKey?.includes('rottentomatoes');
@@ -466,61 +459,40 @@ function GuideGrid({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const scrollLeftRef = useRef(0);
 
-  const [guideColors, setGuideColors] = useState(() => ({
-    enabled: getGuideColorsEnabled(),
-    movie: getGuideColorMovie(),
-    episode: getGuideColorEpisode(),
-  }));
-  const [showRatings, setShowRatings] = useState(getGuideRatings);
-  const [showYear, setShowYear] = useState(getGuideYear);
-  const [showResolution, setShowResolution] = useState(getGuideResolution);
-  const [showHdr, setShowHdr] = useState(getGuideHdr);
-  const [showArtwork, setShowArtwork] = useState(getGuideArtwork);
-  const [showTomato, setShowTomato] = useState(getGuideTomato);
+  const [guideColorsEnabled] = usePref('guide_colors_enabled', false);
+  const [guideColorMovie] = usePref('guide_color_movie', DEFAULT_GUIDE_COLOR_MOVIE);
+  const [guideColorEpisode] = usePref('guide_color_episode', DEFAULT_GUIDE_COLOR_EPISODE);
+  const guideColors = { enabled: guideColorsEnabled, movie: guideColorMovie, episode: guideColorEpisode };
+  const [showRatings] = usePref('guide_ratings', false);
+  const [showYear] = usePref('guide_year', false);
+  const [showResolution] = usePref('guide_resolution', false);
+  const [showHdr] = usePref('guide_hdr', false);
+  const [showArtwork] = usePref('guide_artwork', false);
+  const [showTomato] = usePref('guide_tomato', false);
   const [showIconicScenes, setShowIconicScenes] = useState(getIconicScenesEnabled);
   const [showHiddenGems, setShowHiddenGems] = useState(getHiddenGemsEnabled);
-  const [clockFormat, setClockFormatState] = useState<ClockFormat>(getClockFormat);
+  const [clockFormat] = usePref<ClockFormat>('clock_format', '12h');
 
   // Channel colors & dividers from localStorage
   const [channelColorMap, setChannelColorMap] = useState<Record<number, string>>(() => getChannelColors());
   const [guideDividers, setGuideDividers] = useState<GuideDivider[]>(() => getGuideDividers());
 
+  // guide colors, badges, artwork, and clock format now come from the profile's prefs via
+  // usePref, which re-renders this component on change through ProfileContext — no event
+  // listener needed for those. Channel colors/dividers still sync via events below (they
+  // remain on the global settings store, not per-profile prefs; see task-15-report.md).
   useEffect(() => {
-    const refreshGuideColors = () => {
-      setGuideColors({
-        enabled: getGuideColorsEnabled(),
-        movie: getGuideColorMovie(),
-        episode: getGuideColorEpisode(),
-      });
-    };
-    const refreshBadges = () => {
-      setShowRatings(getGuideRatings());
-      setShowYear(getGuideYear());
-      setShowResolution(getGuideResolution());
-      setShowHdr(getGuideHdr());
-      setShowTomato(getGuideTomato());
-    };
-    const refreshArtwork = () => setShowArtwork(getGuideArtwork());
-    const refreshClockFormat = () => setClockFormatState(getClockFormat());
     const refreshChannelColors = () => setChannelColorMap(getChannelColors());
     const refreshDividers = () => setGuideDividers(getGuideDividers());
     const refreshIconicScenes = () => setShowIconicScenes(getIconicScenesEnabled());
     const refreshHiddenGems = () => setShowHiddenGems(getHiddenGemsEnabled());
 
-    window.addEventListener('guidecolorschange', refreshGuideColors);
-    window.addEventListener('guidebadgeschange', refreshBadges);
-    window.addEventListener('guideartworkchange', refreshArtwork);
-    window.addEventListener('clockformatchange', refreshClockFormat);
     window.addEventListener('channelcolorschange', refreshChannelColors);
     window.addEventListener('guidedividerschange', refreshDividers);
     window.addEventListener('iconicsceneschange', refreshIconicScenes);
     window.addEventListener('hiddengemschange', refreshHiddenGems);
 
     return () => {
-      window.removeEventListener('guidecolorschange', refreshGuideColors);
-      window.removeEventListener('guidebadgeschange', refreshBadges);
-      window.removeEventListener('guideartworkchange', refreshArtwork);
-      window.removeEventListener('clockformatchange', refreshClockFormat);
       window.removeEventListener('channelcolorschange', refreshChannelColors);
       window.removeEventListener('guidedividerschange', refreshDividers);
       window.removeEventListener('iconicsceneschange', refreshIconicScenes);

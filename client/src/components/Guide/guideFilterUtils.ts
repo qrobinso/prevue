@@ -23,9 +23,6 @@ export interface GuideFilterPreset {
   label: string;
 }
 
-const STORAGE_KEY = 'prevue_guide_filter';
-const EVENT_NAME = 'guidefilterchange';
-
 const FIFTEEN_MIN = 15 * 60 * 1000;
 
 const KIDS_RATINGS = new Set(['G', 'PG', 'TV-Y', 'TV-Y7', 'TV-Y7-FV', 'TV-G', 'TV-PG']);
@@ -71,26 +68,6 @@ export function isIconicSceneActive(program: ScheduleProgram, nowMs: number): bo
     const effectiveEnd = scene.end_minutes ?? scene.timestamp_minutes + 3; // fallback for legacy data
     return elapsedMinutes >= scene.timestamp_minutes - ICONIC_EARLY_START && elapsedMinutes <= effectiveEnd;
   });
-}
-
-export function getGuideFilters(): GuideFilterId[] {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [parsed]; // migrate single-value format
-  } catch {
-    return raw ? [raw as GuideFilterId] : []; // migrate single-value format
-  }
-}
-
-export function setGuideFilters(filterIds: GuideFilterId[]): void {
-  if (filterIds.length > 0) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filterIds));
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
-  window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: { filterIds } }));
 }
 
 function findCurrentProgram(programs: ScheduleProgram[], now: number): ScheduleProgram | null {
