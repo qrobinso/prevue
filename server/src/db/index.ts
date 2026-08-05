@@ -366,6 +366,13 @@ function migrateWatchSessionsTable(db: Database.Database): void {
       console.log('[Database] Added series_name column to watch_sessions');
     } catch { /* column may already exist */ }
   }
+  // Additive: attribute watch sessions to a profile. Nullable so existing rows survive.
+  if (tableInfo.length > 0 && !columnNames.includes('profile_id')) {
+    try {
+      db.exec('ALTER TABLE watch_sessions ADD COLUMN profile_id INTEGER');
+      console.log('[Database] Added profile_id column to watch_sessions');
+    } catch { /* column may already exist */ }
+  }
 }
 
 function migrateClientRegistryTable(db: Database.Database): void {

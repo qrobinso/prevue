@@ -90,6 +90,7 @@ export function createTestDb(): Database.Database {
     CREATE TABLE IF NOT EXISTS watch_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id TEXT NOT NULL,
+      profile_id INTEGER,
       channel_id INTEGER,
       channel_name TEXT,
       item_id TEXT,

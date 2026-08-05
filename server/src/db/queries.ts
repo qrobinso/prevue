@@ -384,6 +384,7 @@ export function clearLibraryCache(db: Database.Database, serverId: number): void
 export interface WatchSession {
   id: number;
   client_id: string;
+  profile_id: number | null;
   channel_id: number | null;
   channel_name: string | null;
   item_id: string | null;
@@ -400,6 +401,7 @@ export function createWatchSession(
   db: Database.Database,
   data: {
     client_id: string;
+    profile_id?: number;
     channel_id?: number;
     channel_name?: string;
     item_id?: string;
@@ -410,10 +412,11 @@ export function createWatchSession(
   }
 ): WatchSession {
   const result = db.prepare(
-    `INSERT INTO watch_sessions (client_id, channel_id, channel_name, item_id, title, series_name, content_type, user_agent)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO watch_sessions (client_id, profile_id, channel_id, channel_name, item_id, title, series_name, content_type, user_agent)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     data.client_id,
+    data.profile_id ?? null,
     data.channel_id ?? null,
     data.channel_name ?? null,
     data.item_id ?? null,
