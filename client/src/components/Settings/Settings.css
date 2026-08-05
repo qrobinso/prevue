@@ -81,15 +81,15 @@
 }
 
 /* ── Settings Page ─────────────────────────────────
-   Full-screen routed page, not a modal: fills the viewport below the
-   fixed nav bar, no backdrop/centering/card chrome. z-index stays below
-   NavBar's so the pills remain visible and clickable while this is open. */
+   Full-screen routed page, not a modal: fills the whole viewport,
+   no backdrop/centering/card chrome. Its own header (with the close
+   button) provides the way back to the guide. */
 .settings-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
   background: var(--bg-primary);
-  padding: 96px 24px 24px;
+  padding: 24px;
 }
 
 .settings-panel {
@@ -291,6 +291,7 @@
 .settings-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-grid);
 }
@@ -299,6 +300,25 @@
   font-family: var(--font-retro);
   font-size: 14px;
   color: var(--text-gold);
+}
+
+.settings-close-btn {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid var(--border-grid);
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-close-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
 
 /* ── Tabs ────────────────────────────────────────── */
@@ -2686,6 +2706,12 @@
 
 /* ── Responsive - Tablet (iPad, etc.) ────────────── */
 @media (max-width: 1023px) {
+  .settings-close-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
   .settings-tab {
     padding: 14px 16px;
     min-height: 48px;
@@ -2782,8 +2808,8 @@
 /* ── Responsive - Mobile (iPhone, small tablets) ─── */
 @media (max-width: 767px) {
   .settings-overlay {
-    /* Clear the fixed nav bar up top; edge-to-edge on the other sides. */
-    padding: 72px 0 0;
+    /* Edge-to-edge on mobile; the panel's own header provides the close button. */
+    padding: 0;
   }
 
   .settings-panel {

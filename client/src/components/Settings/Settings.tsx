@@ -9,7 +9,7 @@ import SleepTimerSettings from './SleepTimerSettings';
 import type { SleepTimerState, SleepTimerActions } from '../../hooks/useSleepTimer';
 import { wsClient } from '../../services/websocket';
 import {
-  Check, XCircle,
+  Check, XCircle, X,
   HardDrives, ListBullets, Funnel,
   Palette, Television, Play,
   Sparkle,
@@ -261,6 +261,9 @@ export default function Settings({ onClose, sleepState, sleepActions }: Settings
       <div className="settings-panel settings-panel-sidebar" ref={panelRef}>
         <div className="settings-header">
           <h2 className="settings-title">SETTINGS</h2>
+          <button className="settings-close-btn" onClick={onClose} aria-label="Close">
+            <X size={18} weight="bold" />
+          </button>
         </div>
 
         <div className="settings-body">

@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-ro
 import Guide from './components/Guide/Guide';
 import Player from './components/Player/Player';
 import AuthGate from './components/AuthGate';
-import NavBar from './components/NavBar/NavBar';
 import Settings from './components/Settings/Settings';
 import ProfilePage from './components/Profile/ProfilePage';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -339,7 +338,6 @@ function AppContent() {
 
   return (
     <div className="app">
-      <NavBar />
       <div className="app-content">
         {/* Guide - always mounted as base layer */}
         <Guide

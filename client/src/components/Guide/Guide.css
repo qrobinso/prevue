@@ -1165,7 +1165,9 @@ html[data-preview-bg="white"] .preview-video-container {
 .guide-fullscreen-btn,
 .guide-search-btn,
 .guide-filter-btn,
-.guide-ai-filter-btn {
+.guide-ai-filter-btn,
+.guide-profile-btn,
+.guide-settings-btn {
   width: 48px;
   height: 48px;
   min-width: 48px;
@@ -1313,6 +1315,37 @@ html[data-preview-bg="white"] .preview-video-container {
 .guide-fullscreen-btn:hover {
   background: var(--bg-cell-hover);
   color: var(--text-gold);
+}
+
+.guide-profile-btn,
+.guide-settings-btn {
+  position: static;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--border-grid);
+  color: var(--text-secondary);
+  font-size: 22px;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.guide-profile-btn:hover,
+.guide-settings-btn:hover {
+  background: var(--bg-cell-hover);
+  color: var(--text-gold);
+}
+
+/* Placeholder shown while the active profile is still loading; keeps the
+   button's footprint stable so the header row doesn't jump. */
+.guide-profile-btn-placeholder {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--border-grid);
+  display: inline-block;
 }
 
 /* Guide in browser fullscreen mode */
@@ -1875,7 +1908,9 @@ html[data-preview-bg="white"] .preview-video-container {
   .guide-fullscreen-btn,
   .guide-search-btn,
   .guide-filter-btn,
-  .guide-ai-filter-btn {
+  .guide-ai-filter-btn,
+  .guide-profile-btn,
+  .guide-settings-btn {
     width: 48px;
     height: 48px;
     min-width: 48px;
@@ -2099,7 +2134,9 @@ html[data-preview-bg="white"] .preview-video-container {
   .guide-fullscreen-btn,
   .guide-search-btn,
   .guide-filter-btn,
-  .guide-ai-filter-btn {
+  .guide-ai-filter-btn,
+  .guide-profile-btn,
+  .guide-settings-btn {
     width: 36px;
     height: 36px;
     min-width: 36px;
@@ -2236,7 +2273,9 @@ html[data-preview-bg="white"] .preview-video-container {
   .guide-fullscreen-btn,
   .guide-search-btn,
   .guide-filter-btn,
-  .guide-ai-filter-btn {
+  .guide-ai-filter-btn,
+  .guide-profile-btn,
+  .guide-settings-btn {
     width: 32px;
     height: 32px;
     min-width: 32px;
@@ -2454,7 +2493,9 @@ html[data-preview-bg="white"] .preview-video-container {
   .guide-fullscreen-btn,
   .guide-search-btn,
   .guide-filter-btn,
-  .guide-ai-filter-btn {
+  .guide-ai-filter-btn,
+  .guide-profile-btn,
+  .guide-settings-btn {
     width: 34px;
     height: 34px;
     min-width: 34px;
@@ -2649,7 +2690,9 @@ html[data-preview-bg="white"] .preview-video-container {
   .guide-fullscreen-btn,
   .guide-search-btn,
   .guide-filter-btn,
-  .guide-ai-filter-btn {
+  .guide-ai-filter-btn,
+  .guide-profile-btn,
+  .guide-settings-btn {
     width: 48px;
     height: 48px;
     min-width: 48px;

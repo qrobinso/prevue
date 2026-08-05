@@ -1,6 +1,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSchedule } from '../../hooks/useSchedule';
 import { useNavZone, useNavigation, moveFocus, arrowToDirection, focusFirst } from '../../navigation';
+import { useProfile } from '../../contexts/ProfileContext';
+import { Avatar } from '../Profile/ProfilePage';
 import GuideGrid from './GuideGrid';
 import PreviewPanel from './PreviewPanel';
 import ProgramInfoModal from './ProgramInfoModal';
@@ -10,7 +13,7 @@ import AIFilterModal from './AIFilterModal';
 import Ticker from './Ticker';
 import { SCROLL_SPEED_PRESETS, type PreviewStyle, type ScrollSpeedPreset } from '../Settings/DisplaySettings';
 import { usePref } from '../../hooks/usePref';
-import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, Sparkle, X } from '@phosphor-icons/react';
+import { MagnifyingGlass, Funnel, FrameCorners, CornersIn, Sparkle, X, GearSix } from '@phosphor-icons/react';
 import { isIOSPWA } from '../../utils/platform';
 import {
   getFullscreenElement,
@@ -48,6 +51,8 @@ export default function Guide({
   onFocusedChannelChange,
   onLastChannel,
 }: GuideProps) {
+  const navigate = useNavigate();
+  const { activeProfile } = useProfile();
   const { channels, scheduleByChannel, loading, error, refresh } = useSchedule();
   const [visibleChannels] = usePref('visible_channels', 5);
   const [guideHours] = usePref('guide_hours', 1);
@@ -615,7 +620,6 @@ export default function Guide({
     },
     getAdjacentZone: (dir) => {
       if (dir === 'down') return 'guide-grid';
-      if (dir === 'up') return 'navbar';
       return null;
     },
   });
@@ -804,6 +808,26 @@ export default function Guide({
           aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
           {isFullscreen ? <CornersIn size={18} weight="bold" /> : <FrameCorners size={18} weight="bold" />}
+        </button>
+        <button
+          className={`guide-profile-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+          onClick={() => navigate('/profile')}
+          title="Profile"
+          aria-label={activeProfile ? `Profile: ${activeProfile.name}` : 'Profile'}
+        >
+          {activeProfile ? (
+            <Avatar profile={activeProfile} size={18} />
+          ) : (
+            <span className="guide-profile-btn-placeholder" aria-hidden="true" />
+          )}
+        </button>
+        <button
+          className={`guide-settings-btn ${!overlayVisible ? 'guide-btn-hidden' : ''}`}
+          onClick={onOpenSettings}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <GearSix size={18} weight="bold" />
         </button>
       </div>
       <PreviewPanel

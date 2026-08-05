@@ -3,7 +3,7 @@
   inset: 0;
   z-index: 100;
   overflow-y: auto;
-  padding: 96px 32px 32px;
+  padding: 64px 32px 32px;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-system);
@@ -14,6 +14,28 @@
   font-size: 16px;
   color: var(--text-gold);
   margin-bottom: 32px;
+}
+
+.profile-page-close-btn {
+  position: fixed;
+  top: 24px;
+  right: 32px;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid var(--border-grid);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 101;
+}
+
+.profile-page-close-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
 
 .profile-grid { display: flex; flex-wrap: wrap; gap: 24px; margin-bottom: 48px; }
@@ -89,5 +111,12 @@
 .profile-form-actions { display: flex; gap: 8px; }
 
 @media (max-width: 640px) {
-  .profile-page { padding: 80px 16px 24px; }
+  .profile-page { padding: 64px 16px 24px; }
+
+  .profile-page-close-btn {
+    top: 16px;
+    right: 16px;
+    width: 44px;
+    height: 44px;
+  }
 }

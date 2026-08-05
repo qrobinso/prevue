@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash, PencilSimple } from '@phosphor-icons/react';
+import { Plus, Trash, PencilSimple, X } from '@phosphor-icons/react';
 import { useProfile } from '../../contexts/ProfileContext';
 import {
   createProfile as apiCreateProfile,
@@ -119,6 +119,9 @@ export default function ProfilePage() {
 
   return (
     <div className="profile-page">
+      <button className="profile-page-close-btn" onClick={() => navigate('/')} aria-label="Close">
+        <X size={18} weight="bold" />
+      </button>
       <h1 className="profile-page-title">Who's watching?</h1>
 
       <div className="profile-grid">
