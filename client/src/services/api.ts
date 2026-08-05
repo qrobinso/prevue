@@ -122,10 +122,15 @@ async function requestOnce<T>(url: string, options?: RequestInit, timeoutMs: num
 
 async function request<T>(url: string, options?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const method = (options?.method ?? 'GET').toUpperCase();
+  // Include the active profile id in the dedup key so an in-flight GET made
+  // under one profile is never cross-served to a request made after switching
+  // to a different profile (the request carries X-Profile-Id per-call, but the
+  // shared promise would otherwise resolve with the first profile's data).
+  const dedupKey = `${getActiveProfileId() ?? 'none'}::${url}`;
 
-  // Deduplicate concurrent GET requests to the same URL
+  // Deduplicate concurrent GET requests to the same URL (scoped per profile)
   if (method === 'GET') {
-    const existing = inflightGets.get(url);
+    const existing = inflightGets.get(dedupKey);
     if (existing) return existing as Promise<T>;
   }
 
@@ -148,8 +153,8 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs: number 
   };
 
   if (method === 'GET') {
-    const promise = execute().finally(() => inflightGets.delete(url));
-    inflightGets.set(url, promise);
+    const promise = execute().finally(() => inflightGets.delete(dedupKey));
+    inflightGets.set(dedupKey, promise);
     return promise;
   }
 

@@ -6,6 +6,7 @@ import AuthGate from './components/AuthGate';
 import { useWebSocket } from './hooks/useWebSocket';
 import { NavigationProvider } from './navigation';
 import { NotificationProvider } from './notifications';
+import { ProfileProvider } from './contexts/ProfileContext';
 import { getChannels, getSettings, getAuthStatus, onUnauthorized, metricsChannelSwitch, getRecommendedChannel, getServers, regenerateSchedule, type ChannelWithProgram } from './services/api';
 import { getClientId, getMetricsClientFields } from './services/clientIdentity';
 import { useClientRegistration } from './hooks/useClientRegistration';
@@ -378,7 +379,9 @@ export default function App() {
       <NavigationProvider>
         <NotificationProvider>
           <AuthWrapper>
-            <AppContent />
+            <ProfileProvider>
+              <AppContent />
+            </ProfileProvider>
           </AuthWrapper>
         </NotificationProvider>
       </NavigationProvider>
