@@ -31,6 +31,10 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const pendingRef = useRef<Record<string, unknown>>({});
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeIdRef = useRef<number | null>(null);
+  // Bumped on every loadProfile call; a resolved fetch only applies its result
+  // if it's still the most recently requested load, so rapid/overlapping
+  // switches can't let a stale response overwrite the current profile's prefs.
+  const loadGenRef = useRef(0);
 
   activeIdRef.current = activeProfile?.id ?? null;
 
@@ -58,11 +62,18 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [flush]);
 
   const loadProfile = useCallback(async (profile: Profile) => {
+    const gen = ++loadGenRef.current;
     setActiveProfile(profile);
     setActiveProfileId(profile.id);
     try {
-      setPrefs(await apiGetProfilePrefs(profile.id));
+      const loadedPrefs = await apiGetProfilePrefs(profile.id);
+      // Discard if a newer load has started since this one was kicked off —
+      // otherwise an out-of-order resolution could overwrite the current
+      // profile's prefs with a stale profile's data.
+      if (loadGenRef.current !== gen) return;
+      setPrefs(loadedPrefs);
     } catch (err) {
+      if (loadGenRef.current !== gen) return;
       console.error('[Prevue] Failed to load preferences:', err);
       setPrefs({});
     }
@@ -76,8 +87,20 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const switchProfile = useCallback(async (id: number) => {
     const target = profiles.find(p => p.id === id);
     if (!target) return;
+
+    // Flush any pending debounced write for the OUTGOING profile before
+    // switching. activeIdRef.current still points at the outgoing profile
+    // here (loadProfile hasn't run yet), so flush() attributes the write
+    // correctly instead of letting the debounce timer fire later and PATCH
+    // the change onto the newly active profile.
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+      flush();
+    }
+
     await loadProfile(target);
-  }, [profiles, loadProfile]);
+  }, [profiles, loadProfile, flush]);
 
   useEffect(() => {
     let cancelled = false;
