@@ -118,12 +118,16 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="profile-page">
-      <button className="profile-page-close-btn" onClick={() => navigate('/')} aria-label="Close">
-        <X size={18} weight="bold" />
-      </button>
-      <h1 className="profile-page-title">Who's watching?</h1>
+    <div className="profile-overlay">
+      <div className="profile-panel">
+        <div className="profile-header">
+          <h2 className="profile-title">WHO&apos;S WATCHING?</h2>
+          <button className="profile-close-btn" onClick={() => navigate('/')} aria-label="Close">
+            <X size={18} weight="bold" />
+          </button>
+        </div>
 
+        <div className="profile-body">
       <div className="profile-grid">
         {profiles.map(profile => (
           <button
@@ -225,6 +229,8 @@ export default function ProfilePage() {
           </div>
         )}
       </section>
+        </div>
+      </div>
     </div>
   );
 }
