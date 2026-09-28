@@ -3,8 +3,13 @@ import type { Request, Response } from 'express';
 import * as queries from '../db/queries.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
-import { activeSessions, trackSession, lastActivityByItemId } from './stream.js';
+import { randomUUID } from 'crypto';
+import {
+  activeSessions, trackSession, lastActivityByItemId, clientKeyFor, isSessionConsumed, releaseSessionState,
+  jellyfinMasterParams, warmJellyfinStart, plexStreamOptions, startPlexSession, registerPlexPrestart,
+} from './stream.js';
 import { isRatingWithinCeiling } from '../utils/ratingCeiling.js';
+import { isAuthEnabled, getApiKey } from '../middleware/auth.js';
 
 export const playbackRoutes = Router();
 
@@ -16,28 +21,65 @@ export function subtitleMethodFor(codec: string | null): 'Hls' | 'Encode' {
   return codec && IMAGE_SUBTITLE_CODECS.has(codec.toLowerCase()) ? 'Encode' : 'Hls';
 }
 
-// Track the last pre-warmed session so we can stop it when a new one starts.
-// This prevents orphaned FFmpeg transcodes during rapid channel switching.
-let lastPrewarmedSession: { playSessionId: string; itemId: string } | null = null;
+// Track each device's last pre-warmed session so we can stop it when that device starts
+// another one before claiming it. Prevents orphaned FFmpeg transcodes during rapid switching.
+const lastPrewarmedByClient = new Map<string, { playSessionId: string; itemId: string }>();
 
-// ── Tracks/session cache (TTL 60s) — prevents redundant Jellyfin calls on rapid channel switches ──
+// ── Tracks/session cache (TTL 60s) — prevents redundant media-server calls on rapid channel switches ──
 const TRACKS_CACHE_TTL_MS = 60_000;
-const tracksCache = new Map<string, { data: Awaited<ReturnType<typeof getTracksAndSession>>; expiresAt: number }>();
+const tracksCache = new Map<string, { data: TracksAndSession; expiresAt: number }>();
 
-// Extract audio/subtitle tracks and session info from Jellyfin in a single API call.
-// Returns PlaySessionId and MediaSourceId so the stream endpoint can skip a redundant call.
-async function getTracksAndSession(
-  mediaProvider: MediaProvider,
-  itemId: string
-): Promise<{
+// ── Media segments (intro/outro) cache — static per item, so keep it for hours ──
+const SEGMENTS_CACHE_TTL_MS = 6 * 60 * 60_000;
+/** Don't hold a tune hostage to a slow MediaSegments call; a miss just means no credits marker. */
+const SEGMENTS_WAIT_MS = 300;
+const segmentsCache = new Map<string, { outroStartMs: number | null; expiresAt: number }>();
+
+async function getOutroStartMs(provider: MediaProvider, itemId: string): Promise<number | null> {
+  const now = Date.now();
+  const hit = segmentsCache.get(itemId);
+  if (hit && now < hit.expiresAt) return hit.outroStartMs;
+  const fetchPromise = provider.getMediaSegments(itemId).then((r) => {
+    if (segmentsCache.size > 2000) segmentsCache.clear();
+    segmentsCache.set(itemId, { outroStartMs: r.outroStartMs, expiresAt: Date.now() + SEGMENTS_CACHE_TTL_MS });
+    return r.outroStartMs;
+  });
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), SEGMENTS_WAIT_MS).unref?.());
+  return Promise.race([fetchPromise, timeout]).catch(() => null);
+}
+
+type TracksAndSession = {
   audio_tracks: { index: number; language: string; name: string }[];
   subtitle_tracks: { index: number; language: string; name: string; codec: string | null; forced: boolean; key: string | null }[];
   playSessionId: string;
   mediaSourceId: string;
-}> {
-  const playbackInfo = await mediaProvider.getPlaybackInfo(itemId);
-  const mediaSource = playbackInfo.MediaSources?.[0];
-  const streams = mediaSource?.MediaStreams ?? [];
+};
+
+/** A fresh play session id (32 hex). Jellyfin and Plex both accept any id. */
+function newSessionId(): string {
+  return randomUUID().replace(/-/g, '');
+}
+
+/**
+ * Jellyfin: tracks + media source straight from prevue's library cache. The library sync
+ * already pulls MediaSources (with MediaStreams), so this skips the PlaybackInfo POST —
+ * Jellyfin's slowest playback call — on every tune. null → not cached; use PlaybackInfo.
+ */
+function tracksFromLibrary(provider: MediaProvider, itemId: string): TracksAndSession | null {
+  if (provider.providerType !== 'jellyfin') return null;
+  const item = provider.getItem(itemId) as { MediaSources?: PlaybackInfoSource[] } | undefined;
+  const source = item?.MediaSources?.[0];
+  if (!source?.Id || !Array.isArray(source.MediaStreams) || source.MediaStreams.length === 0) return null;
+  return {
+    ...tracksFromStreams(source.MediaStreams),
+    playSessionId: newSessionId(),
+    mediaSourceId: source.Id,
+  };
+}
+
+type PlaybackInfoSource = NonNullable<Awaited<ReturnType<MediaProvider['getPlaybackInfo']>>['MediaSources']>[number];
+
+function tracksFromStreams(streams: NonNullable<PlaybackInfoSource['MediaStreams']>): Pick<TracksAndSession, 'audio_tracks' | 'subtitle_tracks'> {
 
   const audio_tracks = streams
     .filter((s) => (s.Type || '').toLowerCase() === 'audio')
@@ -60,10 +102,29 @@ async function getTracksAndSession(
     }))
     .filter((t) => t.index >= 0);
 
+  return { audio_tracks, subtitle_tracks };
+}
+
+// Extract audio/subtitle tracks and session info from the media server in a single API call.
+// Returns PlaySessionId and MediaSourceId so the stream endpoint can skip a redundant call.
+async function getTracksAndSession(mediaProvider: MediaProvider, itemId: string): Promise<TracksAndSession> {
+  const playbackInfo = await mediaProvider.getPlaybackInfo(itemId);
+  const mediaSource = playbackInfo.MediaSources?.[0];
   const playSessionId = (playbackInfo as Record<string, unknown>).PlaySessionId as string || '';
   const mediaSourceId = mediaSource?.Id as string || itemId;
+  return { ...tracksFromStreams(mediaSource?.MediaStreams ?? []), playSessionId, mediaSourceId };
+}
 
-  return { audio_tracks, subtitle_tracks, playSessionId, mediaSourceId };
+/**
+ * When prevue's API key is on, carry it on the stream URL as `token` (the proxy propagates
+ * it into every child playlist / segment URL and strips it before forwarding upstream).
+ * Lets AVPlayer and hls.js play keyed servers natively — they can't add headers to segment
+ * requests. Only ever returned to a caller that already authenticated with the key.
+ */
+function withClientToken(url: string): string {
+  const key = isAuthEnabled() ? getApiKey() : undefined;
+  if (!key) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(key)}`;
 }
 
 // GET /api/playback/:channelId - Get streaming info for current program
@@ -119,7 +180,7 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     if (program.type === 'trailer') {
       const trailerSeekMs = Math.max(0, seekMs);
       res.json({
-        stream_url: `/api/stream/trailer/${channelId}`,
+        stream_url: withClientToken(`/api/stream/trailer/${channelId}`),
         seek_position_ms: trailerSeekMs,
         seek_position_seconds: trailerSeekMs / 1000,
         program,
@@ -156,11 +217,12 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     {
       const cacheKey = program.media_item_id;
       const cached = tracksCache.get(cacheKey);
-      const isCacheHit = cached != null && Date.now() < cached.expiresAt;
+      const fromLibrary = tracksFromLibrary(provider, program.media_item_id);
+      const isCacheHit = fromLibrary != null || (cached != null && Date.now() < cached.expiresAt);
 
       const [tracksResult, segmentsResult] = await Promise.allSettled([
-        isCacheHit ? cached!.data : getTracksAndSession(provider, program.media_item_id),
-        provider.getMediaSegments(program.media_item_id),
+        fromLibrary ?? (isCacheHit ? cached!.data : getTracksAndSession(provider, program.media_item_id)),
+        getOutroStartMs(provider, program.media_item_id),
       ]);
 
       if (tracksResult.status === 'fulfilled') {
@@ -174,12 +236,15 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
           }
         }
         ({ audio_tracks, subtitle_tracks, playSessionId, mediaSourceId } = result);
+        // Every tune gets its own session — a cached id would make two tunes of the same
+        // item share (and stop) one Jellyfin transcode.
+        if (fromLibrary == null) playSessionId = newSessionId();
       } else {
         console.warn('[Playback] Could not fetch tracks:', (tracksResult.reason as Error)?.message);
       }
 
       if (segmentsResult.status === 'fulfilled') {
-        outro_start_ms = segmentsResult.value.outroStartMs;
+        outro_start_ms = segmentsResult.value;
       }
     }
 
@@ -223,96 +288,62 @@ playbackRoutes.get('/:channelId', async (req: Request, res: Response) => {
     if (req.query.hevc === '1') {
       streamParams.set('hevc', '1');
     }
+    // Native Apple player (tvOS client): enables AC3/E-AC3 5.1 copy and, on Plex, full-bitrate
+    // direct streams. Browsers never send it.
+    if (req.query.native === '1') {
+      streamParams.set('native', '1');
+    }
     // Start the transcode at the live position server-side so the first segments the
-    // client needs already exist. Plex: fixes the -15628 cold-seek decode race. Jellyfin:
-    // without this, ffmpeg starts at 0 and the client's deep seek forces Jellyfin to kill
-    // and restart the transcode at the offset (~7-10s tune-in). Historical note: an early
-    // attempt hit "FFmpeg exit 234" on rapid channel switching; since then, unconsumed
-    // pre-warm transcodes are stopped (below) and proxy requests are deduplicated, which
-    // removes the overlapping-ffmpeg trigger. Ticks are 100ns units.
+    // client needs already exist. Plex: `offset` primes its transcoder at the join point
+    // (fixes the -15628 cold-seek decode race). Jellyfin: the master's StartTimeTicks alone
+    // doesn't move ffmpeg (it starts at whichever segment is requested first) — it drives
+    // the #EXT-X-START the proxy injects and the live-segment pre-warm below. Ticks are 100ns.
     // The client-side seek is preserved in both cases — neither server rebases the
     // stream to 0 (see seek_position_ms comment below).
-    if (seekMs > 0) {
-      streamParams.set('startTimeTicks', String(Math.floor(seekMs / 1000) * 10_000_000));
+    const startTicks = seekMs > 0 ? Math.floor(seekMs / 1000) * 10_000_000 : 0;
+    if (startTicks > 0) {
+      streamParams.set('startTimeTicks', String(startTicks));
     }
     const queryString = streamParams.toString();
-    const streamUrl = `/api/stream/${program.media_item_id}${queryString ? `?${queryString}` : ''}`;
+    const streamUrl = withClientToken(`/api/stream/${program.media_item_id}${queryString ? `?${queryString}` : ''}`);
 
-    // Pre-warm: fire-and-forget fetch of master.m3u8 to start transcoding
-    // in the background while the client processes this response.
-    // Skip pre-warm for Plex — the stream route will call getHlsStreamUrl which
-    // creates the Plex transcode session on demand. Pre-warming with a Jellyfin URL
-    // would hit a non-existent path and create a conflicting session.
-    const isPlex = provider.providerType === 'plex';
-    if (playSessionId && mediaSourceId && !isPlex) {
-      // Stop the previous pre-warmed session if it wasn't consumed by /api/stream.
-      // This prevents orphaned FFmpeg transcodes during rapid channel switching.
-      if (lastPrewarmedSession && lastPrewarmedSession.itemId !== program.media_item_id) {
-        const prev = lastPrewarmedSession;
-        // Only stop if /api/stream never picked it up (still in activeSessions means stream is active)
-        const activeSession = activeSessions.get(prev.itemId);
-        const wasConsumed = activeSession && activeSession.playSessionId === prev.playSessionId;
-        if (!wasConsumed) {
-          console.log(`[Playback] Stopping previous pre-warm session=${prev.playSessionId} item=${prev.itemId}`);
-          void provider.deleteTranscodingJob(prev.playSessionId).catch(() => {});
+    // Pre-warm: get the media server producing the live segment while the client is still
+    // processing this response (its /api/stream + playlist requests follow within a few
+    // hundred ms and join / are served from what this fetched).
+    const clientKey = clientKeyFor(req);
+    const streamQuery = Object.fromEntries(streamParams);
+    if (playSessionId && mediaSourceId) {
+      // Stop this device's previous pre-warmed session if it never got as far as /api/stream
+      // (rapid switching). Other devices' sessions are not ours to stop.
+      const prev = lastPrewarmedByClient.get(clientKey);
+      if (prev && prev.playSessionId !== playSessionId && !isSessionConsumed(prev.playSessionId)) {
+        console.log(`[Playback] Stopping previous pre-warm session=${prev.playSessionId} item=${prev.itemId}`);
+        void provider.stopPlaybackSession(prev.playSessionId).catch(() => {});
+        void provider.deleteTranscodingJob(prev.playSessionId).catch(() => {});
+        if (activeSessions.get(prev.itemId)?.playSessionId === prev.playSessionId) {
           activeSessions.delete(prev.itemId);
           lastActivityByItemId.delete(prev.itemId);
         }
+        releaseSessionState(prev.playSessionId);
       }
+      lastPrewarmedByClient.set(clientKey, { playSessionId, itemId: program.media_item_id });
 
-      // Register this session for idle cleanup tracking
-      trackSession(program.media_item_id, playSessionId, mediaSourceId);
-      lastPrewarmedSession = { playSessionId, itemId: program.media_item_id };
-
-      const baseUrl = provider.getBaseUrl();
-      const headers = provider.getProxyHeaders();
-      const deviceId = provider.getDeviceId();
-      const hevc = req.query.hevc === '1';
-      // Pre-warm params MUST match what stream.ts handleJellyfinStream builds,
-      // otherwise Jellyfin starts a different transcode session and the pre-warm is wasted.
-      const hasExplicitQuality = !!(bitrate && bitrate !== 120000000) || !!maxWidth;
-      const warmParams = new URLSearchParams({
-        DeviceId: deviceId,
-        MediaSourceId: mediaSourceId,
-        PlaySessionId: playSessionId,
-        VideoCodec: hevc ? 'hevc,h264' : 'h264',
-        AudioCodec: 'aac',
-        MaxStreamingBitrate: String(bitrate || 120000000),
-        VideoBitrate: String(bitrate || 120000000),
-        TranscodingMaxAudioChannels: '2',
-        SegmentContainer: hevc ? 'mp4' : 'ts',
-        // One short segment ready = playable. MinSegments 2 × ~6s default segments
-        // gated tune-in behind ~12s of encoding; 1 × 3s cuts that to ~3s.
-        MinSegments: '1',
-        SegmentLength: '3',
-        BreakOnNonKeyFrames: 'true',
-      });
-      // Start the pre-warm transcode at the live offset — matches the startTimeTicks
-      // on the stream URL so /api/stream reuses the same Jellyfin transcode session.
-      if (seekMs > 0) {
-        warmParams.set('StartTimeTicks', String(Math.floor(seekMs / 1000) * 10_000_000));
+      if (provider.providerType === 'plex') {
+        // Plex: start the transcode session now; /api/stream adopts it by playSessionId.
+        registerPlexPrestart(playSessionId, startPlexSession(
+          provider, program.media_item_id, clientKey,
+          { ...plexStreamOptions(streamQuery), sessionId: playSessionId },
+          startTicks || undefined,
+        ));
+      } else {
+        // Register this session for idle cleanup tracking
+        trackSession(program.media_item_id, playSessionId, mediaSourceId, clientKey);
+        // Same params builder as /api/stream, so both hit one Jellyfin transcode + cache entry.
+        const masterParams = jellyfinMasterParams(streamQuery, {
+          deviceId: provider.getDeviceId(), mediaSourceId, playSessionId,
+        });
+        void warmJellyfinStart(provider, program.media_item_id, masterParams, startTicks / 10_000_000).catch(() => {});
       }
-      // Match stream.ts:714-724 — only allow stream copy when auto quality
-      if (!hasExplicitQuality) {
-        warmParams.set('AllowVideoStreamCopy', 'true');
-        warmParams.set('AllowAudioStreamCopy', 'true');
-        warmParams.set('EnableAutoStreamCopy', 'true');
-        warmParams.set('MaxWidth', '3840');
-        warmParams.set('MaxHeight', '2160');
-      } else if (maxWidth) {
-        warmParams.set('MaxWidth', String(maxWidth));
-      }
-      if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
-        warmParams.set('AudioStreamIndex', String(audioStreamIndex));
-      }
-      // Match stream.ts:728-732 — include subtitle params so Jellyfin
-      // pre-warms the correct transcode (with or without burn-in).
-      if (subtitle_index != null && subtitle_tracks[subtitle_index]) {
-        warmParams.set('SubtitleStreamIndex', String(subtitle_tracks[subtitle_index].index));
-        warmParams.set('SubtitleMethod', subtitleMethodFor(subtitle_tracks[subtitle_index].codec));
-      }
-      const warmUrl = `${baseUrl}/Videos/${program.media_item_id}/master.m3u8?${warmParams}`;
-      void fetch(warmUrl, { headers }).catch(() => {});
     }
 
     const seekSeconds = seekMs / 1000;

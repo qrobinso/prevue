@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { MediaItem, ServerConfig } from '../types/index.js';
-import type { PlaybackInfoResult, StreamInfo } from './MediaProvider.js';
+import type { PlaybackInfoResult, StreamInfo, HlsStreamOptions } from './MediaProvider.js';
 import { AbstractMediaProvider } from './AbstractMediaProvider.js';
 import * as queries from '../db/queries.js';
 import { randomUUID, randomBytes } from 'crypto';
@@ -556,10 +556,31 @@ export class PlexClient extends AbstractMediaProvider {
 
   // ─── Playback ─────────────────────────────────────────
 
+  // A tune fetches the same item's metadata twice back-to-back (/api/playback's
+  // getPlaybackInfo, then /api/stream's getHlsStreamUrl). Share one fetch for a few seconds.
+  private static readonly METADATA_TTL_MS = 30_000;
+  private playbackMetadataCache = new Map<string, { promise: Promise<PlexMediaContainer<PlexMetadata>>; expiresAt: number }>();
+
+  private fetchPlaybackMetadata(itemId: string): Promise<PlexMediaContainer<PlexMetadata>> {
+    const now = Date.now();
+    const hit = this.playbackMetadataCache.get(itemId);
+    if (hit && now < hit.expiresAt) return hit.promise;
+    for (const [k, v] of this.playbackMetadataCache) if (now >= v.expiresAt) this.playbackMetadataCache.delete(k);
+    const promise = this.plexFetch<PlexMediaContainer<PlexMetadata>>(`/library/metadata/${itemId}`);
+    this.playbackMetadataCache.set(itemId, { promise, expiresAt: now + PlexClient.METADATA_TTL_MS });
+    promise.catch(() => this.playbackMetadataCache.delete(itemId));
+    return promise;
+  }
+
+  // Last stream selection PUT to each part, so a re-tune with the same selection can skip the
+  // round-trip. Short TTL: another Plex client may change the part's selection in the meantime.
+  private static readonly SELECTION_TTL_MS = 5 * 60_000;
+  private persistedSelection = new Map<number, { key: string; expiresAt: number }>();
+
   async getPlaybackInfo(itemId: string): Promise<PlaybackInfoResult> {
     // Plex doesn't have an exact equivalent to Jellyfin's PlaybackInfo.
     // We fetch the item metadata to get media source info and generate a session ID.
-    const data = await this.plexFetch<PlexMediaContainer<PlexMetadata>>(`/library/metadata/${itemId}`);
+    const data = await this.fetchPlaybackMetadata(itemId);
     const m = data.MediaContainer.Metadata?.[0];
     const playSessionId = generatePlexSessionId();
     const mediaSourceId = m?.Media?.[0]?.id?.toString() || itemId;
@@ -597,11 +618,12 @@ export class PlexClient extends AbstractMediaProvider {
     };
   }
 
-  async getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<StreamInfo> {
-    // Fetch fresh metadata — needed for partId (subtitle stream persistence) and HDR detection
-    const data = await this.plexFetch<PlexMediaContainer<PlexMetadata>>(`/library/metadata/${itemId}`);
+  async getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: HlsStreamOptions): Promise<StreamInfo> {
+    // Metadata — needed for partId (subtitle stream persistence) and HDR detection. Usually a
+    // cache hit from the getPlaybackInfo call /api/playback made moments ago.
+    const data = await this.fetchPlaybackMetadata(itemId);
     const m = data.MediaContainer.Metadata?.[0];
-    const playSessionId = generatePlexSessionId();
+    const playSessionId = options?.sessionId || generatePlexSessionId();
     const mediaSourceId = m?.Media?.[0]?.id?.toString() || itemId;
 
     // Determine HDR from fresh metadata — use actual stream HDR fields
@@ -634,11 +656,22 @@ export class PlexClient extends AbstractMediaProvider {
       if (options?.audioStreamIndex != null) {
         putParams.set('audioStreamID', String(options.audioStreamIndex));
       }
-      await fetch(`${baseUrl}/library/parts/${partId}?${putParams}`, {
-        method: 'PUT',
-        headers: this.getPlexHeaders(),
-      }).catch((err) => console.warn('[Plex] selectStreams PUT failed:', err));
-      console.log(`[Plex] Persisted subtitle stream ${subtitleStreamID}${options?.audioStreamIndex != null ? ` audio stream ${options.audioStreamIndex}` : ''} on part ${partId}`);
+      const selectionKey = putParams.toString();
+      const persisted = this.persistedSelection.get(partId);
+      if (persisted && persisted.key === selectionKey && Date.now() < persisted.expiresAt && !options?.validate) {
+        // Same selection we persisted moments ago — skip the round-trip.
+      } else {
+        const putResp = await fetch(`${baseUrl}/library/parts/${partId}?${putParams}`, {
+          method: 'PUT',
+          headers: this.getPlexHeaders(),
+        }).catch((err) => { console.warn('[Plex] selectStreams PUT failed:', err); return null; });
+        if (putResp?.ok) {
+          this.persistedSelection.set(partId, { key: selectionKey, expiresAt: Date.now() + PlexClient.SELECTION_TTL_MS });
+        } else {
+          this.persistedSelection.delete(partId);
+        }
+        console.log(`[Plex] Persisted subtitle stream ${subtitleStreamID}${options?.audioStreamIndex != null ? ` audio stream ${options.audioStreamIndex}` : ''} on part ${partId}`);
+      }
     }
 
     // Build Plex universal transcode URL
@@ -671,7 +704,11 @@ export class PlexClient extends AbstractMediaProvider {
         ? { videoCodec: 'h264', audioCodec: 'aac,mp3,vorbis,opus' }
         : { directStreamAudio: '1' }),
       videoQuality: '100',
-      maxVideoBitrate: options?.bitrate ? String(Math.round(options.bitrate / 1000)) : '20000',
+      // Auto quality: a native Apple player on the LAN can take full-bitrate direct streams —
+      // the 20 Mbps browser cap forces a full transcode of every Blu-ray remux (~25-40 Mbps).
+      maxVideoBitrate: options?.bitrate
+        ? String(Math.round(options.bitrate / 1000))
+        : options?.native ? '200000' : '20000',
       videoResolution: options?.maxWidth ? `${options.maxWidth}x${Math.round(options.maxWidth * 9 / 16)}` : '1920x1080',
       subtitleSize: '100',
       audioBoost: '100',
@@ -689,6 +726,15 @@ export class PlexClient extends AbstractMediaProvider {
       'X-Plex-Platform': 'Chrome',
     });
 
+    // Native Apple player, direct stream: let Plex copy AC3/E-AC3 (5.1) audio instead of
+    // transcoding it to stereo AAC. Video stays H.264 in MPEG-TS — Plex's HLS output is TS,
+    // and Apple HLS requires HEVC in fMP4, so HEVC sources still transcode on Plex.
+    if (options?.native && !needsTranscode) {
+      params.set('X-Plex-Client-Profile-Extra',
+        'add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts'
+        + '&videoCodec=h264&audioCodec=aac,ac3,eac3&replace=true)');
+    }
+
     if (startPositionTicks) {
       // Convert 100ns ticks to seconds for Plex offset
       const offsetSec = Math.floor(startPositionTicks / 10000000);
@@ -703,14 +749,17 @@ export class PlexClient extends AbstractMediaProvider {
       params.set('audioStreamID', String(options.audioStreamIndex));
     }
 
-    // Pre-validate via decision endpoint — lets Plex check parameter validity and
-    // pre-register the session before we request the actual stream. This reduces 400
-    // errors from invalid param combinations and gives Plex a head start on setup.
-    const decisionUrl = `${baseUrl}/video/:/transcode/universal/decision?${params}`;
-    const decisionResp = await fetch(decisionUrl, { headers: this.getPlexHeaders() }).catch(() => null);
-    if (decisionResp && !decisionResp.ok) {
-      const errText = await decisionResp.text().catch(() => '');
-      console.warn(`[Plex] Decision endpoint returned ${decisionResp.status}: ${errText.slice(0, 200)}`);
+    // Pre-validate via the decision endpoint only on a retry (options.validate). start.m3u8
+    // makes the same decision itself, so on the happy path this was a full extra round-trip
+    // (and duplicate Plex work) before every tune; it's kept for the fresh-session retry,
+    // where pre-registering helps Plex recover from a 400.
+    if (options?.validate) {
+      const decisionUrl = `${baseUrl}/video/:/transcode/universal/decision?${params}`;
+      const decisionResp = await fetch(decisionUrl, { headers: this.getPlexHeaders() }).catch(() => null);
+      if (decisionResp && !decisionResp.ok) {
+        const errText = await decisionResp.text().catch(() => '');
+        console.warn(`[Plex] Decision endpoint returned ${decisionResp.status}: ${errText.slice(0, 200)}`);
+      }
     }
 
     const url = `${baseUrl}/video/:/transcode/universal/start.m3u8?${params}`;

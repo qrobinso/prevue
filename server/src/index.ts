@@ -66,7 +66,10 @@ app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 app.use(express.json({ limit: '1mb' }));
 
 function isRateLimitExemptPath(pathname: string): boolean {
-  return pathname.startsWith('/stream') || pathname.startsWith('/images') || pathname.startsWith('/iptv/channel/');
+  // /playback is hit on every guide preview (focus dwell) and tune — heavy browsing would
+  // otherwise trip the global limit and make previews fail.
+  return pathname.startsWith('/stream') || pathname.startsWith('/images') || pathname.startsWith('/iptv/channel/')
+    || pathname.startsWith('/playback/');
 }
 
 // Global rate limiter: 600 requests per 15 minutes per IP

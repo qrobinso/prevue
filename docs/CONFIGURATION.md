@@ -38,6 +38,11 @@ Prevue connects to your media server through the app UI. No environment variable
 
 Supports local LAN URLs, remote URLs, and manual or discovered server entry.
 
+**Performance tuning (Jellyfin Dashboard → Playback → Transcoding):**
+- **Throttle transcodes** and **Delete segments** — on. prevue plays linearly, so ffmpeg doesn't need to race ahead of the viewer; throttling frees CPU/GPU for the stream being watched (and for the next tune), and segment deletion keeps the transcode cache small.
+- **Hardware acceleration** — enable if available; it's the biggest single factor in how fast a transcode (quality cap, burned-in subtitles, unsupported codec) starts.
+- **Transcode path** — put it on an SSD (or tmpfs), not a spinning disk or network share.
+
 ### Plex
 
 1. Open **Settings > Servers**

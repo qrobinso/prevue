@@ -1,16 +1,60 @@
 import type { Express } from 'express';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import type { MediaProvider } from '../services/MediaProvider.js';
+import { Readable } from 'stream';
+import type { ReadableStream as WebReadableStream } from 'stream/web';
+import type { MediaProvider, HlsStreamOptions } from '../services/MediaProvider.js';
 import * as queries from '../db/queries.js';
 import { isRatingWithinCeiling } from '../utils/ratingCeiling.js';
+import {
+  fetchUpstreamShared, fetchWithHeaderTimeout, peekUpstream, purgeUpstreamSession, upstreamKey,
+  stripClientAuthParams, injectStartOffset, segmentsAtOffset, sanitizeRenditions, CLIENT_AUTH_PARAMS,
+  PREWARM_TEXT_TTL_MS, PREWARM_BINARY_TTL_MS,
+} from '../services/hlsUpstream.js';
 
 export const streamRoutes = Router();
 
 // Track active play sessions so we can stop them when user leaves
-// Maps itemId -> { playSessionId, mediaSourceId }
-export const activeSessions = new Map<string, { playSessionId: string; mediaSourceId: string }>();
+// Maps itemId -> { playSessionId, mediaSourceId, clientKey }
+// clientKey identifies the requesting device (its IP) so one device's new stream only
+// replaces that device's old one — not another TV's.
+export const activeSessions = new Map<string, { playSessionId: string; mediaSourceId: string; clientKey?: string }>();
 const progressStartedSessions = new Set<string>(); // playSessionId set when PlaybackStart has been reported
+
+/** The device a request came from — used to scope "replace my previous stream". */
+export function clientKeyFor(req: Request): string {
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+// Sessions whose stream the player actually requested (/api/stream). A pre-warmed
+// session that never gets here was abandoned (rapid surfing) and can be stopped.
+const consumedSessions = new Set<string>();
+export function markSessionConsumed(playSessionId: string): void {
+  consumedSessions.add(playSessionId);
+}
+export function isSessionConsumed(playSessionId: string): boolean {
+  return consumedSessions.has(playSessionId);
+}
+
+// Live join offset (seconds) per Jellyfin session — injected as #EXT-X-START into its
+// media playlist so the player's first segment request is the live one.
+const MAX_START_OFFSETS = 64;
+const startOffsetBySession = new Map<string, number>();
+export function setSessionStartOffset(playSessionId: string, offsetSec: number): void {
+  startOffsetBySession.delete(playSessionId);
+  startOffsetBySession.set(playSessionId, offsetSec);
+  while (startOffsetBySession.size > MAX_START_OFFSETS) {
+    startOffsetBySession.delete(startOffsetBySession.keys().next().value as string);
+  }
+}
+
+/** Forget everything prevue holds for a session (pre-warmed segments, offsets, flags). */
+export function releaseSessionState(playSessionId: string): void {
+  purgeUpstreamSession(playSessionId);
+  startOffsetBySession.delete(playSessionId);
+  consumedSessions.delete(playSessionId);
+  progressStartedSessions.delete(playSessionId);
+}
 
 // Last proxy activity (segment/playlist request) per itemId — used to stop idle transcodes
 export const lastActivityByItemId = new Map<string, number>();
@@ -89,10 +133,6 @@ export function applyLiveWindow(playlist: string, elapsedSeconds: number): strin
 const IDLE_CLEANUP_INTERVAL_MS = 2 * 60 * 1000;  // 2 minutes
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000;         // stop if no activity for 5 minutes
 
-// Request deduplication: coalesce concurrent requests for the same URL
-// This prevents multiple FFmpeg processes from starting when hls.js retries
-const pendingRequests = new Map<string, Promise<{ ok: boolean; status: number; headers: Headers; buffer: ArrayBuffer | null; text: string | null }>>();
-
 function isProgressSharingEnabled(rawSetting: unknown): boolean {
   if (typeof rawSetting === 'boolean') return rawSetting;
   if (typeof rawSetting === 'string') {
@@ -121,9 +161,12 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
     const provider = mediaProvider as MediaProvider;
     const { itemId, playSessionId, positionMs, force } = req.body;
 
-    // Use provided playSessionId or look up from active sessions
-    const session = activeSessions.get(itemId);
-    const sessionId = playSessionId || session?.playSessionId;
+    // Use provided playSessionId or look up from active sessions. A stop naming a specific
+    // session only touches the item's tracked entry when it IS that session — the item may
+    // already be playing again under a newer session (codec fallback, preview → re-tune).
+    const tracked = activeSessions.get(itemId);
+    const sessionId = playSessionId || tracked?.playSessionId;
+    const session = tracked && tracked.playSessionId === sessionId ? tracked : undefined;
 
     // Guard: when stop is called by itemId only (no specific playSessionId),
     // protect sessions that were just created or are actively streaming.
@@ -169,9 +212,11 @@ streamRoutes.post('/stream/stop', async (req: Request, res: Response) => {
         await provider.stopPlaybackSession(sessionId);
       }
       await provider.deleteTranscodingJob(sessionId);
-      progressStartedSessions.delete(sessionId);
-      activeSessions.delete(itemId);
-      lastActivityByItemId.delete(itemId);
+      releaseSessionState(sessionId);
+      if (session) {
+        activeSessions.delete(itemId);
+        lastActivityByItemId.delete(itemId);
+      }
       console.log(`[Stream] Stopped playback for item: ${itemId}, session: ${sessionId}`);
       res.json({ success: true, stopped: sessionId });
     } else {
@@ -276,6 +321,7 @@ streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
     try {
       await provider.stopPlaybackSession(session.playSessionId);
       await provider.deleteTranscodingJob(session.playSessionId);
+      releaseSessionState(session.playSessionId);
       stopped.push(session.playSessionId);
     } catch (err) {
       console.error(`[Stream] Failed to stop session ${session.playSessionId}:`, err);
@@ -289,8 +335,8 @@ streamRoutes.delete('/stream/sessions', async (req: Request, res: Response) => {
 });
 
 // Helper to track a new session
-export function trackSession(itemId: string, playSessionId: string, mediaSourceId?: string): void {
-  activeSessions.set(itemId, { playSessionId, mediaSourceId: mediaSourceId || itemId });
+export function trackSession(itemId: string, playSessionId: string, mediaSourceId?: string, clientKey?: string): void {
+  activeSessions.set(itemId, { playSessionId, mediaSourceId: mediaSourceId || itemId, clientKey });
   progressStartedSessions.delete(playSessionId);
 }
 
@@ -300,7 +346,10 @@ export function getSessionInfo(itemId: string): { playSessionId: string; mediaSo
 }
 
 // Helper: rewrite M3U8 URLs to route through our proxy
-export function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: string, deviceId: string): string {
+// `token` (prevue's API key, when the player authenticated via the URL) is carried onto every
+// rewritten URL so a player that can't set headers — AVPlayer, hls.js — can fetch child
+// playlists and segments natively. The proxy strips it before forwarding upstream.
+export function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: string, deviceId: string, token?: string): string {
   const rewriteResourceUrl = (resourceUrl: string): string => {
     // If already absolute URL, extract just the path+query portion
     let path: string;
@@ -329,6 +378,9 @@ export function rewriteM3u8Urls(body: string, baseDir: string, playSessionId: st
     }
     if (!params.has('DeviceId')) {
       params.set('DeviceId', deviceId);
+    }
+    if (token) {
+      params.set('token', token);
     }
 
     // IMPORTANT: Strip StartTimeTicks from segment URLs at rewrite time.
@@ -366,9 +418,93 @@ const ALLOWED_PROXY_PATTERNS = [
   /^\/photo\/:\//i,                 // Plex image transcode
 ];
 
+/** Resolve a proxied path + raw query into the upstream URL and its cache key. */
+export function resolveUpstream(path: string, rawQuery: string, baseUrl: string): {
+  url: string; key: string; token: string | undefined; params: URLSearchParams; isSegment: boolean; isPlaylist: boolean;
+} {
+  const isSegment = path.endsWith('.ts') || path.endsWith('.mp4');
+  const isPlaylist = path.includes('.m3u8');
+  const params = new URLSearchParams(rawQuery);
+  const hadClientAuth = CLIENT_AUTH_PARAMS.some((p) => params.has(p));
+  const token = stripClientAuthParams(params);
+  // IMPORTANT: Strip StartTimeTicks from segment requests - Jellyfin doesn't allow it
+  // StartTimeTicks is only valid on the master playlist request
+  const hadStartTicks = isSegment && params.has('StartTimeTicks');
+  if (isSegment) params.delete('StartTimeTicks');
+  // Only re-serialize when something was removed, so upstream sees the original encoding.
+  const query = hadClientAuth || hadStartTicks ? params.toString() : rawQuery;
+  const url = `${baseUrl}${path}${query ? `?${query}` : ''}`;
+  return { url, key: upstreamKey(path, params), token, params, isSegment, isPlaylist };
+}
+
+/** Same as resolveUpstream, from a URL as written into a rewritten playlist (/api/stream/proxy/...). */
+function resolveProxied(proxied: string, baseUrl: string) {
+  const rel = proxied.trim().replace(/^\/api\/stream\/proxy/, '');
+  const q = rel.indexOf('?');
+  const path = q >= 0 ? rel.substring(0, q) : rel;
+  return { path, ...resolveUpstream(path, q >= 0 ? rel.substring(q + 1) : '', baseUrl) };
+}
+
+/** Session id carried by a proxied request (query param, or Plex's path segment). */
+function sessionIdOf(upstreamPath: string, params: URLSearchParams): string | null {
+  return params.get('PlaySessionId') || params.get('session')
+    || upstreamPath.match(/\/session\/([0-9a-f-]+)\//i)?.[1] || null;
+}
+
+/** Track activity so idle cleanup doesn't stop active streams. */
+function touchActivity(upstreamPath: string, sessionId: string | null): void {
+  const jellyfinItemMatch = upstreamPath.match(/\/Videos\/([^/]+)\//);
+  if (jellyfinItemMatch) {
+    // Jellyfin: item ID is in the URL path
+    lastActivityByItemId.set(jellyfinItemMatch[1], Date.now());
+    return;
+  }
+  // Plex: session from query params OR from the URL path. Plex segment URLs
+  // (e.g. /video/:/transcode/universal/session/{uuid}/base/0) are extension-less.
+  if (!sessionId) return;
+  for (const [proxyItemId, s] of activeSessions.entries()) {
+    if (s.playSessionId === sessionId) {
+      lastActivityByItemId.set(proxyItemId, Date.now());
+      break;
+    }
+  }
+}
+
+/** Upstream said no. On 500, stop the transcode job so its cache can be freed. */
+async function handleUpstreamFailure(provider: MediaProvider, status: number, upstreamPath: string, sessionId: string | null): Promise<void> {
+  if (status !== 500) {
+    console.error(`[Stream Proxy] Server returned ${status}`);
+    return;
+  }
+  // Skip if the session was already cleaned up (race with in-flight segment requests).
+  const match = upstreamPath.match(/\/Videos\/([^/]+)\//);
+  const itemId = match?.[1]
+    || (sessionId ? [...activeSessions.entries()].find(([, s]) => s.playSessionId === sessionId)?.[0] : undefined);
+  if (itemId && activeSessions.has(itemId) && sessionId) {
+    console.log(`[Stream Proxy] Stopping transcode for ${itemId} due to 500 error`);
+    try {
+      await provider.stopPlaybackSession(sessionId);
+      await provider.deleteTranscodingJob(sessionId);
+    } catch (err) {
+      console.error(`[Stream Proxy] Failed to stop session ${sessionId}:`, err);
+    }
+    activeSessions.delete(itemId);
+    lastActivityByItemId.delete(itemId);
+    releaseSessionState(sessionId);
+  } else {
+    // Session already stopped — expected race condition with in-flight segments
+    console.warn(`[Stream Proxy] Server returned 500 for already-stopped session (${itemId ?? 'unknown'})`);
+  }
+}
+
 // GET /api/stream/proxy/* - Proxy HLS sub-requests (child playlists & segments)
 // All HLS requests go through this proxy so we can add auth headers.
 // Must be registered before /stream/:itemId to avoid :itemId matching "proxy".
+//
+// Playlists are fetched buffered (they get rewritten) and coalesced per URL. Segments are
+// streamed straight through as they arrive — buffering a whole (possibly tens-of-MB) segment
+// before sending its first byte added the full upstream transfer time to every segment —
+// unless a pre-warm already fetched it, in which case it's served from memory.
 streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
   try {
     const { mediaProvider } = req.app.locals;
@@ -377,165 +513,36 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
     const authHeaders = provider.getProxyHeaders();
     const deviceId = provider.getDeviceId();
 
-    const jellyfinPath = '/' + req.params[0];
+    const upstreamPath = '/' + req.params[0];
 
     // Security: only allow known media server paths through the proxy
-    if (!ALLOWED_PROXY_PATTERNS.some(re => re.test(jellyfinPath))) {
+    if (!ALLOWED_PROXY_PATTERNS.some(re => re.test(upstreamPath))) {
       res.status(403).json({ error: 'Proxy path not allowed' });
       return;
     }
-    const isSegment = jellyfinPath.endsWith('.ts') || jellyfinPath.endsWith('.mp4');
-    const isPlaylist = jellyfinPath.includes('.m3u8');
 
     // Reconstruct query string from the raw URL
     const rawUrl = req.originalUrl;
     const qIndex = rawUrl.indexOf('?');
-    let queryString = qIndex >= 0 ? rawUrl.substring(qIndex) : '';
+    const up = resolveUpstream(upstreamPath, qIndex >= 0 ? rawUrl.substring(qIndex + 1) : '', baseUrl);
+    const sessionId = sessionIdOf(upstreamPath, up.params);
 
-    // IMPORTANT: Strip StartTimeTicks from segment requests - Jellyfin doesn't allow it
-    // StartTimeTicks is only valid on the master playlist request
-    if (isSegment && queryString.includes('StartTimeTicks')) {
-      const params = new URLSearchParams(queryString.substring(1));
-      params.delete('StartTimeTicks');
-      queryString = '?' + params.toString();
-    }
-
-    const jellyfinUrl = `${baseUrl}${jellyfinPath}${queryString}`;
-    
-    // Request deduplication: if we already have a pending request for this exact URL,
-    // wait for it instead of making a new one. This prevents FFmpeg conflicts when
-    // hls.js retries failed requests rapidly.
-    let responseData: { ok: boolean; status: number; headers: Headers; buffer: ArrayBuffer | null; text: string | null };
-    
-    const existingRequest = pendingRequests.get(jellyfinUrl);
-    if (existingRequest) {
-      responseData = await existingRequest;
-    } else {
-      // Create new request and track it
-      const requestPromise = (async () => {
-        console.log(`[Stream Proxy] ${isSegment ? 'Segment' : 'Playlist'}: ${jellyfinPath.substring(0, 80)}`);
-        // Segments may take a while if Jellyfin is transcoding; use a generous timeout
-        // Retry up to 2 times on timeout errors (transient while transcoding)
-        const fetchTimeout = isSegment ? 60_000 : 30_000;
-        const maxRetries = isSegment ? 2 : 1;
-
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-          try {
-            const response = await fetch(jellyfinUrl, {
-              headers: authHeaders,
-              signal: AbortSignal.timeout(fetchTimeout),
-            });
-
-            let buffer: ArrayBuffer | null = null;
-            let text: string | null = null;
-
-            if (response.ok) {
-              if (isPlaylist) {
-                text = await response.text();
-              } else {
-                buffer = await response.arrayBuffer();
-              }
-            }
-
-            return {
-              ok: response.ok,
-              status: response.status,
-              headers: response.headers,
-              buffer,
-              text,
-            };
-          } catch (err: any) {
-            const isTimeout = err?.cause?.code === 'UND_ERR_HEADERS_TIMEOUT'
-              || err?.name === 'TimeoutError';
-            if (isTimeout && attempt < maxRetries) {
-              console.warn(`[Stream Proxy] Timeout on attempt ${attempt + 1}, retrying: ${jellyfinPath.substring(0, 80)}`);
-              continue;
-            }
-            throw err;
-          }
-        }
-
-        // Unreachable, but satisfies TypeScript
-        throw new Error('Exhausted retries');
-      })();
-      
-      pendingRequests.set(jellyfinUrl, requestPromise);
-      
-      try {
-        responseData = await requestPromise;
-      } finally {
-        // Clean up after request completes (with small delay to catch rapid retries)
-        setTimeout(() => pendingRequests.delete(jellyfinUrl), 100);
+    if (up.isPlaylist) {
+      console.log(`[Stream Proxy] Playlist: ${upstreamPath.substring(0, 80)}`);
+      const result = await fetchUpstreamShared(up.key, up.url, authHeaders, {
+        kind: 'text', timeoutMs: 30_000, retries: 1, sessionId,
+      });
+      if (!result.ok) {
+        await handleUpstreamFailure(provider, result.status, upstreamPath, sessionId);
+        res.status(result.status).end();
+        return;
       }
-    }
+      touchActivity(upstreamPath, sessionId);
+      if (result.contentType) res.setHeader('Content-Type', result.contentType);
 
-    if (!responseData.ok) {
-      // On 500 errors, stop the transcode job so cache can be freed.
-      // Skip if the session was already cleaned up (race with in-flight segment requests).
-      if (responseData.status === 500) {
-        const match = jellyfinPath.match(/\/Videos\/([^/]+)\//);
-        const qp = new URLSearchParams(queryString.substring(1));
-        const playSessionId = qp.get('PlaySessionId') || qp.get('session');
-        const itemId = match?.[1]
-          || (playSessionId ? [...activeSessions.entries()].find(([, s]) => s.playSessionId === playSessionId)?.[0] : undefined);
-        if (itemId && activeSessions.has(itemId) && playSessionId) {
-          console.log(`[Stream Proxy] Stopping transcode for ${itemId} due to 500 error`);
-          try {
-            await provider.stopPlaybackSession(playSessionId);
-            await provider.deleteTranscodingJob(playSessionId);
-          } catch (err) {
-            console.error(`[Stream Proxy] Failed to stop session ${playSessionId}:`, err);
-          }
-          activeSessions.delete(itemId);
-          lastActivityByItemId.delete(itemId);
-        } else {
-          // Session already stopped — expected race condition with in-flight segments
-          console.warn(`[Stream Proxy] Server returned 500 for already-stopped session (${itemId ?? 'unknown'})`);
-        }
-      } else {
-        console.error(`[Stream Proxy] Server returned ${responseData.status}`);
-      }
-
-      res.status(responseData.status).end();
-      return;
-    }
-
-    // Track activity so idle cleanup doesn't stop active streams
-    const jellyfinItemMatch = jellyfinPath.match(/\/Videos\/([^/]+)\//);
-    if (jellyfinItemMatch) {
-      // Jellyfin: item ID is in the URL path
-      lastActivityByItemId.set(jellyfinItemMatch[1], Date.now());
-    } else {
-      // Plex: extract session from query params OR from the URL path.
-      // Plex segment URLs (e.g. /video/:/transcode/universal/session/{uuid}/base/0)
-      // are extension-less and don't get PlaySessionId added by the URL rewriter,
-      // so we also check the path for the session UUID.
-      const qParams = new URLSearchParams(queryString.substring(1));
-      const sessionParam = qParams.get('PlaySessionId') || qParams.get('session');
-      const plexPathSession = jellyfinPath.match(/\/session\/([0-9a-f-]+)\//i)?.[1];
-      const resolvedSession = sessionParam || plexPathSession;
-      if (resolvedSession) {
-        for (const [proxyItemId, s] of activeSessions.entries()) {
-          if (s.playSessionId === resolvedSession) {
-            lastActivityByItemId.set(proxyItemId, Date.now());
-            break;
-          }
-        }
-      }
-    }
-
-    // Forward relevant headers
-    const contentType = responseData.headers.get('content-type');
-    if (contentType) res.setHeader('Content-Type', contentType);
-
-    // Extract PlaySessionId from query for URL rewriting
-    const params = new URLSearchParams(queryString);
-    const playSessionId = params.get('PlaySessionId') || '';
-
-    // If it's an M3U8 playlist, rewrite internal URLs to go through proxy
-    if (isPlaylist && responseData.text) {
-      const baseDir = jellyfinPath.substring(0, jellyfinPath.lastIndexOf('/') + 1);
-      let playlist = rewriteM3u8Urls(responseData.text, baseDir, playSessionId, deviceId);
+      const playSessionId = up.params.get('PlaySessionId') || '';
+      const baseDir = upstreamPath.substring(0, upstreamPath.lastIndexOf('/') + 1);
+      let playlist = sanitizeRenditions(rewriteM3u8Urls(result.text ?? '', baseDir, playSessionId, deviceId, up.token));
 
       // IPTV live-stream treatment: present the playlist as a sliding-window
       // live stream so players can't scrub and start at the current position.
@@ -553,94 +560,181 @@ streamRoutes.get('/stream/proxy/*', async (req: Request, res: Response) => {
           /^(\/api\/stream\/proxy\/.*\.m3u8[^\n]*)/gm,
           (match) => match.includes('iptv=1') ? match : (match.includes('?') ? `${match}&iptv=1` : `${match}?iptv=1`)
         );
+      } else if (/^\/Videos\//.test(upstreamPath)) {
+        // Jellyfin: start the player at the live offset (Plex emits its own EXT-X-START).
+        const offset = startOffsetBySession.get(playSessionId);
+        if (offset) playlist = injectStartOffset(playlist, offset);
       }
 
       res.send(playlist);
-    } else if (responseData.buffer) {
-      // Binary content (TS segments) — stream directly
-      res.send(Buffer.from(responseData.buffer));
-    } else {
-      res.status(500).end();
+      return;
     }
+
+    // Binary (segments, init segments, subtitles). Pre-warmed? Serve from memory.
+    const warmed = peekUpstream(up.key);
+    if (warmed) {
+      const result = await warmed.catch(() => null);
+      if (result?.ok && result.buffer) {
+        touchActivity(upstreamPath, sessionId);
+        if (result.contentType) res.setHeader('Content-Type', result.contentType);
+        res.send(result.buffer);
+        return;
+      }
+      // Pre-warm failed — fall through to a fresh upstream fetch.
+    }
+
+    console.log(`[Stream Proxy] ${up.isSegment ? 'Segment' : 'Resource'}: ${upstreamPath.substring(0, 80)}`);
+    // Stop pulling from the media server if the player goes away (seek, channel change).
+    const clientGone = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) clientGone.abort(); });
+    // Segments may take a while if the server is transcoding; the timeout covers only the
+    // wait for headers (retried on timeout), never the body transfer.
+    const { response } = await fetchWithHeaderTimeout(
+      up.url, authHeaders, up.isSegment ? 60_000 : 30_000, up.isSegment ? 2 : 1, clientGone.signal,
+    );
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      await handleUpstreamFailure(provider, response.status, upstreamPath, sessionId);
+      res.status(response.status).end();
+      return;
+    }
+    touchActivity(upstreamPath, sessionId);
+
+    // Forward relevant headers
+    const contentType = response.headers.get('content-type');
+    if (contentType) res.setHeader('Content-Type', contentType);
+    const contentLength = response.headers.get('content-length');
+    // fetch() transparently decodes compressed bodies, so a compressed length would be wrong.
+    if (contentLength && !response.headers.get('content-encoding')) res.setHeader('Content-Length', contentLength);
+
+    if (!response.body) {
+      res.end();
+      return;
+    }
+    const body = Readable.fromWeb(response.body as unknown as WebReadableStream);
+    body.on('error', () => res.destroy());
+    body.pipe(res);
   } catch (err) {
+    if (res.headersSent || res.destroyed) {
+      res.destroy();
+      return;
+    }
+    if ((err as Error)?.name === 'AbortError') return; // player went away
     console.error(`[Stream Proxy] Error:`, err);
     res.status(500).json({ error: (err as Error).message });
   }
 });
 
+type QueryLike = Record<string, unknown>;
+
+function intParam(q: QueryLike, name: string): number | undefined {
+  const raw = q[name];
+  if (raw == null || raw === '') return undefined;
+  const n = parseInt(String(raw), 10);
+  return Number.isNaN(n) ? undefined : n;
+}
+
+/** Default "auto" bitrate — a request carrying exactly this is not an explicit quality choice. */
+const AUTO_BITRATE = 120000000;
+
 // ─── Plex: stream handler ─────────────────────────────
 // Plex uses its own universal transcode endpoint. The URL is built entirely by
 // PlexClient.getHlsStreamUrl() — we just fetch it, rewrite the child URLs
 // through our proxy, and return the playlist. On 400 (stale session), we retry
-// once after a short delay with a fresh session.
-async function handlePlexStream(provider: MediaProvider, itemId: string, req: Request, res: Response): Promise<void> {
-  const headers = provider.getProxyHeaders();
+// with backoff, finally with a fresh session.
+//
+// /api/playback pre-starts the session (startPlexSession) while the player is still
+// processing its JSON; /api/stream then adopts that result via the playSessionId in
+// the stream URL instead of starting from scratch.
 
-  // Plex typically allows only one transcode at a time. Stop ALL active sessions
-  // before starting a new one — not just the session for this item. When the user
-  // switches channels (item A → item B), the client's stopPlayback(A) may still be
-  // in flight while the new stream request for B arrives, causing a 400.
-  const stopPromises: Promise<void>[] = [];
-  for (const [activeItemId, session] of activeSessions) {
-    console.log(`[Stream Plex] Stopping session ${session.playSessionId} (item=${activeItemId}) before new stream for item=${itemId}`);
-    stopPromises.push(provider.stopPlaybackSession(session.playSessionId).catch(() => {}));
-    activeSessions.delete(activeItemId);
-    lastActivityByItemId.delete(activeItemId);
-  }
-  // Only wait for Plex to release transcode resources when we actually stopped
-  // a session. On first load (no active sessions), skip the delay to avoid
-  // adding unnecessary latency that can cause HLS.js manifest timeouts.
-  if (stopPromises.length > 0) {
-    await Promise.all(stopPromises);
-    await new Promise(r => setTimeout(r, 300));
-  }
-
-  // Read quality, subtitle, and audio params from request
-  const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : undefined;
-  const maxWidth = req.query.maxWidth ? parseInt(req.query.maxWidth as string, 10) : undefined;
-  const subtitleStreamIndex = req.query.subtitleStreamIndex != null
-    ? parseInt(req.query.subtitleStreamIndex as string, 10) : undefined;
-  const audioStreamIndex = req.query.audioStreamIndex != null
-    ? parseInt(req.query.audioStreamIndex as string, 10) : undefined;
-  // Live offset (100ns ticks) set by /api/playback so Plex transcodes forward from the
-  // join point instead of starting at 0 and letting the client seek into a cold session.
-  const startPositionTicks = req.query.startTimeTicks
-    ? parseInt(req.query.startTimeTicks as string, 10) : undefined;
-  const streamOpts = {
+/** Plex stream options from /api/stream query params (shared with the /api/playback pre-start). */
+export function plexStreamOptions(q: QueryLike): HlsStreamOptions {
+  const bitrate = intParam(q, 'bitrate');
+  const maxWidth = intParam(q, 'maxWidth');
+  const subtitleStreamIndex = intParam(q, 'subtitleStreamIndex');
+  const audioStreamIndex = intParam(q, 'audioStreamIndex');
+  return {
     ...(bitrate != null && { bitrate }),
     ...(maxWidth != null && { maxWidth }),
-    ...(subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex) && { subtitleStreamIndex }),
-    ...(audioStreamIndex != null && !Number.isNaN(audioStreamIndex) && { audioStreamIndex }),
+    ...(subtitleStreamIndex != null && { subtitleStreamIndex }),
+    ...(audioStreamIndex != null && { audioStreamIndex }),
+    ...(q.native === '1' && { native: true }),
   };
+}
 
-  let hlsInfo = await provider.getHlsStreamUrl(itemId, startPositionTicks, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
+export interface PlexStartResult {
+  ok: boolean;
+  status: number;
+  contentType: string | null;
+  /** Raw (un-rewritten) master playlist. */
+  body: string;
+  masterUrl: string;
+  playSessionId: string;
+}
+
+/**
+ * Start a Plex transcode session and fetch its master playlist. Replaces this device's
+ * previous session first (a device plays one stream; the old one's transcode would
+ * otherwise conflict). Other devices' sessions are left alone unless Plex keeps refusing,
+ * in which case the final retry frees them too.
+ */
+export async function startPlexSession(
+  provider: MediaProvider,
+  itemId: string,
+  clientKey: string,
+  opts: HlsStreamOptions,
+  startPositionTicks: number | undefined,
+): Promise<PlexStartResult> {
+  const headers = provider.getProxyHeaders();
+
+  const stopSessions = async (filter: (s: { clientKey?: string }) => boolean) => {
+    const stops: Promise<void>[] = [];
+    for (const [activeItemId, session] of activeSessions) {
+      if (!filter(session)) continue;
+      console.log(`[Stream Plex] Stopping session ${session.playSessionId} (item=${activeItemId}) before new stream for item=${itemId}`);
+      stops.push(provider.stopPlaybackSession(session.playSessionId).catch(() => {}));
+      activeSessions.delete(activeItemId);
+      lastActivityByItemId.delete(activeItemId);
+      releaseSessionState(session.playSessionId);
+    }
+    await Promise.all(stops);
+    return stops.length;
+  };
+  // No fixed settle delay after stopping: the 400-retry backoff below covers a slow release.
+  await stopSessions((s) => s.clientKey === clientKey);
+
+  let hlsInfo = await provider.getHlsStreamUrl(itemId, startPositionTicks, opts);
   let { playSessionId, mediaSourceId } = hlsInfo;
   let masterUrl = hlsInfo.url;
 
-  activeSessions.set(itemId, { playSessionId, mediaSourceId });
+  activeSessions.set(itemId, { playSessionId, mediaSourceId, clientKey });
   lastActivityByItemId.set(itemId, Date.now());
-  console.log(`[Stream Plex] Session ${playSessionId} item=${itemId} bitrate=${bitrate ?? 'default'} maxWidth=${maxWidth ?? 'auto'} subtitles=${subtitleStreamIndex ?? 'off'} audio=${audioStreamIndex ?? 'default'}`);
+  console.log(`[Stream Plex] Session ${playSessionId} item=${itemId} bitrate=${opts.bitrate ?? 'default'} maxWidth=${opts.maxWidth ?? 'auto'} subtitles=${opts.subtitleStreamIndex ?? 'off'} audio=${opts.audioStreamIndex ?? 'default'} native=${!!opts.native}`);
   console.log(`[Stream Plex] Fetching master playlist for item=${itemId}`);
 
   let response = await fetch(masterUrl, { headers });
 
   // Plex may return 400 if a transcode session hasn't fully released.
-  // Retry 1: reuse the same session URL (PUT already persisted stream selections,
+  // Retries 1-2: reuse the same session URL (the PUT already persisted stream selections,
   // so repeating them can conflict with Plex's cleanup). Only stop + re-request.
-  // Retry 2: generate a completely fresh session as a last resort.
-  const retryDelays = [1500, 3000];
+  // Final retry: free every session and generate a completely fresh, validated one.
+  const retryDelays = [400, 1500, 3000];
   for (let retry = 0; !response.ok && response.status === 400 && retry < retryDelays.length; retry++) {
     const delay = retryDelays[retry];
     console.log(`[Stream Plex] Plex returned 400, stopping session ${playSessionId} and retrying (${retry + 1}/${retryDelays.length}) after ${delay}ms...`);
     await provider.stopPlaybackSession(playSessionId).catch(() => {});
+    const isFinal = retry === retryDelays.length - 1;
+    if (isFinal) {
+      await stopSessions((s) => s.clientKey !== clientKey);
+    }
     await new Promise(r => setTimeout(r, delay));
-    if (retry === retryDelays.length - 1) {
-      // Final retry: fresh session with new ID and params
-      hlsInfo = await provider.getHlsStreamUrl(itemId, startPositionTicks, Object.keys(streamOpts).length > 0 ? streamOpts : undefined);
+    if (isFinal) {
+      releaseSessionState(playSessionId);
+      hlsInfo = await provider.getHlsStreamUrl(itemId, startPositionTicks, { ...opts, sessionId: undefined, validate: true });
       playSessionId = hlsInfo.playSessionId;
       mediaSourceId = hlsInfo.mediaSourceId;
       masterUrl = hlsInfo.url;
-      activeSessions.set(itemId, { playSessionId, mediaSourceId });
+      activeSessions.set(itemId, { playSessionId, mediaSourceId, clientKey });
       lastActivityByItemId.set(itemId, Date.now());
     }
     response = await fetch(masterUrl, { headers });
@@ -650,106 +744,133 @@ async function handlePlexStream(provider: MediaProvider, itemId: string, req: Re
     const errorText = await response.text().catch(() => '');
     console.error(`[Stream Plex] Plex returned ${response.status}: ${errorText.slice(0, 500)}`);
     await provider.stopPlaybackSession(playSessionId).catch(() => {});
-    activeSessions.delete(itemId);
-    lastActivityByItemId.delete(itemId);
-    res.status(response.status).json({ error: 'Plex stream unavailable' });
-    return;
+    if (activeSessions.get(itemId)?.playSessionId === playSessionId) {
+      activeSessions.delete(itemId);
+      lastActivityByItemId.delete(itemId);
+    }
+    releaseSessionState(playSessionId);
+    return { ok: false, status: response.status, contentType: null, body: '', masterUrl, playSessionId };
   }
 
-  const contentType = response.headers.get('content-type');
-  if (contentType) res.setHeader('Content-Type', contentType);
+  return {
+    ok: true,
+    status: response.status,
+    contentType: response.headers.get('content-type'),
+    body: await response.text(),
+    masterUrl,
+    playSessionId,
+  };
+}
 
-  const body = await response.text();
+// Pre-started Plex sessions awaiting their /api/stream request, keyed by playSessionId.
+// Single-use; an entry the player never claims is dropped (its session idles out).
+const PLEX_PRESTART_TTL_MS = 60_000;
+const plexPrestarts = new Map<string, { promise: Promise<PlexStartResult>; expiresAt: number }>();
+
+export function registerPlexPrestart(playSessionId: string, promise: Promise<PlexStartResult>): void {
+  const now = Date.now();
+  for (const [k, v] of plexPrestarts) if (now > v.expiresAt) plexPrestarts.delete(k);
+  promise.catch(() => {});
+  plexPrestarts.set(playSessionId, { promise, expiresAt: now + PLEX_PRESTART_TTL_MS });
+}
+
+function takePlexPrestart(playSessionId: string): Promise<PlexStartResult> | undefined {
+  const entry = plexPrestarts.get(playSessionId);
+  plexPrestarts.delete(playSessionId);
+  if (!entry || Date.now() > entry.expiresAt) return undefined;
+  return entry.promise;
+}
+
+async function handlePlexStream(provider: MediaProvider, itemId: string, req: Request, res: Response): Promise<void> {
+  const token = typeof req.query.token === 'string' ? req.query.token : undefined;
+  const prestartedId = typeof req.query.playSessionId === 'string' ? req.query.playSessionId : undefined;
+
+  let result: PlexStartResult | null = null;
+  const prestart = prestartedId ? takePlexPrestart(prestartedId) : undefined;
+  if (prestart) {
+    result = await prestart.catch(() => null);
+    if (result && !result.ok) result = null; // pre-start failed (and cleaned up) — start fresh
+    if (result) console.log(`[Stream Plex] Using pre-started session ${result.playSessionId} for item=${itemId}`);
+  }
+  if (!result) {
+    // Live offset (100ns ticks) set by /api/playback so Plex transcodes forward from the
+    // join point instead of starting at 0 and letting the client seek into a cold session.
+    result = await startPlexSession(provider, itemId, clientKeyFor(req), plexStreamOptions(req.query), intParam(req.query, 'startTimeTicks'));
+  }
+
+  if (!result.ok) {
+    res.status(result.status).json({ error: 'Plex stream unavailable' });
+    return;
+  }
+  markSessionConsumed(result.playSessionId);
+
+  if (result.contentType) res.setHeader('Content-Type', result.contentType);
   // Derive baseDir from master URL path so relative child URLs resolve correctly.
-  const masterPath = new URL(masterUrl).pathname;
+  const masterPath = new URL(result.masterUrl).pathname;
   const baseDir = masterPath.substring(0, masterPath.lastIndexOf('/') + 1);
-  const deviceId = provider.getDeviceId();
-  const rewrittenMaster = rewriteM3u8Urls(body, baseDir, playSessionId, deviceId);
-
-  res.send(rewrittenMaster);
+  res.send(sanitizeRenditions(rewriteM3u8Urls(result.body, baseDir, result.playSessionId, provider.getDeviceId(), token)));
 }
 
 // ─── Jellyfin: stream handler ─────────────────────────
 // StartTimeTicks is passed on the master playlist request (only — it is stripped from
-// child playlist/segment URLs by rewriteM3u8Urls and the proxy) so ffmpeg starts at the
-// live offset instead of position 0. The client still seeks to the offset (Jellyfin does
-// not rebase the stream); the server offset's job is to have those segments ready so the
-// seek resolves immediately instead of forcing a transcode restart (~7-10s tune-in).
+// child playlist/segment URLs by rewriteM3u8Urls and the proxy). Jellyfin does not rebase
+// the stream; it starts ffmpeg at whichever segment the player requests FIRST. So the
+// proxy injects #EXT-X-START at the live offset into the media playlist (the player's
+// first request is then the live segment, not segment 0 followed by a seek that kills
+// and restarts ffmpeg), and warmJellyfinStart requests that segment ahead of the player.
 //
 // If Jellyfin logs "FFmpeg exited with code 234" during VAAPI transcoding, that is a
 // Jellyfin/FFmpeg/VAAPI issue (e.g. try disabling "Low power encoding" in Jellyfin
 // transcoding settings). The client recovers by requesting a new stream session on 500s.
-async function handleJellyfinStream(provider: MediaProvider, itemId: string, req: Request, res: Response): Promise<void> {
-  const hasExplicitQuality = req.query.bitrate != null || req.query.maxWidth != null;
-  const bitrate = req.query.bitrate ? parseInt(req.query.bitrate as string, 10) : 120000000;
-  const maxWidth = req.query.maxWidth ? parseInt(req.query.maxWidth as string, 10) : undefined;
-  const audioStreamIndex = req.query.audioStreamIndex != null
-    ? parseInt(req.query.audioStreamIndex as string, 10)
-    : undefined;
-  const subtitleStreamIndex = req.query.subtitleStreamIndex != null
-    ? parseInt(req.query.subtitleStreamIndex as string, 10)
-    : undefined;
-  const clientSupportsHevc = req.query.hevc === '1';
-  const startTimeTicks = req.query.startTimeTicks
-    ? parseInt(req.query.startTimeTicks as string, 10)
-    : undefined;
 
-  const baseUrl = provider.getBaseUrl();
-  const headers = provider.getProxyHeaders();
-  const deviceId = provider.getDeviceId();
+/**
+ * Jellyfin master.m3u8 params from /api/stream query params. Shared with the
+ * /api/playback pre-warm so both hit the same Jellyfin transcode (and cache entry).
+ */
+export function jellyfinMasterParams(
+  q: QueryLike,
+  ids: { deviceId: string; mediaSourceId: string; playSessionId: string },
+): URLSearchParams {
+  const requestedBitrate = intParam(q, 'bitrate');
+  const maxWidth = intParam(q, 'maxWidth');
+  const hasExplicitQuality = (requestedBitrate != null && requestedBitrate !== AUTO_BITRATE) || maxWidth != null;
+  const bitrate = requestedBitrate ?? AUTO_BITRATE;
+  const audioStreamIndex = intParam(q, 'audioStreamIndex');
+  const subtitleStreamIndex = intParam(q, 'subtitleStreamIndex');
+  const startTimeTicks = intParam(q, 'startTimeTicks');
+  const clientSupportsHevc = q.hevc === '1';
+  const native = q.native === '1';
 
-  // Reuse session from /api/playback when available (avoids a redundant Jellyfin
-  // getPlaybackInfo round-trip). Fall back to getHlsStreamUrl for direct requests.
-  const prefetchedPlaySessionId = req.query.playSessionId as string | undefined;
-  const prefetchedMediaSourceId = req.query.mediaSourceId as string | undefined;
-
-  let playSessionId: string;
-  let mediaSourceId: string;
-  let isHdrSource: boolean;
-  if (prefetchedPlaySessionId && prefetchedMediaSourceId) {
-    playSessionId = prefetchedPlaySessionId;
-    mediaSourceId = prefetchedMediaSourceId;
-    isHdrSource = false; // HDR detection only used for logging
-  } else {
-    const hlsInfo = await provider.getHlsStreamUrl(itemId);
-    playSessionId = hlsInfo.playSessionId;
-    mediaSourceId = hlsInfo.mediaSourceId;
-    isHdrSource = hlsInfo.isHdrSource;
-  }
-
-  activeSessions.set(itemId, { playSessionId, mediaSourceId });
-  lastActivityByItemId.set(itemId, Date.now());
-  console.log(`[Stream Master] Session ${playSessionId} item=${itemId} directStream=${!hasExplicitQuality} bitrate=${bitrate} maxWidth=${maxWidth || 'auto'} hevc=${clientSupportsHevc} hdr=${isHdrSource} audioStreamIndex=${audioStreamIndex ?? 'default'} subtitleStreamIndex=${subtitleStreamIndex ?? 'off'}`);
-
-  // Build Jellyfin HLS URL for browser playback via HLS.js.
-  // Match Jellyfin Web behavior on capable clients: prefer direct-stream HEVC (including HDR).
-  // If the browser can't do HEVC, fall back to h264 transcoding.
-  // AllowStreamCopy tells FFmpeg to copy streams when input codec matches output.
-  // VideoBitrate explicitly sets the encoding bitrate (Jellyfin bug: resolution is calculated
-  // from bitrate, so setting a high VideoBitrate ensures high resolution output).
-  const allowHevcStreamCopy = clientSupportsHevc;
-  const videoCodec = allowHevcStreamCopy ? 'hevc,h264' : 'h264';
-  const segmentContainer = allowHevcStreamCopy ? 'mp4' : 'ts';
+  // Match Jellyfin Web behavior on capable clients: direct-stream HEVC (including HDR)
+  // when the client can decode it. H.264 is listed FIRST: Jellyfin stream-copies any listed
+  // codec but encodes to the first one, so when a transcode is unavoidable (quality cap,
+  // burned-in subtitles, unsupported source codec) it uses the far faster H.264 encoder.
+  // HEVC copy needs fMP4 segments.
+  const videoCodec = clientSupportsHevc ? 'h264,hevc' : 'h264';
+  const segmentContainer = clientSupportsHevc ? 'mp4' : 'ts';
   const params = new URLSearchParams({
-    DeviceId: deviceId,
-    MediaSourceId: mediaSourceId,
-    PlaySessionId: playSessionId,
+    DeviceId: ids.deviceId,
+    MediaSourceId: ids.mediaSourceId,
+    PlaySessionId: ids.playSessionId,
     VideoCodec: videoCodec,
-    AudioCodec: 'aac',
+    // Native Apple players take AC3/E-AC3 and 5.1: copy surround audio instead of encoding
+    // it to stereo AAC. Browsers get AAC stereo (MSE support for AC3 is spotty).
+    AudioCodec: native ? 'aac,ac3,eac3' : 'aac',
     MaxStreamingBitrate: String(bitrate),
+    // VideoBitrate explicitly sets the encoding bitrate (Jellyfin bug: resolution is calculated
+    // from bitrate, so setting a high VideoBitrate ensures high resolution output).
     VideoBitrate: String(bitrate),
-    TranscodingMaxAudioChannels: '2',
+    TranscodingMaxAudioChannels: native ? '6' : '2',
     SegmentContainer: segmentContainer,
-    // Must match the pre-warm params in playback.ts — one short segment ready = playable.
+    // One short segment ready = playable.
     MinSegments: '1',
     SegmentLength: '3',
     BreakOnNonKeyFrames: 'true',
   });
   // Master playlist only — stripped from child/segment URLs (Jellyfin rejects it there).
-  if (startTimeTicks != null && !Number.isNaN(startTimeTicks) && startTimeTicks > 0) {
+  if (startTimeTicks != null && startTimeTicks > 0) {
     params.set('StartTimeTicks', String(startTimeTicks));
   }
-
   if (!hasExplicitQuality) {
     // Auto: allow stream copy where possible (same as Jellyfin web direct-stream preference).
     // MaxWidth/MaxHeight 3840x2160 tells Jellyfin to allow up to 4K resolution.
@@ -761,64 +882,164 @@ async function handleJellyfinStream(provider: MediaProvider, itemId: string, req
   } else if (maxWidth) {
     params.set('MaxWidth', String(maxWidth));
   }
-  if (audioStreamIndex != null && !Number.isNaN(audioStreamIndex)) {
+  if (audioStreamIndex != null) {
     params.set('AudioStreamIndex', String(audioStreamIndex));
   }
-  if (subtitleStreamIndex != null && !Number.isNaN(subtitleStreamIndex)) {
+  if (subtitleStreamIndex != null) {
     params.set('SubtitleStreamIndex', String(subtitleStreamIndex));
     // Text subtitles are delivered as HLS text tracks (subtitleMethod=Hls from
     // /api/playback) so video stream copy is preserved — burn-in (Encode) forces a
     // full re-encode and is reserved for image codecs (PGS/VobSub/...). Direct calls
     // without the param keep the safe burn-in default.
-    const subtitleMethod = req.query.subtitleMethod === 'Hls' ? 'Hls' : 'Encode';
-    params.set('SubtitleMethod', subtitleMethod);
+    params.set('SubtitleMethod', q.subtitleMethod === 'Hls' ? 'Hls' : 'Encode');
+  }
+  return params;
+}
+
+/** Fetch a Jellyfin master playlist through the shared upstream table (pre-warm aware). */
+export function fetchJellyfinMaster(
+  provider: MediaProvider,
+  itemId: string,
+  params: URLSearchParams,
+  lingerMs?: number,
+) {
+  const path = `/Videos/${itemId}/master.m3u8`;
+  return fetchUpstreamShared(upstreamKey(path, params), `${provider.getBaseUrl()}${path}?${params}`, provider.getProxyHeaders(), {
+    kind: 'text', timeoutMs: 30_000, retries: 1, lingerMs, sessionId: params.get('PlaySessionId'),
+  });
+}
+
+/**
+ * Get a Jellyfin transcode producing the live segment before the player asks for it:
+ * master → first child playlist → the segment containing `offsetSec` (then the next one).
+ * Everything lands in the upstream table, so the player's own requests (which follow
+ * within a few hundred ms) are served from memory or join the in-flight fetch.
+ *
+ * Order matters for fMP4: a request for the init segment (-1.mp4) makes Jellyfin start
+ * ffmpeg at 0, so the init is fetched only after the live segment — by then ffmpeg (started
+ * at the live segment) has written the init file and Jellyfin just serves it. The player's
+ * init request joins that deferred fetch instead of racing ahead of it.
+ */
+export async function warmJellyfinStart(
+  provider: MediaProvider,
+  itemId: string,
+  masterParams: URLSearchParams,
+  offsetSec: number,
+): Promise<void> {
+  const baseUrl = provider.getBaseUrl();
+  const headers = provider.getProxyHeaders();
+  const deviceId = provider.getDeviceId();
+  const playSessionId = masterParams.get('PlaySessionId') || '';
+
+  const master = await fetchJellyfinMaster(provider, itemId, masterParams, PREWARM_TEXT_TTL_MS);
+  if (!master.ok || !master.text) return;
+  const child = extractFirstChildPlaylistPath(master.text);
+  if (!child) return;
+
+  const baseDir = `/Videos/${itemId}/`;
+  const childUp = resolveProxied(rewriteM3u8Urls(child, baseDir, playSessionId, deviceId), baseUrl);
+  const childRes = await fetchUpstreamShared(childUp.key, childUp.url, headers, {
+    kind: 'text', timeoutMs: 30_000, retries: 1, lingerMs: PREWARM_TEXT_TTL_MS, sessionId: playSessionId,
+  });
+  if (!childRes.ok || !childRes.text) return;
+
+  const childBaseDir = childUp.path.substring(0, childUp.path.lastIndexOf('/') + 1);
+  const { init, segment, next } = segmentsAtOffset(
+    rewriteM3u8Urls(childRes.text, childBaseDir, playSessionId, deviceId), offsetSec,
+  );
+  if (!segment) return;
+
+  const warm = (proxied: string, after?: Promise<unknown>) => {
+    const u = resolveProxied(proxied, baseUrl);
+    return fetchUpstreamShared(u.key, u.url, headers, {
+      kind: 'binary', timeoutMs: 60_000, retries: 1, lingerMs: PREWARM_BINARY_TTL_MS, sessionId: playSessionId, after,
+    });
+  };
+  const live = warm(segment);
+  if (init) void warm(init, live).catch(() => {});
+  await live.catch(() => null);
+  if (next) void warm(next).catch(() => {});
+}
+
+async function handleJellyfinStream(provider: MediaProvider, itemId: string, req: Request, res: Response): Promise<void> {
+  const deviceId = provider.getDeviceId();
+  const token = typeof req.query.token === 'string' ? req.query.token : undefined;
+  const clientKey = clientKeyFor(req);
+
+  // Reuse session from /api/playback when available (avoids a redundant Jellyfin
+  // getPlaybackInfo round-trip). Fall back to getHlsStreamUrl for direct requests.
+  const prefetchedPlaySessionId = req.query.playSessionId as string | undefined;
+  const prefetchedMediaSourceId = req.query.mediaSourceId as string | undefined;
+
+  let playSessionId: string;
+  let mediaSourceId: string;
+  let isHdrSource = false; // HDR detection only used for logging
+  if (prefetchedPlaySessionId && prefetchedMediaSourceId) {
+    playSessionId = prefetchedPlaySessionId;
+    mediaSourceId = prefetchedMediaSourceId;
+  } else {
+    const hlsInfo = await provider.getHlsStreamUrl(itemId);
+    playSessionId = hlsInfo.playSessionId;
+    mediaSourceId = hlsInfo.mediaSourceId;
+    isHdrSource = hlsInfo.isHdrSource;
   }
 
-  const jellyfinUrl = `${baseUrl}/Videos/${itemId}/master.m3u8?${params}`;
+  const startTimeTicks = intParam(req.query, 'startTimeTicks');
+  const offsetSec = startTimeTicks && startTimeTicks > 0 ? startTimeTicks / 10_000_000 : 0;
+  let params = jellyfinMasterParams(req.query, { deviceId, mediaSourceId, playSessionId });
+
+  const begin = () => {
+    activeSessions.set(itemId, { playSessionId, mediaSourceId, clientKey });
+    lastActivityByItemId.set(itemId, Date.now());
+    markSessionConsumed(playSessionId);
+    if (offsetSec > 0) setSessionStartOffset(playSessionId, offsetSec);
+  };
+  begin();
+  console.log(`[Stream Master] Session ${playSessionId} item=${itemId} videoCodec=${params.get('VideoCodec')} audioCodec=${params.get('AudioCodec')} bitrate=${params.get('MaxStreamingBitrate')} maxWidth=${params.get('MaxWidth') || 'auto'} hdr=${isHdrSource} audioStreamIndex=${params.get('AudioStreamIndex') ?? 'default'} subtitleStreamIndex=${params.get('SubtitleStreamIndex') ?? 'off'}`);
   console.log(`[Stream Master] Fetching master playlist for item=${itemId}`);
 
-  const response = await fetch(jellyfinUrl, { headers });
+  // Usually already fetched (or in flight) by the /api/playback pre-warm.
+  let response = await fetchJellyfinMaster(provider, itemId, params);
+
+  if (!response.ok && prefetchedMediaSourceId) {
+    // The prefetched ids come from prevue's library cache, which can go stale (file replaced
+    // → new MediaSourceId). Retry once with a fresh PlaybackInfo from Jellyfin.
+    console.warn(`[Stream Master] Jellyfin returned ${response.status} for cached session ids; retrying with fresh PlaybackInfo`);
+    releaseSessionState(playSessionId);
+    try {
+      const hlsInfo = await provider.getHlsStreamUrl(itemId);
+      playSessionId = hlsInfo.playSessionId;
+      mediaSourceId = hlsInfo.mediaSourceId;
+      params = jellyfinMasterParams(req.query, { deviceId, mediaSourceId, playSessionId });
+      begin();
+      response = await fetchJellyfinMaster(provider, itemId, params);
+    } catch (err) {
+      console.error('[Stream Master] Fresh PlaybackInfo failed:', err);
+    }
+  }
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    console.error(`[Stream Master] Jellyfin returned ${response.status}: ${errorText.slice(0, 500)}`);
+    console.error(`[Stream Master] Jellyfin returned ${response.status}`);
     try {
       await provider.stopPlaybackSession(playSessionId);
       await provider.deleteTranscodingJob(playSessionId);
     } catch (_err) { /* best-effort */ }
     activeSessions.delete(itemId);
     lastActivityByItemId.delete(itemId);
+    releaseSessionState(playSessionId);
     res.status(response.status).json({ error: 'Jellyfin stream unavailable' });
     return;
   }
 
   // Forward content type
-  const contentType = response.headers.get('content-type');
-  if (contentType) res.setHeader('Content-Type', contentType);
+  if (response.contentType) res.setHeader('Content-Type', response.contentType);
 
   // Rewrite internal URLs to route through our proxy with session info
-  const body = await response.text();
-  const baseDir = `/Videos/${itemId}/`;
-  const rewrittenMaster = rewriteM3u8Urls(body, baseDir, playSessionId, deviceId);
+  const body = response.text ?? '';
+  const rewrittenMaster = sanitizeRenditions(rewriteM3u8Urls(body, `/Videos/${itemId}/`, playSessionId, deviceId, token));
 
-  // Prewarm first child playlist request in the background so the first segment
-  // can be ready by the time the client asks for it.
-  const firstChild = extractFirstChildPlaylistPath(body);
-  if (firstChild) {
-    try {
-      const qIndex = firstChild.indexOf('?');
-      const rawPath = qIndex >= 0 ? firstChild.substring(0, qIndex) : firstChild;
-      const rawQuery = qIndex >= 0 ? firstChild.substring(qIndex + 1) : '';
-      const childPath = rawPath.startsWith('/') ? rawPath : `${baseDir}${rawPath}`;
-      const childParams = new URLSearchParams(rawQuery);
-      if (!childParams.has('PlaySessionId')) childParams.set('PlaySessionId', playSessionId);
-      if (!childParams.has('DeviceId')) childParams.set('DeviceId', deviceId);
-      const childUrl = `${baseUrl}${childPath}?${childParams.toString()}`;
-      void fetch(childUrl, { headers }).catch(() => {});
-    } catch {
-      // best-effort warmup only
-    }
-  }
+  // Make sure the live segment is being produced (a no-op if /api/playback already warmed it).
+  void warmJellyfinStart(provider, itemId, params, offsetSec).catch(() => {});
 
   res.send(rewrittenMaster);
 }
@@ -942,7 +1163,7 @@ export function startTranscodeIdleCleanup(app: Express): void {
       try {
         await provider.stopPlaybackSession(playSessionId);
         await provider.deleteTranscodingJob(playSessionId);
-        progressStartedSessions.delete(playSessionId);
+        releaseSessionState(playSessionId);
         activeSessions.delete(itemId);
         lastActivityByItemId.delete(itemId);
         console.log(`[Stream] Idle cleanup: stopped session ${playSessionId} for item ${itemId}`);

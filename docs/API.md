@@ -669,6 +669,7 @@ Get streaming info for the current program on a channel. This is the primary end
 | `maxWidth` | number | Max video width (px) |
 | `audioStreamIndex` | number | Specific audio track index |
 | `hevc` | `"1"` | Enable HEVC codec support |
+| `native` | `"1"` | Native Apple player (tvOS app): allow AC3/E-AC3 5.1 audio copy, and full-bitrate direct streams on Plex |
 
 **Response:**
 
@@ -697,6 +698,9 @@ Get streaming info for the current program on a channel. This is the primary end
 - For interstitials, `stream_url` is `null` and `is_interstitial` is `true`.
 - `outro_start_ms` is the media position (ms) where ending credits begin, from the Jellyfin MediaSegments API. `null` if the server doesn't support it.
 - `seek_position_ms` is calculated from the schedule — how far into the media file the current wall-clock time maps to.
+- `stream_url` always carries a fresh `playSessionId` (Jellyfin and Plex); pass it to `POST /api/stream/stop` to stop exactly that session.
+- When `PREVUE_API_KEY` is set, `stream_url` also carries `token=<key>`. It is propagated into every rewritten child playlist / segment URL (and stripped before forwarding to the media server), so players that can't set headers (AVPlayer, hls.js) work natively.
+- Pre-warm: before responding, the server starts the stream — Jellyfin: fetches the master and media playlists and the segment at the live offset; Plex: starts the transcode session, which `/api/stream` then adopts via `playSessionId`. Jellyfin tracks come from prevue's library cache when available (no PlaybackInfo round-trip).
 - Applies preferred audio language and subtitle settings from the database if the client doesn't specify them.
 - Re-checks the caller's active profile `max_rating` ceiling against the current program before
   returning a stream URL — a deep link to a blocked channel gets the same `404` as "no program
@@ -734,7 +738,7 @@ Get the HLS master playlist for a Jellyfin item. All URLs in the playlist are re
 
 **Response:** `Content-Type: application/vnd.apple.mpegurl` — HLS master playlist.
 
-**Side Effects:** Creates a playback session in Jellyfin, tracks session in memory.
+**Side Effects:** Creates a playback session in Jellyfin, tracks session in memory. A new stream replaces the requesting device's (IP's) previous Plex session only — other devices' streams are left alone unless Plex keeps refusing (final retry).
 
 ### `GET /api/stream/proxy/*`
 
@@ -747,7 +751,10 @@ Proxy HLS child playlists and media segments through Jellyfin with authenticatio
 **Security:** Only allows paths starting with `/Videos/` or `/video/`.
 
 **Features:**
-- Request deduplication (prevents concurrent FFmpeg spawns for the same URL)
+- Playlist request deduplication (prevents concurrent FFmpeg spawns for the same URL)
+- Segments are streamed through as they arrive (not buffered whole); a segment fetched by the pre-warm is served from memory
+- Jellyfin media playlists get `#EXT-X-START:TIME-OFFSET=<live offset>,PRECISE=NO` so the player's first segment request is the live one (Jellyfin starts ffmpeg at the first requested segment)
+- `token` / `api_key` are stripped before forwarding upstream and propagated onto rewritten URLs
 - IPTV live-window filtering (when `iptv=1`)
 - Automatic URL rewriting for nested playlists
 
@@ -765,7 +772,7 @@ Stop a playback session and release server resources.
 }
 ```
 
-All fields are optional. If `itemId` is provided, stops that specific session.
+All fields are optional. With `playSessionId`, stops exactly that session (a newer session for the same item stays tracked). With `itemId` only, stops the item's tracked session — but is ignored if it streamed in the last 3s (guards the guide-preview → player handoff race).
 
 **Response:** `{ "success": true, "stopped": "item-id" }`
 

@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { MediaItem, ServerConfig } from '../types/index.js';
-import type { MediaProvider, PlaybackInfoResult, StreamInfo, MediaProviderCapabilities } from './MediaProvider.js';
+import type { MediaProvider, PlaybackInfoResult, StreamInfo, MediaProviderCapabilities, HlsStreamOptions } from './MediaProvider.js';
 import * as queries from '../db/queries.js';
 
 /**
@@ -98,7 +98,7 @@ export abstract class AbstractMediaProvider implements MediaProvider {
   // ─── Playback ─────────────────────────────────────────
 
   abstract getPlaybackInfo(itemId: string): Promise<PlaybackInfoResult>;
-  abstract getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<StreamInfo>;
+  abstract getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: HlsStreamOptions): Promise<StreamInfo>;
   abstract getMediaSegments(itemId: string): Promise<{ outroStartMs: number | null; outroEndMs: number | null }>;
 
   // ─── Session Management ───────────────────────────────

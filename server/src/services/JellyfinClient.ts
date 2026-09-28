@@ -4,7 +4,7 @@ import { getItemsApi, getMediaInfoApi, getSystemApi, getDynamicHlsApi, getImageA
 import type { Api } from '@jellyfin/sdk';
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/index.js';
 import type { MediaItem, MediaLibrary, ServerConfig } from '../types/index.js';
-import type { PlaybackInfoResult } from './MediaProvider.js';
+import type { PlaybackInfoResult, HlsStreamOptions } from './MediaProvider.js';
 import { AbstractMediaProvider } from './AbstractMediaProvider.js';
 import * as queries from '../db/queries.js';
 import { ticksToMs, msToTicks } from '../utils/time.js';
@@ -685,7 +685,7 @@ export class JellyfinClient extends AbstractMediaProvider {
   /**
    * Get HLS master playlist URL with proper session ID
    */
-  async getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<{ url: string; playSessionId: string; isHdrSource: boolean; mediaSourceId: string }> {
+  async getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: HlsStreamOptions): Promise<{ url: string; playSessionId: string; isHdrSource: boolean; mediaSourceId: string }> {
     const playbackInfo = await this.getPlaybackInfo(itemId);
     const playSessionId = playbackInfo.PlaySessionId || randomUUID();
     const mediaSource = playbackInfo.MediaSources?.[0];

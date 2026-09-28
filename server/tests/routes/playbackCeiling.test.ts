@@ -38,6 +38,8 @@ function createApp(rating: string | null): { app: Express; db: Database.Database
     providerType: 'jellyfin',
     getPlaybackInfo: vi.fn(async () => ({ PlaySessionId: 'sess-1', MediaSources: [{ Id: 'src-1', MediaStreams: [] }] })),
     getMediaSegments: vi.fn(async () => ({ outroStartMs: null })),
+    getItem: vi.fn(() => undefined),
+    stopPlaybackSession: vi.fn(async () => {}),
     getBaseUrl: () => 'http://mock:8096',
     getProxyHeaders: () => ({ 'X-Emby-Token': 'mock' }),
     getDeviceId: () => 'device-1',

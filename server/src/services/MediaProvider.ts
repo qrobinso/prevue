@@ -22,6 +22,20 @@ export interface PlaybackInfoResult {
   }> | null;
 }
 
+/** Stream selection + client capability options for getHlsStreamUrl(). */
+export interface HlsStreamOptions {
+  bitrate?: number;
+  maxWidth?: number;
+  subtitleStreamIndex?: number;
+  audioStreamIndex?: number;
+  /** Native Apple player (AVPlayer): can take AC3/E-AC3 + 5.1 and higher direct-stream bitrates. */
+  native?: boolean;
+  /** Use this session id instead of generating one (lets /api/playback pre-start the stream). */
+  sessionId?: string;
+  /** Ask the media server to validate the request first (Plex decision endpoint) — used on retries. */
+  validate?: boolean;
+}
+
 export interface StreamInfo {
   url: string;
   playSessionId: string;
@@ -71,7 +85,7 @@ export interface MediaProvider {
 
   // ─── Playback ─────────────────────────────────────────
   getPlaybackInfo(itemId: string): Promise<PlaybackInfoResult>;
-  getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: { bitrate?: number; maxWidth?: number; subtitleStreamIndex?: number; audioStreamIndex?: number }): Promise<StreamInfo>;
+  getHlsStreamUrl(itemId: string, startPositionTicks?: number, options?: HlsStreamOptions): Promise<StreamInfo>;
   getMediaSegments(itemId: string): Promise<{ outroStartMs: number | null; outroEndMs: number | null }>;
 
   // ─── Session Management ───────────────────────────────

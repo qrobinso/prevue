@@ -5,6 +5,7 @@ import { gzipSync } from 'zlib';
 import * as queries from '../db/queries.js';
 import { isAuthEnabled, validateApiKey, getApiKey } from '../middleware/auth.js';
 import { rewriteM3u8Urls, activeSessions, lastActivityByItemId, iptvSessionInfo } from './stream.js';
+import { sanitizeRenditions } from '../services/hlsUpstream.js';
 import type { ScheduleEngine } from '../services/ScheduleEngine.js';
 import type { MediaProvider } from '../services/MediaProvider.js';
 import type { ChannelParsed } from '../types/index.js';
@@ -459,7 +460,7 @@ iptvRoutes.get('/channel/:channelNumber', async (req: Request, res: Response) =>
 
     // Rewrite URLs to route through our proxy
     const body = await response.text();
-    let rewritten = rewriteM3u8Urls(body, baseDir, playSessionId, deviceId);
+    let rewritten = sanitizeRenditions(rewriteM3u8Urls(body, baseDir, playSessionId, deviceId));
 
     // Tag proxy URLs with iptv=1 so the proxy applies live-window filtering.
     // Also append auth token if needed.

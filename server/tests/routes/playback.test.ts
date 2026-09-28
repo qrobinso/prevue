@@ -10,7 +10,8 @@ const SEEK_MS = 600_000; // 10 minutes into the program
 
 function createMockProvider(
   providerType: 'jellyfin' | 'plex',
-  mediaStreams: object[] = []
+  mediaStreams: object[] = [],
+  libraryItem?: object
 ) {
   return {
     providerType,
@@ -19,6 +20,8 @@ function createMockProvider(
       MediaSources: [{ Id: 'src-1', MediaStreams: mediaStreams }],
     })),
     getMediaSegments: vi.fn(async () => ({ outroStartMs: null })),
+    getItem: vi.fn(() => libraryItem),
+    stopPlaybackSession: vi.fn(async () => {}),
     getBaseUrl: () => 'http://mock:8096',
     getProxyHeaders: () => ({ 'X-Emby-Token': 'mock' }),
     getDeviceId: () => 'device-1',
@@ -28,7 +31,7 @@ function createMockProvider(
 
 function createApp(
   providerType: 'jellyfin' | 'plex',
-  opts: { mediaStreams?: object[]; itemId?: string; settings?: Record<string, unknown> } = {}
+  opts: { mediaStreams?: object[]; itemId?: string; settings?: Record<string, unknown>; libraryItem?: object } = {}
 ): Express {
   const db = createTestDb();
   const app = express();
@@ -55,7 +58,7 @@ function createApp(
   };
 
   app.locals.db = db;
-  app.locals.mediaProvider = createMockProvider(providerType, opts.mediaStreams);
+  app.locals.mediaProvider = createMockProvider(providerType, opts.mediaStreams, opts.libraryItem);
   app.locals.scheduleEngine = scheduleEngine;
 
   // Minimal channel row so getChannelById succeeds
@@ -154,5 +157,66 @@ describe('GET /api/playback/:channelId — Jellyfin server-side start offset', (
       fetchSpy.mock.calls.find(([url]) => String(url).includes('/master.m3u8'))![0]
     ));
     expect(warmUrl.searchParams.get('SubtitleMethod')).toBe('Encode');
+  });
+});
+
+describe('GET /api/playback/:channelId — fast tune-in', () => {
+  const MEDIA = [
+    '#EXTM3U',
+    '#EXT-X-TARGETDURATION:3',
+    ...Array.from({ length: 400 }, (_, i) => [`#EXTINF:3.000000, nodesc`, `hls1/main/${i}.ts?runtimeTicks=${i * 30_000_000}`]).flat(),
+    '#EXT-X-ENDLIST',
+  ].join('\n');
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes('/master.m3u8')) return new Response('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmain.m3u8?PlaySessionId=x\n');
+      if (u.includes('/main.m3u8')) return new Response(MEDIA);
+      return new Response(Buffer.from('seg'));
+    });
+  });
+
+  afterEach(() => fetchSpy.mockRestore());
+
+  it('uses the library cache for tracks instead of a PlaybackInfo round-trip', async () => {
+    const app = createApp('jellyfin', {
+      itemId: 'd'.repeat(32),
+      libraryItem: { Id: 'd'.repeat(32), MediaSources: [{ Id: 'lib-src', MediaStreams: [
+        { Type: 'Audio', Index: 1, Language: 'eng', DisplayTitle: 'English' },
+      ] }] },
+    });
+    const res = await request(app).get('/api/playback/1');
+    expect(res.status).toBe(200);
+    expect(app.locals.mediaProvider.getPlaybackInfo).not.toHaveBeenCalled();
+    expect(res.body.audio_tracks).toEqual([{ index: 1, language: 'eng', name: 'English' }]);
+    expect(res.body.stream_url).toContain('mediaSourceId=lib-src');
+  });
+
+  it('gives every tune its own play session', async () => {
+    const app = createApp('jellyfin', { itemId: 'e'.repeat(32) });
+    const a = await request(app).get('/api/playback/1');
+    const b = await request(app).get('/api/playback/1');
+    const psid = (u: string) => new URL(u, 'http://x').searchParams.get('playSessionId');
+    expect(psid(a.body.stream_url)).toBeTruthy();
+    expect(psid(a.body.stream_url)).not.toBe(psid(b.body.stream_url));
+  });
+
+  it('pre-warms the segment at the live offset (not just the playlists)', async () => {
+    const app = createApp('jellyfin', { itemId: 'f'.repeat(32) });
+    await request(app).get('/api/playback/1');
+    await vi.waitFor(() => {
+      const seg = fetchSpy.mock.calls.map(([u]) => String(u)).find((u) => /\/hls1\/main\/\d+\.ts/.test(u));
+      expect(seg).toBeDefined();
+      // 600s into the program with 3s segments → segment 200
+      expect(seg).toContain('/hls1/main/200.ts');
+    });
+  });
+
+  it('forwards the native flag onto the stream URL', async () => {
+    const app = createApp('jellyfin', { itemId: '1'.repeat(32) });
+    const res = await request(app).get('/api/playback/1?native=1');
+    expect(res.body.stream_url).toContain('native=1');
   });
 });
