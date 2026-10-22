@@ -302,7 +302,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
             )}
           </span>
           {showSubtitle && (
-            <span className="guide-program-subtitle" style={{ fontSize: Math.max(programTitleFontSize - 3, 9) }}>
+            <span className="guide-program-subtitle" style={{ fontSize: Math.max(programTitleFontSize - 2, 12) }}>
               {prog.subtitle}
             </span>
           )}
@@ -571,17 +571,19 @@ function GuideGrid({
   const timeSlotWidth = availableWidth > 0 ? Math.floor(availableWidth / numVisibleTimeSlots) : 200;
 
   const baseFontScale = Math.min(scale, isMobile ? 1.5 : 2.5);
-  const channelNumFontSize = Math.max(Math.round(12 * baseFontScale), isMobile ? 11 : 12);
-  const channelNameFontSize = Math.max(Math.round(8 * baseFontScale), isMobile ? 8 : 7);
+  // Bases/floors sized for the old pixel font; a proportional face needs the
+  // reference's 12px caption floor to stay legible.
+  const channelNumFontSize = Math.max(Math.round(14 * baseFontScale), 14);
+  const channelNameFontSize = Math.max(Math.round(12 * baseFontScale), 12);
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
-  const programTitleFontSize = Math.max(Math.round(12 * baseFontScale * zoomFontScale), isMobile ? 11 : 12);
+  const programTitleFontSize = Math.max(Math.round(13 * baseFontScale * zoomFontScale), 13);
 
   const artworkSize = Math.max(Math.round(rowHeight - 12), 24);
   const artworkThreshold = isMobile ? 100 : 120;
 
   const timeHeaderHeight = Math.max(28, Math.min(48, Math.round(32 * Math.min(scale, 1.5))));
-  const timeHeaderClockFontSize = Math.max(Math.round(10 * baseFontScale), isMobile ? 8 : 9);
-  const timeSlotFontSize = Math.max(Math.round(9 * baseFontScale), isMobile ? 8 : 9);
+  const timeHeaderClockFontSize = Math.max(Math.round(13 * baseFontScale), 13);
+  const timeSlotFontSize = Math.max(Math.round(12 * baseFontScale), 12);
 
   const timeRange = useMemo(() => {
     const start = new Date(nowMs);

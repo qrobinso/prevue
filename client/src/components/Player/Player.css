@@ -274,20 +274,20 @@
 
 .player-buffering-badge-text {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--accent-cyan);
 }
 
 .player-buffering-badge-detail {
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-gold);
   opacity: 0.8;
 }
 
 .player-error-detail {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
   text-align: center;
   max-width: 320px;
@@ -302,7 +302,7 @@
   border-radius: 3px;
   color: var(--accent-cyan);
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
@@ -363,7 +363,7 @@
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: var(--text-primary);
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   cursor: pointer;
   border-radius: 6px;
   z-index: 15;
@@ -425,7 +425,7 @@
 
 .info-channel-name {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--accent-cyan);
   text-transform: uppercase;
 }
@@ -456,13 +456,13 @@
 
 .info-year {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
 .info-rating {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-primary);
   background: rgba(0, 0, 0, 0.5);
   padding: 3px 8px;
@@ -472,13 +472,13 @@
 
 .info-runtime {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
 .info-resolution {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.08);
   padding: 2px 6px;
@@ -488,13 +488,13 @@
 
 .info-genres {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
 .info-description {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.5;
   margin-top: 6px;
@@ -511,7 +511,7 @@
   align-items: center;
   gap: 16px;
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -529,7 +529,7 @@
 
 .info-next-label {
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-gold);
 }
 
@@ -540,7 +540,7 @@
 
 .info-next-time {
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -826,7 +826,7 @@
 }
 
 .interstitial-badge {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
   border: 1px solid rgba(255, 255, 255, 0.2);
   padding: 2px 8px;
@@ -1001,7 +1001,7 @@
 
 .interstitial-lineup-time {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--accent-cyan);
   margin-bottom: 4px;
 }
@@ -1018,7 +1018,7 @@
 
 .interstitial-lineup-type {
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-gold);
 }
 
@@ -1101,7 +1101,7 @@
 
 .interstitial-spotlight-time {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--accent-cyan);
 }
 
@@ -1129,7 +1129,7 @@
 }
 
 .interstitial-genre-pill {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-gold);
   border: 1px solid rgba(255, 215, 0, 0.2);
   padding: 2px 10px;
@@ -1236,7 +1236,7 @@
 
 .credits-label {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
   text-transform: uppercase;
 }
@@ -1267,13 +1267,13 @@
 
 .credits-time {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--accent-cyan);
 }
 
 .credits-countdown {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-gold);
 }
 
@@ -1329,7 +1329,7 @@
   border-radius: 6px;
   color: var(--text-primary);
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
@@ -1466,7 +1466,7 @@
   background: rgba(0, 0, 0, 0.6);
   border-radius: 4px;
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-muted);
   pointer-events: none;
   opacity: 0;
@@ -1494,7 +1494,7 @@
 
 .player-quality-menu-title {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
   padding: 8px 16px;
   border-bottom: 1px solid var(--border-grid);
@@ -1532,7 +1532,7 @@
 }
 
 .player-quality-option-desc {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
@@ -1561,7 +1561,7 @@
 
 .player-audio-menu-title {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
   padding: 8px 16px;
   border-bottom: 1px solid var(--border-grid);
@@ -1598,7 +1598,7 @@
 }
 
 .player-audio-option-lang {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
   opacity: 0.7;
 }
@@ -1622,7 +1622,7 @@
 
 .player-subtitle-menu-title {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
   padding: 8px 16px;
   border-bottom: 1px solid var(--border-grid);
@@ -1659,7 +1659,7 @@
 }
 
 .player-subtitle-option-lang {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
   opacity: 0.7;
 }
@@ -1780,7 +1780,7 @@
 
 .player-settings-section-title {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
   padding: 0 0 8px;
   margin-bottom: 4px;
@@ -1914,7 +1914,7 @@
 
 .player-settings-option-desc,
 .player-settings-option-lang {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-muted);
   margin-left: 8px;
   flex-shrink: 0;
@@ -1944,7 +1944,7 @@
   display: inline-block;
   margin-left: 6px;
   padding: 1px 5px;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 600;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.12);
@@ -2008,7 +2008,7 @@
 
 .player-nerd-stats-title {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
 }
 
@@ -2036,7 +2036,7 @@
 
 .player-nerd-stats-section-title {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-gold);
   text-transform: uppercase;
   padding: 12px 0 4px;
@@ -2076,7 +2076,7 @@
 
 .player-nerd-stats-url {
   word-break: break-all;
-  font-size: 10px;
+  font-size: 14px;
   opacity: 0.75;
 }
 
@@ -2159,7 +2159,7 @@
   .player-back-btn {
     min-height: 40px;
     padding: 8px 16px;
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .player-controls-right {
@@ -2194,7 +2194,7 @@
 
   .player-hint {
     bottom: 80px;
-    font-size: 9px;
+    font-size: 13px;
   }
 }
 
@@ -2205,7 +2205,7 @@
     left: 12px;
     min-height: 36px;
     padding: 8px 14px;
-    font-size: 9px;
+    font-size: 13px;
   }
 
   .player-controls-right {
@@ -2227,12 +2227,12 @@
 
   .player-quality-btn {
     padding: 8px 12px;
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .player-hint {
     bottom: 65px;
-    font-size: 7px;
+    font-size: 12px;
     padding: 4px 10px;
   }
 
@@ -2250,7 +2250,7 @@
   }
 
   .info-channel-name {
-    font-size: 9px;
+    font-size: 13px;
   }
 
   .info-title {
@@ -2258,7 +2258,7 @@
   }
 
   .info-subtitle {
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .next-up-content {
@@ -2266,7 +2266,7 @@
   }
 
   .next-up-label {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .next-up-title {
@@ -2286,26 +2286,26 @@
   .interstitial-ident-name { font-size: 14px; letter-spacing: 2px; }
 
   .interstitial-hero { padding: 20px; gap: 8px; }
-  .interstitial-hero-label { font-size: 9px; letter-spacing: 2px; }
+  .interstitial-hero-label { font-size: 13px; letter-spacing: 2px; }
   .interstitial-hero-title { font-size: 16px; max-width: 90vw; }
   .interstitial-hero-subtitle { font-size: 12px; }
   .interstitial-hero-countdown-wrap { width: 130px; height: 130px; }
   .interstitial-hero-countdown { font-size: 24px; }
-  .interstitial-hero-description { font-size: 11px; max-width: 90vw; -webkit-line-clamp: 2; }
+  .interstitial-hero-description { font-size: 14px; max-width: 90vw; -webkit-line-clamp: 2; }
 
   .interstitial-lineup { padding: 20px; }
-  .interstitial-lineup-header { font-size: 9px; letter-spacing: 2px; margin-bottom: 20px; }
+  .interstitial-lineup-header { font-size: 13px; letter-spacing: 2px; margin-bottom: 20px; }
   .interstitial-lineup-card { flex: 0 0 160px; }
   .interstitial-lineup-thumb { height: 90px; }
-  .interstitial-lineup-time { font-size: 8px; }
-  .interstitial-lineup-title { font-size: 11px; }
+  .interstitial-lineup-time { font-size: 12px; }
+  .interstitial-lineup-title { font-size: 14px; }
 
   .interstitial-spotlight-panel { width: 60%; padding: 24px 20px; }
   .interstitial-spotlight-backdrop { width: 55%; }
   .interstitial-spotlight-title { font-size: 16px; }
-  .interstitial-spotlight-description { font-size: 11px; -webkit-line-clamp: 3; max-width: 90vw; }
+  .interstitial-spotlight-description { font-size: 14px; -webkit-line-clamp: 3; max-width: 90vw; }
 
-  .interstitial-mini-countdown { top: 12px; right: 12px; font-size: 11px; }
+  .interstitial-mini-countdown { top: 12px; right: 12px; font-size: 14px; }
 
   .player-quality-btn {
     bottom: 12px;
@@ -2313,7 +2313,7 @@
     min-width: 48px;
     min-height: 48px;
     padding: 12px 16px;
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .player-quality-menu {
@@ -2333,7 +2333,7 @@
   }
 
   .player-quality-option-desc {
-    font-size: 9px;
+    font-size: 13px;
   }
 }
 
@@ -2344,7 +2344,7 @@
     left: 8px;
     min-height: 32px;
     padding: 6px 12px;
-    font-size: 8px;
+    font-size: 12px;
   }
 
   .player-controls-right {
@@ -2366,12 +2366,12 @@
 
   .player-quality-btn {
     padding: 6px 10px;
-    font-size: 9px;
+    font-size: 13px;
   }
 
   .player-hint {
     bottom: 55px;
-    font-size: 6px;
+    font-size: 11px;
   }
 
   .info-overlay {
@@ -2391,7 +2391,7 @@
 
   /* Interstitial small mobile overrides */
   .interstitial-ident-number { font-size: 24px; }
-  .interstitial-ident-name { font-size: 11px; }
+  .interstitial-ident-name { font-size: 14px; }
   .interstitial-hero-title { font-size: 14px; }
   .interstitial-hero-countdown-wrap { width: 110px; height: 110px; }
   .interstitial-hero-countdown { font-size: 20px; }
@@ -2406,7 +2406,7 @@
   .interstitial-spotlight-title { font-size: 14px; }
   .interstitial-spotlight-description { -webkit-line-clamp: 2; }
 
-  .interstitial-mini-countdown { font-size: 10px; top: 8px; right: 8px; }
+  .interstitial-mini-countdown { font-size: 14px; top: 8px; right: 8px; }
 }
 
 /* ── Touch Device Optimizations ──────────────────── */
@@ -2459,7 +2459,7 @@
     left: 8px;
     min-height: 32px;
     padding: 6px 12px;
-    font-size: 8px;
+    font-size: 12px;
   }
 
   .player-controls-right {
@@ -2482,7 +2482,7 @@
   /* Hint & progress */
   .player-hint {
     bottom: 44px;
-    font-size: 6px;
+    font-size: 11px;
     padding: 4px 10px;
   }
 
@@ -2514,12 +2514,12 @@
   }
 
   .info-channel-num {
-    font-size: 11px;
+    font-size: 14px;
     line-height: 1;
   }
 
   .info-channel-name {
-    font-size: 7px;
+    font-size: 12px;
     line-height: 1;
     white-space: nowrap;
   }
@@ -2536,7 +2536,7 @@
   }
 
   .info-title {
-    font-size: 11px;
+    font-size: 14px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2562,11 +2562,11 @@
 
   .info-year,
   .info-runtime {
-    font-size: 8px;
+    font-size: 12px;
   }
 
   .info-resolution {
-    font-size: 7px;
+    font-size: 12px;
     padding: 1px 5px;
   }
 
@@ -2575,7 +2575,7 @@
   }
 
   .info-rating {
-    font-size: 7px;
+    font-size: 12px;
     padding: 1px 5px;
   }
 
@@ -2585,7 +2585,7 @@
     align-items: flex-end;
     gap: 2px;
     flex-shrink: 0;
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.2;
   }
 
@@ -2607,12 +2607,12 @@
   }
 
   .info-next-label {
-    font-size: 6px;
+    font-size: 11px;
     white-space: nowrap;
   }
 
   .info-next-title {
-    font-size: 9px;
+    font-size: 13px;
     max-width: 80px;
     white-space: nowrap;
     overflow: hidden;
@@ -2620,7 +2620,7 @@
   }
 
   .info-next-time {
-    font-size: 7px;
+    font-size: 12px;
     white-space: nowrap;
     margin-left: 0;
   }
@@ -2632,7 +2632,7 @@
   }
 
   .next-up-label {
-    font-size: 9px;
+    font-size: 13px;
   }
 
   .next-up-title {
@@ -2640,7 +2640,7 @@
   }
 
   .next-up-subtitle {
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .next-up-countdown {
@@ -2652,19 +2652,19 @@
   .interstitial-ident-number { font-size: 28px; }
   .interstitial-ident-name { font-size: 12px; }
   .interstitial-hero { padding: 16px; gap: 6px; }
-  .interstitial-hero-label { font-size: 8px; }
+  .interstitial-hero-label { font-size: 12px; }
   .interstitial-hero-title { font-size: 14px; }
   .interstitial-hero-countdown-wrap { width: 100px; height: 100px; margin-top: 4px; }
   .interstitial-hero-countdown { font-size: 18px; }
   .interstitial-hero-description { display: none; }
   .interstitial-lineup { padding: 16px; }
-  .interstitial-lineup-header { font-size: 8px; margin-bottom: 12px; }
+  .interstitial-lineup-header { font-size: 12px; margin-bottom: 12px; }
   .interstitial-lineup-card { flex: 0 0 150px; }
   .interstitial-lineup-thumb { height: 84px; }
   .interstitial-spotlight-panel { padding: 20px 16px; }
   .interstitial-spotlight-title { font-size: 14px; }
-  .interstitial-spotlight-description { -webkit-line-clamp: 2; font-size: 11px; }
-  .interstitial-mini-countdown { font-size: 10px; }
+  .interstitial-spotlight-description { -webkit-line-clamp: 2; font-size: 14px; }
+  .interstitial-mini-countdown { font-size: 14px; }
 
   /* ─── Settings: side sheet instead of bottom sheet ─── */
   .player-settings-backdrop {
@@ -2794,7 +2794,7 @@
   }
 
   .info-subtitle {
-    font-size: 11px;
+    font-size: 14px;
   }
 
   /* Quality menu full width on portrait phones */
@@ -2823,7 +2823,7 @@
     top: 20px;
     left: 20px;
     padding: 8px 16px;
-    font-size: 10px;
+    font-size: 14px;
     min-height: 40px;
   }
 
@@ -2882,7 +2882,7 @@
   }
 
   .info-time {
-    font-size: 11px;
+    font-size: 14px;
     gap: 20px;
   }
 
@@ -2892,7 +2892,7 @@
   }
 
   .info-next-label {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .info-next-title {
@@ -2900,7 +2900,7 @@
   }
 
   .info-next-time {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .player-quality-btn {
@@ -2927,7 +2927,7 @@
   }
 
   .player-quality-option-desc {
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .next-up-content {

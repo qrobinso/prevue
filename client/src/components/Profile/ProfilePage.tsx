@@ -27,7 +27,7 @@ export function Avatar({ profile, size = 48 }: { profile: Profile; size?: number
         width: size,
         height: size,
         background: profile.avatar_color,
-        fontSize: Math.round(size * 0.45),
+        fontSize: Math.max(Math.round(size * 0.5), 11),
       }}
       aria-hidden="true"
     >

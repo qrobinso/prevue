@@ -137,7 +137,7 @@
 
 .settings-nav-group-label {
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-muted);
   padding: 0 10px 6px;
 }
@@ -206,7 +206,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   padding: 2px 0 14px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border-grid);
@@ -270,13 +270,13 @@
 
   .settings-nav-group-label {
     padding: 0 4px 0 0;
-    font-size: 7px;
+    font-size: 12px;
     align-self: center;
   }
 
   .settings-nav-item {
     padding: 6px 10px;
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .settings-nav-label {
@@ -331,7 +331,7 @@
   border: none;
   color: var(--text-muted);
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
   border-bottom: 2px solid transparent;
@@ -362,20 +362,20 @@
 
 .settings-section h3 {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-primary);
 }
 
 .settings-section h4 {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-gold);
   margin-bottom: 8px;
 }
 
 .settings-group-heading {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-secondary);
   padding-top: 8px;
   border-top: 1px solid var(--border-grid);
@@ -417,7 +417,7 @@
 }
 
 .settings-field label {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -454,7 +454,7 @@
   border: 1px solid var(--accent-cyan);
   color: var(--accent-cyan);
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.2s;
@@ -476,7 +476,7 @@
   border: 1px solid var(--accent-gold);
   color: var(--accent-gold);
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.2s;
@@ -498,7 +498,7 @@
   border: 1px solid var(--border-grid);
   color: var(--text-secondary);
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   cursor: pointer;
   border-radius: 3px;
   transition: all 0.2s;
@@ -582,7 +582,7 @@
 
 .settings-iconic-timestamp {
   margin: 0;
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .settings-btn-pwa {
@@ -603,7 +603,7 @@
   background: rgba(0, 255, 100, 0.1);
   border: 1px solid var(--accent-green);
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--accent-green);
 }
 
@@ -618,7 +618,7 @@
   background: var(--bg-primary);
   border: 1px solid var(--border-grid);
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.6;
 }
@@ -633,7 +633,7 @@
 }
 
 .settings-pwa-hint {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
@@ -695,7 +695,7 @@
 }
 
 .settings-list-detail {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -703,7 +703,7 @@
 }
 
 .settings-list-schedule-meta {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
   opacity: 0.7;
   white-space: nowrap;
@@ -719,7 +719,7 @@
 
 .settings-badge {
   font-family: var(--font-retro);
-  font-size: 7px;
+  font-size: 12px;
   padding: 2px 6px;
   border-radius: 3px;
   background: var(--accent-green);
@@ -812,7 +812,7 @@
 
 .server-connected-label {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   text-transform: uppercase;
   color: var(--text-secondary);
 }
@@ -831,7 +831,7 @@
 
 .server-connected-key {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   text-transform: uppercase;
   color: var(--text-muted);
   min-width: 48px;
@@ -863,7 +863,7 @@
   border: 1px solid var(--border-grid);
   color: var(--text-secondary);
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.2s;
@@ -953,7 +953,7 @@
   background: var(--accent-cyan);
   color: var(--bg-primary);
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -972,7 +972,7 @@
   align-items: center;
   gap: 12px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .server-add-divider::before,
@@ -1035,7 +1035,7 @@
 
 .settings-channel-number {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
 }
 
@@ -1151,7 +1151,7 @@
 }
 
 .settings-genre-stats {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
@@ -1171,7 +1171,7 @@
 
 .settings-rating-category h5 {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-gold);
   margin: 0;
   text-transform: uppercase;
@@ -1246,7 +1246,7 @@
 
 
 .settings-rating-name {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -1255,7 +1255,7 @@
 
 .settings-rating-age {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-muted);
   background: var(--bg-cell);
   padding: 2px 6px;
@@ -1265,13 +1265,13 @@
 }
 
 .settings-rating-count {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
 
 .settings-description {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-muted);
   margin-bottom: 12px;
   line-height: 1.5;
@@ -1318,7 +1318,7 @@
 
 .settings-autosave-indicator {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--accent-cyan);
   animation: settings-pulse 1s ease-in-out infinite;
 }
@@ -1346,7 +1346,7 @@
 
 .filter-status-blocked {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--accent-red);
   background: rgba(255, 82, 82, 0.1);
@@ -1361,7 +1361,7 @@
 
 .filter-status-pill {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--accent-cyan);
   background: rgba(0, 229, 255, 0.08);
@@ -1400,7 +1400,7 @@
 
 .filter-section-badge {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--accent-red);
   background: rgba(255, 82, 82, 0.12);
@@ -1436,7 +1436,7 @@
   border: 1px solid var(--border-grid);
   color: var(--text-muted);
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   cursor: pointer;
   border-radius: 4px;
 }
@@ -1460,7 +1460,7 @@
 }
 
 .settings-discover-header label {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -1526,7 +1526,7 @@
 }
 
 .settings-discover-url {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
@@ -1573,7 +1573,7 @@
 
 .settings-channel-count-label {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-gold);
   margin-top: 8px;
 }
@@ -1639,7 +1639,7 @@
   justify-content: space-between;
   margin-top: 8px;
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -1684,7 +1684,7 @@
 }
 
 .settings-quality-desc {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
@@ -1747,7 +1747,7 @@
 
 .settings-toggle-label {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
@@ -1767,7 +1767,7 @@
 
 .settings-badge-label {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
   min-width: 72px;
 }
@@ -1776,7 +1776,7 @@
   display: inline-block;
   padding: 1px 5px;
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   line-height: 1.3;
   color: var(--text-secondary);
   border: 1px solid var(--border-cell);
@@ -1811,7 +1811,7 @@
   border-radius: 4px;
   color: var(--text-secondary);
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1930,7 +1930,7 @@
 
 .settings-theme-name {
   font-family: var(--font-retro);
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-primary);
 }
 
@@ -1939,7 +1939,7 @@
 }
 
 .settings-theme-desc {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
@@ -1965,7 +1965,7 @@
   cursor: pointer;
   transition: all 0.2s;
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
@@ -2026,7 +2026,7 @@
   border: none;
   color: var(--text-muted);
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.2s;
@@ -2086,7 +2086,7 @@
 .settings-preset-actions .settings-btn-primary {
   min-width: 320px;
   padding: 14px 28px;
-  font-size: 11px;
+  font-size: 14px;
   min-height: 52px;
 }
 
@@ -2128,7 +2128,7 @@
 }
 
 .settings-progress-count {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
@@ -2197,7 +2197,7 @@
   border: none;
   color: var(--text-primary);
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   cursor: pointer;
   text-align: left;
   transition: background 0.2s;
@@ -2216,7 +2216,7 @@
 }
 
 .settings-preset-category-count {
-  font-size: 8px;
+  font-size: 12px;
   color: var(--accent-cyan);
   background: rgba(0, 229, 255, 0.1);
   padding: 2px 8px;
@@ -2224,7 +2224,7 @@
 }
 
 .settings-preset-category-arrow {
-  font-size: 8px;
+  font-size: 12px;
   color: var(--text-muted);
   transition: transform 0.2s;
 }
@@ -2275,7 +2275,7 @@
 
 .settings-multiplier-btn {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 600;
   padding: 4px 6px;
   min-width: 28px;
@@ -2366,7 +2366,7 @@
 }
 
 .settings-preset-desc {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -2374,7 +2374,7 @@
 }
 
 .settings-preset-preview {
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-secondary);
   white-space: nowrap;
   padding: 3px 8px;
@@ -2402,7 +2402,7 @@
 }
 
 .settings-preset-dynamic-badge {
-  font-size: 8px;
+  font-size: 12px;
   padding: 1px 4px;
   background: var(--accent-gold);
   color: var(--bg-primary);
@@ -2413,7 +2413,7 @@
 }
 
 .settings-preset-dynamic-list {
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-secondary);
   font-style: italic;
   margin-top: 2px;
@@ -2460,7 +2460,7 @@
   color: var(--text-primary);
   cursor: pointer;
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   text-align: left;
 }
 
@@ -2470,7 +2470,7 @@
 
 .settings-ai-config-title {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
@@ -2494,7 +2494,7 @@
   background: #e040fb;
   color: #fff;
   font-family: var(--font-retro);
-  font-size: 7px;
+  font-size: 12px;
   padding: 2px 6px;
   border-radius: 3px;
   margin-left: 8px;
@@ -2540,7 +2540,7 @@
 
 .settings-ai-create h3 {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-primary);
   margin: 0;
 }
@@ -2568,7 +2568,7 @@
 
 .settings-ai-suggestions-label {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
   text-transform: uppercase;
 }
@@ -2632,7 +2632,7 @@
 
 .settings-ai-create-btn {
   min-height: 48px;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .settings-ai-creating {
@@ -2660,7 +2660,7 @@
 
 .settings-ai-result-header {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--accent-green);
   text-transform: uppercase;
 }
@@ -2679,7 +2679,7 @@
 
 .settings-ai-result-meta {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -2698,7 +2698,7 @@
   .settings-tab {
     padding: 14px 16px;
     min-height: 48px;
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .settings-btn-primary,
@@ -2836,7 +2836,7 @@
   /* Tabs - touch-friendly */
   .settings-tab {
     padding: 14px 16px;
-    font-size: 11px;
+    font-size: 14px;
     white-space: nowrap;
     flex: none;
     min-width: 88px;
@@ -2849,11 +2849,11 @@
   }
 
   .settings-section h3 {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .settings-section h4 {
-    font-size: 9px;
+    font-size: 13px;
   }
 
   .settings-field-hint {
@@ -2886,7 +2886,7 @@
   }
 
   .filter-section-badge {
-    font-size: 8px;
+    font-size: 12px;
   }
 
   /* Genre items - larger touch targets */
@@ -2915,7 +2915,7 @@
   }
 
   .settings-list-detail {
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .settings-list-actions {
@@ -2933,14 +2933,14 @@
   /* Buttons - all touch-friendly (min 44px) */
   .settings-btn-sm {
     padding: 12px 14px;
-    font-size: 9px;
+    font-size: 13px;
     min-height: 44px;
   }
 
   .settings-btn-primary,
   .settings-btn-accent {
     padding: 14px 18px;
-    font-size: 10px;
+    font-size: 14px;
     min-height: 48px;
   }
 
@@ -2971,7 +2971,7 @@
   }
 
   .settings-quality-desc {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   /* Theme options - 2 columns on mobile */
@@ -2986,11 +2986,11 @@
   }
 
   .settings-theme-name {
-    font-size: 8px;
+    font-size: 12px;
   }
 
   .settings-theme-desc {
-    font-size: 9px;
+    font-size: 13px;
   }
 
   /* Preview background - touch-friendly */
@@ -3002,7 +3002,7 @@
   .settings-preview-bg-btn {
     padding: 14px 16px;
     min-height: 48px;
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .settings-preview-bg-swatch {
@@ -3031,7 +3031,7 @@
   }
 
   .settings-toggle-label {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   /* Speed options - touch-friendly */
@@ -3042,7 +3042,7 @@
 
   .settings-speed-btn {
     padding: 12px 14px;
-    font-size: 9px;
+    font-size: 13px;
     min-height: 44px;
   }
 
@@ -3075,7 +3075,7 @@
   /* Preset categories - touch-friendly */
   .settings-preset-category-header {
     padding: 14px 12px;
-    font-size: 9px;
+    font-size: 13px;
     min-height: 52px;
   }
 
@@ -3084,7 +3084,7 @@
   }
 
   .settings-preset-category-count {
-    font-size: 8px;
+    font-size: 12px;
     padding: 3px 8px;
   }
 
@@ -3109,7 +3109,7 @@
   }
 
   .settings-preset-desc {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .settings-preset-actions {
@@ -3132,7 +3132,7 @@
 
   .settings-view-tab {
     padding: 12px 14px;
-    font-size: 9px;
+    font-size: 13px;
     min-height: 48px;
   }
 
@@ -3147,7 +3147,7 @@
   }
 
   .settings-discover-url {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   /* Server connected - mobile */
@@ -3163,7 +3163,7 @@
 
   .server-action-btn {
     padding: 12px 14px;
-    font-size: 9px;
+    font-size: 13px;
     min-height: 44px;
     text-align: center;
   }
@@ -3243,11 +3243,11 @@
   }
 
   .settings-title {
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .settings-tab {
-    font-size: 10px;
+    font-size: 14px;
     min-width: 72px;
     padding: 14px 12px;
     min-height: 48px;
@@ -3258,7 +3258,7 @@
   }
 
   .settings-preset-category-header {
-    font-size: 8px;
+    font-size: 12px;
     padding: 8px 10px;
   }
 
@@ -3268,7 +3268,7 @@
 
   .server-action-btn {
     min-height: 48px;
-    font-size: 10px;
+    font-size: 14px;
   }
 
   .server-add-connect-btn {
@@ -3457,7 +3457,7 @@
 
 .about-tagline {
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-gold);
 }
 
@@ -3469,7 +3469,7 @@
 
 .about-version {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
@@ -3487,7 +3487,7 @@
 
 .about-section-title {
   font-family: var(--font-retro);
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-gold);
 }
 
@@ -3615,7 +3615,7 @@
   border: 1px solid var(--border-grid);
   border-radius: 4px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   padding: 5px 14px;
   cursor: pointer;
@@ -3657,7 +3657,7 @@
 }
 
 .metrics-card-label {
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -3692,7 +3692,7 @@
 }
 
 .metrics-bar-stat {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -3755,7 +3755,7 @@
 }
 
 .metrics-client-online {
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   text-transform: uppercase;
   color: #7ee787;
@@ -3766,13 +3766,13 @@
 }
 
 .metrics-client-meta {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--text-secondary);
   opacity: 0.75;
 }
 
 .metrics-client-detail {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
@@ -3812,7 +3812,7 @@
 .metrics-hourly-label {
   position: absolute;
   bottom: -16px;
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -3843,7 +3843,7 @@
 }
 
 .metrics-session-detail {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-secondary);
   margin-top: 2px;
 }
@@ -3866,7 +3866,7 @@
 
 .settings-button-group-btn {
   font-family: var(--font-retro);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 600;
   padding: 8px 16px;
   border: none;
@@ -3986,7 +3986,7 @@
 }
 
 .settings-color-picker-label {
-  font-size: 9px;
+  font-size: 13px;
   color: var(--text-muted);
   text-transform: uppercase;
   font-family: var(--font-retro);
@@ -4068,7 +4068,7 @@
 .settings-content-type-btn {
   padding: 8px 20px;
   font-family: var(--font-retro);
-  font-size: 11px;
+  font-size: 14px;
   text-transform: uppercase;
   background: transparent;
   color: var(--text-muted);
@@ -4143,7 +4143,7 @@
   display: inline-block;
   padding: 1px 6px;
   margin-right: 6px;
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
   border-radius: 3px;
@@ -4219,7 +4219,7 @@
   display: inline-block;
   padding: 1px 5px;
   margin-left: 6px;
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
   border-radius: 3px;
@@ -4303,7 +4303,7 @@
 .sleep-settings-status-line kbd {
   display: inline-block;
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: 14px;
   font-family: var(--font-retro);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -4314,7 +4314,7 @@
 .settings-subsection kbd {
   display: inline-block;
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: 14px;
   font-family: var(--font-retro);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);

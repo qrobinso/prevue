@@ -122,7 +122,7 @@
 .profile-card:hover, .profile-card:focus-visible { border-color: var(--border-grid); background: var(--bg-cell-hover); }
 .profile-card-active { border-color: var(--text-gold); }
 .profile-card-name { font-size: 14px; font-weight: 600; }
-.profile-card-badge { font-size: 10px; letter-spacing: 0.08em; color: var(--text-secondary); }
+.profile-card-badge { font-size: 14px; letter-spacing: 0.08em; color: var(--text-secondary); }
 
 .profile-manage { max-width: 640px; }
 .profile-manage-header { display: flex; align-items: center; justify-content: space-between; }
