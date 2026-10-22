@@ -81,14 +81,17 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const zoomFontScale = Math.min(1.4, 4 / guideHours);
   const mobile = isPhone();
   const useBottomSheet = isMobile(); // Portal bottom sheet on all mobile (phones + tablets)
+  // Classic is a narrow side panel, so its secondary text shrinks; the title
+  // keeps its full size (this mirrors the old 85% / 100% CSS rules).
+  const classicScale = isClassic ? 0.85 : 1;
   const previewFontSizes = {
-    channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
-    channelName: Math.min(Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale), 16),
+    channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale * (isClassic ? 0.95 : 1)),
+    channelName: Math.min(Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale * classicScale), 16),
     title: Math.min(Math.round(PREVIEW_BASE_SIZES.title * zoomFontScale * (mobile ? 0.75 : 1)), 36),
-    subtitle: Math.min(Math.round(PREVIEW_BASE_SIZES.subtitle * zoomFontScale), 20),
-    year: Math.min(Math.round(PREVIEW_BASE_SIZES.year * zoomFontScale), 14),
-    rating: Math.min(Math.round(PREVIEW_BASE_SIZES.rating * zoomFontScale), 14),
-    time: Math.min(Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale * (mobile ? 0.75 : 1)), 14),
+    subtitle: Math.min(Math.round(PREVIEW_BASE_SIZES.subtitle * zoomFontScale * classicScale), 20),
+    year: Math.min(Math.round(PREVIEW_BASE_SIZES.year * zoomFontScale * classicScale), 14),
+    rating: Math.min(Math.round(PREVIEW_BASE_SIZES.rating * zoomFontScale * classicScale), 14),
+    time: Math.min(Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale * classicScale * (mobile ? 0.75 : 1)), 14),
   };
 
   const [subtitleIndexPref, setSubtitleIndexPref] = usePref<number | null>('subtitle_index', null);

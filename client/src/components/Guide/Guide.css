@@ -864,27 +864,8 @@ html[data-preview-bg="white"] .preview-video-container {
     min-height: 0;
   }
 
-  /* Scale down text to fit the narrower info panel */
-  .preview-panel-classic .preview-channel-num,
-  .preview-panel-classic .preview-channel-name,
-  .preview-panel-classic .preview-title,
-  .preview-panel-classic .preview-subtitle,
-  .preview-panel-classic .preview-year,
-  .preview-panel-classic .preview-rating,
-  .preview-panel-classic .preview-runtime,
-  .preview-panel-classic .preview-time,
-  .preview-panel-classic .preview-day,
-  .preview-panel-classic .preview-description {
-    font-size: 85% !important;
-  }
-
-  .preview-panel-classic .preview-title {
-    font-size: 100% !important;
-  }
-
-  .preview-panel-classic .preview-channel-num {
-    font-size: 95% !important;
-  }
+  /* Classic panel shrinks its text in PreviewPanel's size table, not here —
+     a font-size:% !important would override the component's inline sizes. */
 
   /* Channel badge: stacked vertically for classic prominence */
   .preview-panel-classic .preview-channel-badge {
