@@ -63,8 +63,8 @@ interface PreviewPanelProps {
 const PREVIEW_BASE_SIZES = {
   channelNum: 16,
   channelName: 13,
-  title: 24,
-  subtitle: 16,
+  title: 32,
+  subtitle: 18,
   year: 13,
   rating: 13,
   time: 13,
@@ -84,8 +84,8 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const previewFontSizes = {
     channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
     channelName: Math.min(Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale), 16),
-    title: Math.min(Math.round(PREVIEW_BASE_SIZES.title * zoomFontScale * (mobile ? 0.75 : 1)), 32),
-    subtitle: Math.min(Math.round(PREVIEW_BASE_SIZES.subtitle * zoomFontScale), 18),
+    title: Math.min(Math.round(PREVIEW_BASE_SIZES.title * zoomFontScale * (mobile ? 0.75 : 1)), 36),
+    subtitle: Math.min(Math.round(PREVIEW_BASE_SIZES.subtitle * zoomFontScale), 20),
     year: Math.min(Math.round(PREVIEW_BASE_SIZES.year * zoomFontScale), 14),
     rating: Math.min(Math.round(PREVIEW_BASE_SIZES.rating * zoomFontScale), 14),
     time: Math.min(Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale * (mobile ? 0.75 : 1)), 14),
