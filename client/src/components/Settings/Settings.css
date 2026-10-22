@@ -137,7 +137,7 @@
 
 .settings-nav-group-label {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   padding: 0 10px 6px;
 }
@@ -152,7 +152,7 @@
   border-radius: 4px;
   color: var(--text-secondary);
   font-family: var(--font-system);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   text-align: left;
@@ -206,7 +206,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   padding: 2px 0 14px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border-grid);
@@ -270,7 +270,7 @@
 
   .settings-nav-group-label {
     padding: 0 4px 0 0;
-    font-size: 12px;
+    font-size: 13px;
     align-self: center;
   }
 
@@ -294,8 +294,9 @@
 
 .settings-title {
   font-family: var(--font-retro);
-  font-size: 14px;
+  font-size: var(--fs-body-lg);
   color: var(--text-gold);
+  font-weight: 700;
 }
 
 .settings-close-btn {
@@ -362,8 +363,9 @@
 
 .settings-section h3 {
   font-family: var(--font-retro);
-  font-size: 14px;
+  font-size: var(--fs-body-lg);
   color: var(--text-primary);
+  font-weight: 700;
 }
 
 .settings-section h4 {
@@ -375,10 +377,11 @@
 
 .settings-group-heading {
   font-family: var(--font-retro);
-  font-size: 14px;
+  font-size: var(--fs-body);
   color: var(--text-secondary);
   padding-top: 8px;
   border-top: 1px solid var(--border-grid);
+  font-weight: 700;
 }
 
 .settings-group-heading:first-of-type {
@@ -498,7 +501,7 @@
   border: 1px solid var(--border-grid);
   color: var(--text-secondary);
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   border-radius: 3px;
   transition: all 0.2s;
@@ -719,7 +722,7 @@
 
 .settings-badge {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   padding: 2px 6px;
   border-radius: 3px;
   background: var(--accent-green);
@@ -767,7 +770,7 @@
   border: 1px solid var(--border-grid);
   border-radius: 4px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   outline: none;
 }
 
@@ -844,7 +847,7 @@
 }
 
 .server-connected-url {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   word-break: break-all;
 }
@@ -1029,7 +1032,7 @@
 }
 
 .server-empty-state span {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -1058,7 +1061,7 @@
   border-radius: 4px;
   padding: 8px 12px;
   color: var(--accent-red);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .settings-actions {
@@ -1146,7 +1149,7 @@
 }
 
 .settings-genre-name {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
@@ -1310,7 +1313,7 @@
 
 .settings-blocked-unrated {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--accent-red);
   opacity: 0.85;
@@ -1436,7 +1439,7 @@
   border: 1px solid var(--border-grid);
   color: var(--text-muted);
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   border-radius: 4px;
 }
@@ -1466,7 +1469,7 @@
 }
 
 .settings-discover-scanning {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   padding: 12px;
   text-align: center;
@@ -1481,7 +1484,7 @@
 }
 
 .settings-discover-empty {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   padding: 10px;
   text-align: center;
@@ -1532,7 +1535,7 @@
 
 /* ── Display Settings ────────────────────────────── */
 .settings-field-hint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   margin-bottom: 12px;
   line-height: 1.5;
@@ -1639,7 +1642,7 @@
   justify-content: space-between;
   margin-top: 8px;
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -1799,7 +1802,7 @@
 }
 
 .settings-speed-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   margin-right: 4px;
 }
@@ -1866,7 +1869,7 @@
 }
 
 .settings-color-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
   font-family: var(--font-retro);
 }
@@ -1930,7 +1933,7 @@
 
 .settings-theme-name {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
@@ -2140,7 +2143,7 @@
 }
 
 .settings-preset-slider label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -2216,7 +2219,7 @@
 }
 
 .settings-preset-category-count {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent-cyan);
   background: rgba(0, 229, 255, 0.1);
   padding: 2px 8px;
@@ -2224,7 +2227,7 @@
 }
 
 .settings-preset-category-arrow {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   transition: transform 0.2s;
 }
@@ -2335,7 +2338,7 @@
   justify-content: center;
   border: 2px solid var(--border-grid);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent-cyan);
   flex-shrink: 0;
 }
@@ -2360,7 +2363,7 @@
 }
 
 .settings-preset-name {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
   font-weight: 500;
 }
@@ -2402,7 +2405,7 @@
 }
 
 .settings-preset-dynamic-badge {
-  font-size: 12px;
+  font-size: 13px;
   padding: 1px 4px;
   background: var(--accent-gold);
   color: var(--bg-primary);
@@ -2425,7 +2428,7 @@
 }
 
 .settings-generating-status {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent-cyan);
   animation: pulse 1s ease-in-out infinite;
 }
@@ -2494,7 +2497,7 @@
   background: #e040fb;
   color: #fff;
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   padding: 2px 6px;
   border-radius: 3px;
   margin-left: 8px;
@@ -2529,7 +2532,7 @@
   border-radius: 4px;
   color: var(--text-muted);
   font-family: var(--font-system);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .settings-ai-create {
@@ -2552,7 +2555,7 @@
   border: 1px dashed var(--border-grid);
   border-radius: 6px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .settings-ai-unconfigured p {
@@ -2580,7 +2583,7 @@
   border-radius: 20px;
   color: var(--accent-cyan);
   font-family: var(--font-system);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
   white-space: nowrap;
@@ -2672,7 +2675,7 @@
 }
 
 .settings-ai-result-desc {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -2813,7 +2816,7 @@
   }
 
   .settings-title {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   /* Close button - touch-friendly (min 44px) */
@@ -2857,7 +2860,7 @@
   }
 
   .settings-field-hint {
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
   }
 
@@ -2886,7 +2889,7 @@
   }
 
   .filter-section-badge {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   /* Genre items - larger touch targets */
@@ -2986,7 +2989,7 @@
   }
 
   .settings-theme-name {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .settings-theme-desc {
@@ -3084,7 +3087,7 @@
   }
 
   .settings-preset-category-count {
-    font-size: 12px;
+    font-size: 13px;
     padding: 3px 8px;
   }
 
@@ -3097,7 +3100,7 @@
   .settings-preset-check {
     width: 22px;
     height: 22px;
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .settings-preset-icon {
@@ -3105,7 +3108,7 @@
   }
 
   .settings-preset-name {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .settings-preset-desc {
@@ -3258,7 +3261,7 @@
   }
 
   .settings-preset-category-header {
-    font-size: 12px;
+    font-size: 13px;
     padding: 8px 10px;
   }
 
@@ -3503,7 +3506,7 @@
 
 .about-link {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent-cyan);
   text-decoration: none;
   word-break: break-all;
@@ -3523,7 +3526,7 @@
 }
 
 .about-credits li {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -3600,7 +3603,7 @@
   border-radius: 6px;
   padding: 10px 14px;
   margin-bottom: 16px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -3683,7 +3686,7 @@
 }
 
 .metrics-bar-name {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -3834,7 +3837,7 @@
 }
 
 .metrics-session-title {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
   font-weight: 500;
   white-space: nowrap;
@@ -3918,7 +3921,7 @@
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-family: var(--font-retro);
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -4095,7 +4098,7 @@
 @media (hover: none) and (pointer: coarse) {
   .settings-content-type-btn {
     padding: 12px 24px;
-    font-size: 12px;
+    font-size: 13px;
     min-height: 44px;
   }
 }
@@ -4185,7 +4188,7 @@
 
 .plex-qr-waiting {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
   margin: 0;
   animation: plex-pulse 2s ease-in-out infinite;
 }
@@ -4203,7 +4206,7 @@
 
 .plex-auth-link {
   color: var(--accent-cyan);
-  font-size: 12px;
+  font-size: 13px;
   text-decoration: none;
   opacity: 0.8;
 }

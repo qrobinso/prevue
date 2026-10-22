@@ -324,7 +324,7 @@
 .notifications-confirm-title {
   margin: 0 0 10px 0;
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
   color: var(--accent-cyan);
 }

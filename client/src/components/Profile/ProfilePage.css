@@ -41,9 +41,10 @@
 
 .profile-title {
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: var(--fs-body-lg);
   color: var(--text-gold);
   margin: 0;
+  font-weight: 700;
 }
 
 .profile-close-btn {
@@ -130,7 +131,7 @@
 .profile-manage-list { list-style: none; padding: 0; margin: 16px 0; }
 .profile-manage-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border-grid); }
 .profile-manage-name { flex: 1; font-weight: 600; }
-.profile-manage-rating { font-size: 12px; color: var(--text-secondary); }
+.profile-manage-rating { font-size: 13px; color: var(--text-secondary); }
 
 .profile-btn {
   display: inline-flex; align-items: center; gap: 6px;

@@ -280,7 +280,7 @@
 
 .player-buffering-badge-detail {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
   opacity: 0.8;
 }
@@ -443,7 +443,7 @@
 }
 
 .info-subtitle {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
@@ -529,18 +529,18 @@
 
 .info-next-label {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
 }
 
 .info-next-title {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
 .info-next-time {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -582,7 +582,7 @@
 
 .next-up-label {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
 }
 
@@ -802,7 +802,7 @@
 
 .interstitial-hero-label {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
 }
 
@@ -930,7 +930,7 @@
 
 .interstitial-lineup-header {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
   margin-bottom: 32px;
 }
@@ -1018,7 +1018,7 @@
 
 .interstitial-lineup-type {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
 }
 
@@ -1137,7 +1137,7 @@
 }
 
 .interstitial-spotlight-cast {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -1466,7 +1466,7 @@
   background: rgba(0, 0, 0, 0.6);
   border-radius: 4px;
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   pointer-events: none;
   opacity: 0;
@@ -1671,7 +1671,7 @@
 .player-subtitle-empty {
   padding: 10px 16px;
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -1740,7 +1740,7 @@
 
 .player-settings-title {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
 }
 
@@ -2047,7 +2047,7 @@
 .player-nerd-stats-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 13px;
   font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
   margin-bottom: 2px;
 }
@@ -2081,7 +2081,7 @@
 }
 
 .player-nerd-stats-empty {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   padding: 8px 0 4px;
 }
@@ -2232,7 +2232,7 @@
 
   .player-hint {
     bottom: 65px;
-    font-size: 12px;
+    font-size: 13px;
     padding: 4px 10px;
   }
 
@@ -2246,7 +2246,7 @@
   }
 
   .info-channel-num {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .info-channel-name {
@@ -2254,7 +2254,7 @@
   }
 
   .info-title {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .info-subtitle {
@@ -2274,7 +2274,7 @@
   }
 
   .next-up-subtitle {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .next-up-countdown {
@@ -2288,7 +2288,7 @@
   .interstitial-hero { padding: 20px; gap: 8px; }
   .interstitial-hero-label { font-size: 13px; letter-spacing: 2px; }
   .interstitial-hero-title { font-size: 16px; max-width: 90vw; }
-  .interstitial-hero-subtitle { font-size: 12px; }
+  .interstitial-hero-subtitle { font-size: 13px; }
   .interstitial-hero-countdown-wrap { width: 130px; height: 130px; }
   .interstitial-hero-countdown { font-size: 24px; }
   .interstitial-hero-description { font-size: 14px; max-width: 90vw; -webkit-line-clamp: 2; }
@@ -2297,7 +2297,7 @@
   .interstitial-lineup-header { font-size: 13px; letter-spacing: 2px; margin-bottom: 20px; }
   .interstitial-lineup-card { flex: 0 0 160px; }
   .interstitial-lineup-thumb { height: 90px; }
-  .interstitial-lineup-time { font-size: 12px; }
+  .interstitial-lineup-time { font-size: 13px; }
   .interstitial-lineup-title { font-size: 14px; }
 
   .interstitial-spotlight-panel { width: 60%; padding: 24px 20px; }
@@ -2329,7 +2329,7 @@
   }
 
   .player-quality-option-label {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .player-quality-option-desc {
@@ -2344,7 +2344,7 @@
     left: 8px;
     min-height: 32px;
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .player-controls-right {
@@ -2459,7 +2459,7 @@
     left: 8px;
     min-height: 32px;
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .player-controls-right {
@@ -2519,7 +2519,7 @@
   }
 
   .info-channel-name {
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1;
     white-space: nowrap;
   }
@@ -2562,11 +2562,11 @@
 
   .info-year,
   .info-runtime {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .info-resolution {
-    font-size: 12px;
+    font-size: 13px;
     padding: 1px 5px;
   }
 
@@ -2575,7 +2575,7 @@
   }
 
   .info-rating {
-    font-size: 12px;
+    font-size: 13px;
     padding: 1px 5px;
   }
 
@@ -2585,7 +2585,7 @@
     align-items: flex-end;
     gap: 2px;
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.2;
   }
 
@@ -2620,7 +2620,7 @@
   }
 
   .info-next-time {
-    font-size: 12px;
+    font-size: 13px;
     white-space: nowrap;
     margin-left: 0;
   }
@@ -2650,15 +2650,15 @@
 
   /* Interstitial landscape overrides */
   .interstitial-ident-number { font-size: 28px; }
-  .interstitial-ident-name { font-size: 12px; }
+  .interstitial-ident-name { font-size: 13px; }
   .interstitial-hero { padding: 16px; gap: 6px; }
-  .interstitial-hero-label { font-size: 12px; }
+  .interstitial-hero-label { font-size: 13px; }
   .interstitial-hero-title { font-size: 14px; }
   .interstitial-hero-countdown-wrap { width: 100px; height: 100px; margin-top: 4px; }
   .interstitial-hero-countdown { font-size: 18px; }
   .interstitial-hero-description { display: none; }
   .interstitial-lineup { padding: 16px; }
-  .interstitial-lineup-header { font-size: 12px; margin-bottom: 12px; }
+  .interstitial-lineup-header { font-size: 13px; margin-bottom: 12px; }
   .interstitial-lineup-card { flex: 0 0 150px; }
   .interstitial-lineup-thumb { height: 84px; }
   .interstitial-spotlight-panel { padding: 20px 16px; }
@@ -2702,7 +2702,7 @@
   .player-settings-option {
     padding: 10px 12px;
     min-height: 40px;
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .player-settings-section {
@@ -2742,7 +2742,7 @@
   }
 
   .info-subtitle {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .player-quality-btn {
@@ -2842,7 +2842,7 @@
   }
 
   .info-channel-name {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .info-title {
@@ -2863,21 +2863,21 @@
   }
 
   .info-rating {
-    font-size: 12px;
+    font-size: 13px;
     padding: 4px 10px;
   }
 
   .info-resolution {
-    font-size: 12px;
+    font-size: 13px;
     padding: 4px 10px;
   }
 
   .info-genres {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .info-description {
-    font-size: 12px;
+    font-size: 13px;
     max-width: 800px;
   }
 

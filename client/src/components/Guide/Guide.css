@@ -127,7 +127,7 @@ html[data-preview-bg="white"] .preview-video-container {
 
 .preview-logo-sub {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent-cyan);
   margin-top: 12px;
 }
@@ -297,7 +297,7 @@ html[data-preview-bg="white"] .preview-video-container {
 
 .preview-error-title {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent-red);
 }
 
@@ -349,7 +349,7 @@ html[data-preview-bg="white"] .preview-video-container {
 
 .preview-error-detail {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
   text-align: center;
   max-width: 280px;
@@ -364,7 +364,7 @@ html[data-preview-bg="white"] .preview-video-container {
   border-radius: 3px;
   color: var(--accent-cyan);
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
@@ -786,7 +786,7 @@ html[data-preview-bg="white"] .preview-video-container {
 }
 
 .preview-audio-more-option-label {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .preview-audio-more-option-lang {
@@ -1454,13 +1454,13 @@ html[data-preview-bg="white"] .preview-video-container {
 
 .guide-channel-num {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
 }
 
 .guide-channel-name {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   text-transform: uppercase;
   text-align: center;
@@ -1573,7 +1573,7 @@ html[data-preview-bg="white"] .preview-video-container {
 }
 
 .guide-program-title {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1795,7 +1795,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-subtitle {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .preview-meta {
@@ -2015,7 +2015,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-time {
-    font-size: 12px;
+    font-size: 13px;
     opacity: 0.8;
   }
 
@@ -2109,7 +2109,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-channel-name {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   /* Program cells - better padding and sizing */
@@ -2124,7 +2124,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-program-title {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .guide-program-subtitle {
@@ -2152,7 +2152,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-logo-sub {
-    font-size: 12px;
+    font-size: 13px;
     margin-top: 8px;
   }
 
@@ -2166,7 +2166,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-time {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .preview-progress {
@@ -2242,7 +2242,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-channel-name {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .guide-program-title {
@@ -2250,13 +2250,13 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-program-subtitle {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .guide-auto-scroll-indicator {
     width: 36px;
     height: 36px;
-    font-size: 12px;
+    font-size: 13px;
     right: 204px; /* 152 + 44 + 8 */
     top: 6px;
   }
@@ -2376,7 +2376,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-time {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .preview-progress {
@@ -2468,7 +2468,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-channel-name {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   /* Program cells - compact */
@@ -2483,14 +2483,14 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .guide-program-subtitle {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   /* Auto-scroll indicator - smaller */
   .guide-auto-scroll-indicator {
     width: 36px;
     height: 36px;
-    font-size: 12px;
+    font-size: 13px;
     right: 206px; /* 154 + 44 + 8 */
     top: 4px;
   }
@@ -2511,7 +2511,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-subtitle {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .preview-clock {
@@ -2553,7 +2553,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-title {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .preview-progress {
@@ -2578,7 +2578,7 @@ html[data-preview-bg="white"] .preview-video-container {
   }
 
   .preview-channel-name {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .preview-title {
@@ -2860,7 +2860,7 @@ html[data-preview-bg="white"] .preview-video-container {
 
 .program-info-time-row {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -2920,7 +2920,7 @@ html[data-preview-bg="white"] .preview-video-container {
 }
 
 .program-info-iconic-why {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -3051,7 +3051,7 @@ html[data-preview-bg="white"] .preview-video-container {
 
 .channel-search-result-num {
   font-family: var(--font-retro);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-gold);
   flex-shrink: 0;
   min-width: 60px;
@@ -3183,7 +3183,7 @@ html[data-preview-bg="white"] .preview-video-container {
 
 .guide-filter-option-count {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-left: 12px;
 }
 
