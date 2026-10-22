@@ -59,14 +59,15 @@ interface PreviewPanelProps {
   onSelectChannel?: (channelId: number) => void;
 }
 
+// On the shared type scale; the title is the hero, metadata sits at caption.
 const PREVIEW_BASE_SIZES = {
-  channelNum: 14,
-  channelName: 11,
-  title: 16,
-  subtitle: 13,
-  year: 10,
-  rating: 9,
-  time: 10,
+  channelNum: 16,
+  channelName: 13,
+  title: 24,
+  subtitle: 16,
+  year: 13,
+  rating: 13,
+  time: 13,
 } as const;
 
 export default function PreviewPanel({ channel, program, currentTime, streamingPaused = false, onTune, onSwipeUp, onSwipeDown, guideHours = 4, previewStyle = 'modern', onOverlayVisibilityChange, scheduleByChannel, channels: allChannels, onSelectChannel }: PreviewPanelProps) {
@@ -82,12 +83,12 @@ export default function PreviewPanel({ channel, program, currentTime, streamingP
   const useBottomSheet = isMobile(); // Portal bottom sheet on all mobile (phones + tablets)
   const previewFontSizes = {
     channelNum: Math.round(PREVIEW_BASE_SIZES.channelNum * zoomFontScale),
-    channelName: Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale),
-    title: Math.round(PREVIEW_BASE_SIZES.title * zoomFontScale * (mobile ? 0.75 : 1)),
-    subtitle: Math.round(PREVIEW_BASE_SIZES.subtitle * zoomFontScale),
-    year: Math.round(PREVIEW_BASE_SIZES.year * zoomFontScale),
-    rating: Math.round(PREVIEW_BASE_SIZES.rating * zoomFontScale),
-    time: Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale * (mobile ? 0.75 : 1)),
+    channelName: Math.min(Math.round(PREVIEW_BASE_SIZES.channelName * zoomFontScale), 16),
+    title: Math.min(Math.round(PREVIEW_BASE_SIZES.title * zoomFontScale * (mobile ? 0.75 : 1)), 32),
+    subtitle: Math.min(Math.round(PREVIEW_BASE_SIZES.subtitle * zoomFontScale), 18),
+    year: Math.min(Math.round(PREVIEW_BASE_SIZES.year * zoomFontScale), 14),
+    rating: Math.min(Math.round(PREVIEW_BASE_SIZES.rating * zoomFontScale), 14),
+    time: Math.min(Math.round(PREVIEW_BASE_SIZES.time * zoomFontScale * (mobile ? 0.75 : 1)), 14),
   };
 
   const [subtitleIndexPref, setSubtitleIndexPref] = usePref<number | null>('subtitle_index', null);
