@@ -86,7 +86,6 @@
 .notifications-overlay-label {
   font-family: var(--font-retro);
   font-size: 10px;
-  letter-spacing: 2px;
   text-transform: uppercase;
 }
 
@@ -192,18 +191,15 @@
   font-family: var(--font-retro);
   font-size: 9px;
   color: var(--text-gold);
-  letter-spacing: 0.5px;
 }
 .notifications-overlay--starting-soon .notifications-overlay-chip {
   font-family: var(--font-retro);
   font-size: 9px;
   color: var(--text-muted);
-  letter-spacing: 0.5px;
 }
 .notifications-overlay--starting-soon .notifications-overlay-tune {
   font-family: var(--font-retro);
   font-size: 9px;
-  letter-spacing: 1px;
   color: var(--accent-cyan);
   text-transform: uppercase;
 }
@@ -244,7 +240,6 @@
   line-height: 1.4;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   animation: notifications-toast-in 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
@@ -323,7 +318,6 @@
   max-width: 420px;
   width: 100%;
   color: var(--text-primary);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   animation: notifications-confirm-dialog-in 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
@@ -331,7 +325,6 @@
   margin: 0 0 10px 0;
   font-family: var(--font-retro);
   font-size: 12px;
-  letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--accent-cyan);
 }
@@ -352,7 +345,6 @@
 .notifications-confirm-btn {
   font-family: var(--font-retro);
   font-size: 10px;
-  letter-spacing: 1px;
   text-transform: uppercase;
   padding: 10px 16px;
   border-radius: 4px;

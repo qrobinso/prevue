@@ -26,8 +26,13 @@
   --border-grid: #1e2460;
   --border-cell: #252a60;
 
-  --font-retro: 'Press Start 2P', monospace;
-  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Good Sans substitute per the reference style; one stack for display and body. */
+  --font-retro: 'Space Grotesk', 'DM Sans', Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: var(--font-retro);
+  --font-system: 'Space Grotesk', 'DM Sans', Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --radius-card: 20px;
+  --radius-control: 7px;
 
   --guide-row-height: 52px;
   --channel-col-width: 120px;
@@ -447,4 +452,23 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* ── Type scale (reference style) ──────────────────────
+   Tracking is inherited, so stripped per-rule values fall through to these.
+   Negative tracking tightens as size grows, per the reference's rule. */
+html, body, #root {
+  letter-spacing: -0.015em;
+  font-feature-settings: 'ss01' on, 'cv11' on;
+}
+
+h1, h2, h3, h4,
+.guide-title, .settings-title, .profile-title {
+  font-weight: 700;
+  letter-spacing: -0.022em;
+}
+
+/* 32px and up: the reference goes to -0.05em */
+h1, .guide-title {
+  letter-spacing: -0.05em;
 }

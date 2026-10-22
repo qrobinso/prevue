@@ -21,7 +21,6 @@
   flex-direction: column;
   align-items: center;
   gap: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .settings-sync-interstitial-spinner {
@@ -99,7 +98,7 @@
   max-height: 90vh;
   background: var(--bg-secondary);
   border: 1px solid var(--border-grid);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -140,7 +139,6 @@
   font-family: var(--font-retro);
   font-size: 8px;
   color: var(--text-muted);
-  letter-spacing: 0.12em;
   padding: 0 10px 6px;
 }
 
@@ -156,7 +154,6 @@
   font-family: var(--font-system);
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.02em;
   cursor: pointer;
   text-align: left;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
@@ -194,7 +191,6 @@
 
 .settings-nav-item-active .settings-nav-led {
   background: var(--accent-cyan);
-  box-shadow: 0 0 6px var(--accent-cyan);
 }
 
 .settings-nav-label {
@@ -211,7 +207,6 @@
   gap: 6px;
   font-family: var(--font-retro);
   font-size: 8px;
-  letter-spacing: 0.1em;
   padding: 2px 0 14px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border-grid);
@@ -382,7 +377,6 @@
   font-family: var(--font-retro);
   font-size: 10px;
   color: var(--text-secondary);
-  letter-spacing: 0.08em;
   padding-top: 8px;
   border-top: 1px solid var(--border-grid);
 }
@@ -678,7 +672,6 @@
 
 .settings-list-item-draggable.drag-over {
   border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.35) inset;
 }
 
 .settings-list-item-active {
@@ -804,13 +797,11 @@
   height: 10px;
   border-radius: 50%;
   background: var(--accent-green);
-  box-shadow: 0 0 8px rgba(0, 255, 100, 0.4);
   flex-shrink: 0;
 }
 
 .server-connected-indicator-warn {
   background: var(--accent-gold);
-  box-shadow: 0 0 8px rgba(255, 200, 0, 0.4);
   animation: server-dot-pulse 2s ease-in-out infinite;
 }
 
@@ -823,7 +814,6 @@
   font-family: var(--font-retro);
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
   color: var(--text-secondary);
 }
 
@@ -843,7 +833,6 @@
   font-family: var(--font-retro);
   font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--text-muted);
   min-width: 48px;
   flex-shrink: 0;
@@ -1186,7 +1175,6 @@
   color: var(--text-gold);
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 .settings-rating-items {
@@ -1581,7 +1569,6 @@
   border-color: var(--accent-cyan);
   background: var(--bg-cell-focus);
   color: var(--accent-cyan);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
 }
 
 .settings-channel-count-label {
@@ -1619,7 +1606,6 @@
   background: var(--accent-cyan);
   cursor: pointer;
   border: 2px solid var(--bg-primary);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
   transition: transform 0.15s;
 }
 
@@ -1634,7 +1620,6 @@
   background: var(--accent-cyan);
   cursor: pointer;
   border: 2px solid var(--bg-primary);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
 }
 
 .settings-slider-value {
@@ -1647,7 +1632,6 @@
   font-size: 14px;
   color: var(--accent-cyan);
   text-align: center;
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
 }
 
 .settings-slider-labels {
@@ -1691,7 +1675,6 @@
   border-color: var(--accent-cyan);
   background: var(--bg-cell-focus);
   color: var(--accent-cyan);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
 }
 
 .settings-quality-label {
@@ -1917,7 +1900,6 @@
 .settings-theme-btn.active {
   border-color: var(--accent-cyan);
   background: var(--bg-cell-focus);
-  box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
 }
 
 .settings-theme-preview {
@@ -2490,7 +2472,6 @@
   font-family: var(--font-retro);
   font-size: 10px;
   color: var(--text-secondary);
-  letter-spacing: 0.5px;
 }
 
 .settings-ai-config-status {
@@ -2518,7 +2499,6 @@
   border-radius: 3px;
   margin-left: 8px;
   vertical-align: middle;
-  letter-spacing: 0.5px;
 }
 
 .settings-disabled {
@@ -2591,7 +2571,6 @@
   font-size: 10px;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 .settings-ai-suggestion-chip {
@@ -2683,7 +2662,6 @@
   font-family: var(--font-retro);
   font-size: 9px;
   color: var(--accent-green);
-  letter-spacing: 0.5px;
   text-transform: uppercase;
 }
 
@@ -3447,7 +3425,6 @@
   font-family: var(--font-retro);
   font-size: 20px;
   color: var(--accent-cyan);
-  letter-spacing: 2px;
 }
 
 .about-close {
@@ -3482,7 +3459,6 @@
   font-family: var(--font-retro);
   font-size: 11px;
   color: var(--text-gold);
-  letter-spacing: 0.5px;
 }
 
 .about-description {
@@ -3513,7 +3489,6 @@
   font-family: var(--font-retro);
   font-size: 9px;
   color: var(--text-gold);
-  letter-spacing: 1px;
 }
 
 .about-text {
@@ -3645,7 +3620,6 @@
   padding: 5px 14px;
   cursor: pointer;
   transition: all 0.15s ease;
-  letter-spacing: 0.04em;
 }
 
 .metrics-range-btn:hover {
@@ -3687,7 +3661,6 @@
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 /* Horizontal bar charts */
@@ -3784,7 +3757,6 @@
 .metrics-client-online {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #7ee787;
   background: rgba(126, 231, 135, 0.12);
@@ -3950,7 +3922,6 @@
   font-family: var(--font-retro);
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
   transition: border-color 0.15s, background 0.15s;
 }
 
@@ -3958,7 +3929,6 @@
   color: var(--text-muted);
   opacity: 0.6;
   text-transform: none;
-  letter-spacing: normal;
 }
 
 .settings-divider-label-input:focus {
@@ -4019,7 +3989,6 @@
   font-size: 9px;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
   font-family: var(--font-retro);
 }
 
@@ -4051,7 +4020,6 @@
 
 .settings-color-swatch.active {
   border-color: #fff;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25), 0 0 12px rgba(255, 255, 255, 0.1);
   transform: scale(1.1);
 }
 
@@ -4079,7 +4047,6 @@
   }
 
   .settings-color-swatch.active {
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3), 0 0 16px rgba(255, 255, 255, 0.15);
   }
 
   .settings-color-clear {
@@ -4102,7 +4069,6 @@
   padding: 8px 20px;
   font-family: var(--font-retro);
   font-size: 11px;
-  letter-spacing: 0.5px;
   text-transform: uppercase;
   background: transparent;
   color: var(--text-muted);
@@ -4153,7 +4119,6 @@
   border: none;
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -4180,7 +4145,6 @@
   margin-right: 6px;
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.8px;
   text-transform: uppercase;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.08);
@@ -4257,7 +4221,6 @@
   margin-left: 6px;
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.5px;
   text-transform: uppercase;
   border-radius: 3px;
   vertical-align: middle;
@@ -4316,7 +4279,6 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
   line-height: 1;
 }
 
