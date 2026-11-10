@@ -160,27 +160,77 @@
   height: 9px;
   background: currentColor;
   color: var(--text-gold);
+  box-shadow:
+    -18px -9px, 0 -9px, 18px -9px,
+    -18px  0  ,         18px  0  ,
+    -18px  9px, 0  9px, 18px  9px,
+    -18px 18px, 0 18px, 18px 18px;
   animation: l29 2s infinite;
 }
 
 @keyframes l29 {
   10% {
+    box-shadow:
+      -18px -9px, 0 -9px, 18px -9px,
+      -18px  0  ,         18px  0  ,
+      -18px  9px #0000, 0  9px, 18px  9px #0000,
+      -18px 18px, 0 18px, 18px 18px;
   }
   20% {
+    box-shadow:
+      -18px -9px, 0 -9px, 18px -9px,
+      -18px  0  ,         18px  0  ,
+      -18px  9px, 0  9px, 18px  9px #0000,
+      -18px 18px #0000, 0 18px, 18px 18px;
   }
   30% {
+    box-shadow:
+      -18px -9px, 0 -9px #0000, 18px -9px,
+      -18px  0   #0000,          18px  0  ,
+      -18px  9px, 0  9px #0000, 18px  9px,
+      -18px 18px #0000, 0 18px, 18px 18px #0000;
   }
   40% {
+    box-shadow:
+      -18px -9px, 0 -9px, 18px -9px,
+      -18px  0  #0000,    18px  0  #0000,
+      -18px  9px, 0  9px, 18px  9px,
+      -18px 18px, 0 18px, 18px 18px;
   }
   50% {
+    box-shadow:
+      -18px -9px, 0 -9px, 18px -9px,
+      -18px  0  ,         18px  0   #0000,
+      -18px  9px #0000, 0  9px, 18px  9px,
+      -18px 18px, 0 18px, 18px 18px;
   }
   60% {
+    box-shadow:
+      -18px -9px, 0 -9px #0000, 18px -9px,
+      -18px  0  ,                18px  0  ,
+      -18px  9px #0000, 0  9px, 18px  9px,
+      -18px 18px #0000, 0 18px, 18px 18px;
   }
   70% {
+    box-shadow:
+      -18px -9px, 0 -9px #0000, 18px -9px #0000,
+      -18px  0  ,                18px  0  ,
+      -18px  9px, 0  9px, 18px  9px,
+      -18px 18px #0000, 0 18px, 18px 18px;
   }
   80% {
+    box-shadow:
+      -18px -9px #0000, 0 -9px, 18px -9px,
+      -18px  0  ,                18px  0  ,
+      -18px  9px, 0  9px, 18px  9px,
+      -18px 18px, 0 18px, 18px 18px #0000;
   }
   90% {
+    box-shadow:
+      -18px -9px #0000, 0 -9px, 18px -9px,
+      -18px  0  ,                18px  0  ,
+      -18px  9px, 0  9px #0000, 18px  9px,
+      -18px 18px, 0 18px, 18px 18px #0000;
   }
 }
 
@@ -438,7 +488,9 @@
 
 .info-title {
   font-family: var(--font-retro);
-  font-size: 14px;
+  font-size: var(--fs-subhead);
+  font-weight: 600;
+  line-height: 1.2;
   color: var(--text-primary);
 }
 
@@ -489,7 +541,7 @@
 .info-genres {
   font-family: var(--font-retro);
   font-size: 14px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .info-description {
@@ -503,7 +555,6 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  opacity: 0.85;
 }
 
 .info-time {
@@ -512,7 +563,7 @@
   gap: 16px;
   font-family: var(--font-retro);
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .info-remaining {

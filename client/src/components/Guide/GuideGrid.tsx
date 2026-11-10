@@ -268,7 +268,7 @@ const GuideProgramCell = memo(function GuideProgramCell({
           <ArtworkThumbnail itemId={prog.media_item_id} size={artworkSize} />
         )}
         <div className="guide-program-text">
-          <span className="guide-program-title" style={{ fontSize: programTitleFontSize }}>
+          <span className="guide-program-title" style={prog.type === 'interstitial' ? undefined : { fontSize: programTitleFontSize }}>
             {prog.title}
             {prog.type !== 'interstitial' && (showRatings || showYear || showResolution || showHdr || showTomato || isIconicNow || isGem) && (
               <>

@@ -53,7 +53,7 @@ export default function InfoOverlay({ channel, program, nextProgram }: InfoOverl
           <span className="info-remaining">{remaining} min remaining</span>
         </div>
 
-        {nextProgram && (
+        {nextProgram && nextProgram.type !== 'interstitial' && (
           <div className="info-next">
             <span className="info-next-label">UP NEXT:</span>
             <span className="info-next-title">{nextProgram.title}</span>
